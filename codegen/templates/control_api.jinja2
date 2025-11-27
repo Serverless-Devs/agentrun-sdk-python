@@ -1,0 +1,132 @@
+"""
+{{ description }}
+"""
+
+from typing import Dict, Optional
+import pydash
+
+from agentrun.utils.log import logger
+from agentrun.utils.config import Config
+from agentrun.utils.control_api import ControlAPI
+{% for method in methods %}
+{% for param in method.params %}
+{% if param.type and param.type[0].isupper() %}from alibabacloud_agentrun20250910.models import {{ param.type }}{% endif %}
+{% if param.wrapper_type and param.wrapper_type[0].isupper() %}from alibabacloud_agentrun20250910.models import {{ param.wrapper_type }}{% endif %}
+{% endfor %}
+from alibabacloud_agentrun20250910.models import {{ method.return_type }}
+{% endfor %}
+from alibabacloud_tea_util.models import RuntimeOptions
+from agentrun.utils.exception import ClientError, ServerError
+from alibabacloud_tea_openapi.exceptions._client import ClientException
+from alibabacloud_tea_openapi.exceptions._server import ServerException
+
+
+
+class {{ class_name }}(ControlAPI):
+    """{{ description }}"""
+
+    def __init__(self, config: Optional[Config] = None):
+        """初始化 API 客户端
+
+        Args:
+            config: 全局配置对象
+        """
+        super().__init__(config)
+
+    {% for method in methods %}
+    def {{ method.name }}(
+        self,
+        {% for param in method.params %}{{ param.name }}: {{ param.type }},
+        {% endfor %}headers: Optional[Dict[str, str]] = None,
+        config: Optional[Config] = None,
+    ) -> {{ method.return_type }}:
+        """{{ method.description }}
+
+        Args:
+            {% for param in method.params %}{{ param.name }}: {{ param.description }}
+            {% endfor %}
+            headers: 请求头
+            config: 配置
+
+        Returns:
+            {{ method.return_type }}: {{ method.return_description }}
+
+        Raises:
+            AgentRuntimeError: 调用失败时抛出
+            ClientError: 客户端错误
+            ServerError: 服务器错误
+            APIError: 运行时错误
+        """
+       
+        try:
+            client = self._get_client(config)
+            response = client.{{ method.api_name or method.name }}_with_options(
+                {% for param in method.params %}{% if param.wrapper_type %}{{ param.wrapper_type }}(body={{ param.name }}){% else %}{{ param.name }}{% endif %},
+                {% endfor %}
+                headers=headers or {},
+                runtime=RuntimeOptions(),
+            )
+
+            logger.debug(
+                f"request api {{method.api_name or method.name}}, request Request ID: {response.body.request_id}\n  request: {[{% for param in method.params %}{{param.name}}{%if param.wrapper_type or param.type[0].isupper()%}.to_map(){%endif%},{% endfor %}]}\n  response: {response.body.data}"
+            )
+
+            return response.body.data
+        except ClientException as e:
+            raise ClientError(
+                e.status_code, pydash.get(e, "data.message", pydash.get(e, "message", "")), request_id=e.request_id,
+                request=[{% for param in method.params %}{{param.name}},{% endfor %}]
+            ) from e
+        except ServerException as e:
+            raise ServerError(
+                e.status_code, pydash.get(e, "data.message", pydash.get(e, "message", "")), request_id=e.request_id
+            ) from e
+
+    async def {{ method.name }}_async(
+        self,
+        {% for param in method.params %}{{ param.name }}: {{ param.type }},
+        {% endfor %}headers: Optional[Dict[str, str]] = None,
+        config: Optional[Config] = None,
+    ) -> {{ method.return_type }}:
+        """{{ method.description }}
+
+        Args:
+            {% for param in method.params %}{{ param.name }}: {{ param.description }}
+            {% endfor %}
+            headers: 请求头
+            config: 配置
+
+        Returns:
+            {{ method.return_type }}: {{ method.return_description }}
+
+        Raises:
+            AgentRuntimeError: 调用失败时抛出
+            ClientError: 客户端错误
+            ServerError: 服务器错误
+            APIError: 运行时错误
+        """
+       
+        try:
+            client = self._get_client(config)
+            response = await client.{{ method.api_name or method.name }}_with_options_async(
+                {% for param in method.params %}{% if param.wrapper_type %}{{ param.wrapper_type }}(body={{ param.name }}){% else %}{{ param.name }}{% endif %},
+                {% endfor %}
+                headers=headers or {},
+                runtime=RuntimeOptions(),
+            )
+
+            logger.debug(
+                f"request api {{method.api_name or method.name}}, request Request ID: {response.body.request_id}\n  request: {[{% for param in method.params %}{{param.name}}{%if param.wrapper_type or param.type[0].isupper() %}.to_map(){%endif%},{% endfor %}]}\n  response: {response.body.data}"
+            )
+
+            return response.body.data
+        except ClientException as e:
+            raise ClientError(
+                e.status_code, e.data.get("message", e.message), request_id=e.request_id,
+                request=[{% for param in method.params %}{{param.name}},{% endfor %}]
+            ) from e
+        except ServerException as e:
+            raise ServerError(
+                e.status_code, e.data.get("message", e.message), request_id=e.request_id
+            ) from e
+    {% endfor %}

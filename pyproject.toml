@@ -1,0 +1,122 @@
+[project]
+name = "agentrun-sdk"
+version = "0.0.0"
+description = "Alibaba Cloud Agent Run SDK"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "crcmod>=1.7",
+    "pydantic>=2.12.4",
+    "httpx>=0.23.0",
+    "python-dotenv>=1.2.1",
+    "typing-extensions>=4.15.0",
+    "litellm>=1.79.3",
+    "alibabacloud-devs20230714>=2.4.1",
+    "pydash>=8.0.5",
+    "alibabacloud-agentrun20250910>=4.0.1",
+    
+]
+
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+]
+
+langchain = [
+    "langchain>=1.0.0; python_version >= '3.10'",
+    "langchain-openai>=1.0.0; python_version >= '3.10'",
+]
+
+google-adk = [
+    "google-adk>=1.18.0",
+]
+
+agentscope = [
+    "agentscope>=0.1.6",
+]
+
+crewai = [
+    "crewai>=1.6.0",
+]
+
+pydantic-ai = [
+    "pydantic-ai>=1.22.0; python_version >= '3.10'",
+]
+
+playwright = [
+    "playwright>=1.40.0",
+]
+
+mcp = [
+    "mcp>=1.21.2; python_version >= '3.10'",
+]
+
+[dependency-groups]
+dev = [
+    "coverage>=7.10.7",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "pytest-asyncio>=1.2.0",
+    "respx>=0.21.0",
+    "isort==6.1.0",
+    "ruff>=0.14.3",
+    "mypy>=1.15.0",
+    "flit>=3.10.0",
+    "pyink>=24.10.0",
+    "pylint>=2.6.0",
+    "jinja2>=3.1.0",
+    "pyyaml>=6.0.3",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+]
+
+[tool.pyink]
+# Format py files following Google style-guide
+line-length = 80
+unstable = true
+pyink-indentation = 4
+pyink-use-majority-quotes = true
+pyink-annotation-pragmas = [
+  "noqa",
+  "pylint:",
+  "type: ignore",
+  "pytype:",
+  "mypy:",
+  "pyright:",
+  "pyre-",
+]
+
+[tool.isort]
+profile = "google"
+single_line_exclusions = []
+line_length = 80                  # Prevent line wrap flickering.
+force_single_line = false
+multi_line_output = "GRID"
+use_parentheses = true
+include_trailing_comma = true
+known_first_party = ["agentrun"]
+known_third_party = ["alibabacloud_tea_openapi", "alibabacloud_devs20230714", "alibabacloud_agentrun20250910"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+
+[tool.mypy]
+python_version = "3.10"
+exclude = "tests/"
+plugins = ["pydantic.mypy"]
+# Start with non-strict mode, and switch to strict mode later.
+# strict = true
+disable_error_code = ["import-not-found", "import-untyped", "unused-ignore"]
+follow_imports = "skip"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agentrun*", "alibabacloud_agentrun20250910*"]  # 包含子包和子模块，排除 codegen
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"

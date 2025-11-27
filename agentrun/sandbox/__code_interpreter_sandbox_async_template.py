@@ -1,0 +1,466 @@
+"""代码解释器沙箱高层API模板 / Code Interpreter Sandbox High-Level API Template
+
+此模板用于生成代码解释器沙箱资源的高级API代码。
+This template is used to generate high-level API code for code interpreter sandbox resources.
+"""
+
+import asyncio
+import time
+from typing import Optional
+
+from agentrun.sandbox.api.code_interpreter_data import CodeInterpreterDataAPI
+from agentrun.sandbox.model import CodeLanguage, TemplateType
+from agentrun.utils.exception import ServerError
+from agentrun.utils.log import logger
+
+from .sandbox import Sandbox
+
+
+class FileOperations:
+    """File upload/download operations."""
+
+    def __init__(self, sandbox: "CodeInterpreterSandbox"):
+        self._sandbox = sandbox
+
+    async def read_async(self, path: str):
+        """Read a file from the code interpreter (async).
+        Args:
+            path: Remote file path in the code interpreter
+        Returns:
+            File content
+        """
+        return await self._sandbox.data_api.read_file_async(path=path)
+
+    async def write_async(
+        self,
+        path: str,
+        content: str,
+        mode: str = "644",
+        encoding: str = "utf-8",
+        create_dir=True,
+    ):
+        """Write a file to the code interpreter (async).
+        Args:
+            path: Remote file path in the code interpreter
+            content: File content
+        """
+        return await self._sandbox.data_api.write_file_async(
+            path=path,
+            content=content,
+            mode=mode,
+            encoding=encoding,
+            create_dir=create_dir,
+        )
+
+
+class FileSystemOperations:
+    """File system operations (list, move, remove, stat, mkdir)."""
+
+    def __init__(self, sandbox: "CodeInterpreterSandbox"):
+        self._sandbox = sandbox
+
+    async def list_async(
+        self, path: Optional[str] = None, depth: Optional[int] = None
+    ):
+        """List directory contents (async).
+
+        Args:
+            path: Directory path (optional)
+            depth: Traversal depth (optional)
+
+        Returns:
+            Directory contents
+        """
+        return await self._sandbox.data_api.list_directory_async(
+            path=path, depth=depth
+        )
+
+    async def move_async(self, source: str, destination: str):
+        """Move a file or directory (async).
+
+        Args:
+            source: Source file or directory path
+            destination: Target file or directory path
+
+        Returns:
+            Move operation result
+        """
+        return await self._sandbox.data_api.move_file_async(
+            source=source, destination=destination
+        )
+
+    async def remove_async(self, path: str):
+        """Remove a file or directory (async).
+
+        Args:
+            path: File or directory path to remove
+
+        Returns:
+            Remove operation result
+        """
+        return await self._sandbox.data_api.remove_file_async(path=path)
+
+    async def stat_async(self, path: str):
+        """Get file or directory statistics (async).
+
+        Args:
+            path: File or directory path
+
+        Returns:
+            File/directory statistics
+        """
+        return await self._sandbox.data_api.stat_async(path=path)
+
+    async def mkdir_async(
+        self,
+        path: str,
+        parents: Optional[bool] = True,
+        mode: Optional[str] = "0755",
+    ):
+        """Create a directory (async).
+
+        Args:
+            path: Directory path to create
+            parents: Whether to create parent directories (default: True)
+            mode: Directory permissions mode (default: "0755")
+
+        Returns:
+            Mkdir operation result
+        """
+        return await self._sandbox.data_api.mkdir_async(
+            path=path, parents=parents, mode=mode
+        )
+
+    async def upload_async(
+        self,
+        local_file_path: str,
+        target_file_path: str,
+    ):
+        """Upload a file to the code interpreter (async).
+
+        Args:
+            local_file_path: Local file path to upload
+            target_file_path: Target file path in code interpreter
+
+        Returns:
+            Upload result
+        """
+        return await self._sandbox.data_api.upload_file_async(
+            local_file_path=local_file_path, target_file_path=target_file_path
+        )
+
+    async def download_async(self, path: str, save_path: str):
+        """Download a file from the code interpreter (async).
+
+        Args:
+            path: Remote file path in the code interpreter
+            save_path: Local file path to save the downloaded file
+
+        Returns:
+            Download result with 'saved_path' and 'size'
+        """
+        return await self._sandbox.data_api.download_file_async(
+            path=path, save_path=save_path
+        )
+
+
+class ProcessOperations:
+    """Process management operations."""
+
+    def __init__(self, sandbox: "CodeInterpreterSandbox"):
+        self._sandbox = sandbox
+
+    async def cmd_async(
+        self, command: str, cwd: str, timeout: Optional[int] = 30
+    ):
+        """Execute a command in the code interpreter (async).
+
+        Args:
+            command: Command to execute
+            cwd: Working directory
+            timeout: Execution timeout in seconds (default: 30)
+
+        Returns:
+            Command execution result
+        """
+        return await self._sandbox.data_api.cmd_async(
+            command=command, cwd=cwd, timeout=timeout
+        )
+
+    async def list_async(self):
+        """List all processes (async).
+
+        Returns:
+            List of processes
+        """
+        return await self._sandbox.data_api.list_processes_async()
+
+    async def get_async(self, pid: str):
+        """Get a specific process by PID (async).
+
+        Args:
+            pid: Process ID
+
+        Returns:
+            Process information
+        """
+        return await self._sandbox.data_api.get_process_async(pid=pid)
+
+    async def kill_async(self, pid: str):
+        """Kill a specific process by PID (async).
+
+        Args:
+            pid: Process ID
+
+        Returns:
+            Kill operation result
+        """
+        return await self._sandbox.data_api.kill_process_async(pid=pid)
+
+
+class ContextOperations:
+    """Context management operations."""
+
+    def __init__(self, sandbox: "CodeInterpreterSandbox"):
+        self._sandbox = sandbox
+        self._context_id: Optional[str] = None
+        self._language: Optional[str] = None
+        self._cwd: Optional[str] = None
+
+    @property
+    def context_id(self) -> Optional[str]:
+        """Get the current context ID."""
+        return self._context_id
+
+    async def list_async(self):
+        """List all contexts (async)."""
+        return await self._sandbox.data_api.list_contexts_async()
+
+    async def create_async(
+        self,
+        language: Optional[CodeLanguage] = CodeLanguage.PYTHON,
+        cwd: str = "/home/user",
+    ) -> "ContextOperations":
+        """Create a new context and save its ID (async).
+
+        Args:
+            name: Context name
+            language: Programming language (default: "python")
+            config: Context configuration (optional)
+
+        Returns:
+            ContextOperations: Returns self for chaining and context manager support
+        """
+        result = await self._sandbox.data_api.create_context_async(
+            language=language, cwd=cwd
+        )
+        if all(result.get(key) for key in ("id", "cwd", "language")):
+            self._context_id = result["id"]
+            self._language = result["language"]
+            self._cwd = result["cwd"]
+            return self
+        raise ServerError(500, "Failed to create context")
+
+    async def get_async(
+        self, context_id: Optional[str] = None
+    ) -> "ContextOperations":
+        """Get a specific context by ID (async).
+        Args:
+            context_id: Context ID
+        Returns:
+            ContextOperations: Returns self for chaining and context manager support
+        """
+        if context_id is None:
+            context_id = self._context_id
+        if context_id is None:
+            logger.error(f"context id is not set")
+            raise ValueError("context id is not set,")
+        result = await self._sandbox.data_api.get_context_async(
+            context_id=context_id
+        )
+        if all(result.get(key) for key in ("id", "cwd", "language")):
+            self._context_id = result["id"]
+            self._language = result["language"]
+            self._cwd = result["cwd"]
+            return self
+        raise ServerError(500, "Failed to create context")
+
+    async def execute_async(
+        self,
+        code: str,
+        language: Optional[CodeLanguage] = None,
+        context_id: Optional[str] = None,
+        timeout: Optional[int] = 30,
+    ):
+        """Execute code in a context (async).
+
+        Args:
+            code: Code to execute
+            context_id: Context ID (optional, uses saved context_id if not provided)
+            timeout: Execution timeout in seconds (default: 30)
+
+        Returns:
+            Execution result
+
+        Raises:
+            ValueError: If no context_id is provided and none is saved
+        """
+        if context_id is None:
+            context_id = self._context_id
+        if context_id is None and language is None:
+            logger.debug("context id is not set, use default language: python")
+            language = CodeLanguage.PYTHON
+        return await self._sandbox.data_api.execute_code_async(
+            context_id=context_id, language=language, code=code, timeout=timeout
+        )
+
+    async def delete_async(self, context_id: Optional[str] = None):
+        """Delete a context (async).
+
+        Args:
+            context_id: Context ID (optional, uses saved context_id if not provided)
+
+        Returns:
+            Delete result
+
+        Raises:
+            ValueError: If no context_id is provided and none is saved
+        """
+        if context_id is None:
+            context_id = self._context_id
+        if context_id is None:
+            raise ValueError(
+                "context_id is required. Either pass it as parameter or create"
+                " a context first."
+            )
+        result = await self._sandbox.data_api.delete_context_async(
+            context_id=context_id
+        )
+        # Clear the saved context_id after deletion
+        self._context_id = None
+        return result
+
+    async def __aenter__(self):
+        """Asynchronous context manager entry."""
+        if self._context_id is None:
+            raise ValueError(
+                "No context has been created. Call create() first or use: "
+                "async with await sandbox.context.create_async(...) as ctx:"
+            )
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Asynchronous context manager exit - deletes the context."""
+        if self._context_id is not None:
+            try:
+                await self._sandbox.data_api.delete_context_async(
+                    self._context_id
+                )
+            except Exception as e:
+                logger.error(
+                    f"Warning: Failed to delete context {self._context_id}: {e}"
+                )
+        return False
+
+
+class CodeInterpreterSandbox(Sandbox):
+    _template_type = TemplateType.CODE_INTERPRETER
+
+    _data_api: Optional["CodeInterpreterDataAPI"] = None
+    _file: Optional[FileOperations] = None
+    _file_system: Optional[FileSystemOperations] = None
+    _context: Optional[ContextOperations] = None
+    _process: Optional[ProcessOperations] = None
+
+    @property
+    def data_api(self) -> "CodeInterpreterDataAPI":
+        """Get data client."""
+        if self._data_api is None:
+            self._data_api = CodeInterpreterDataAPI(
+                sandbox_id=self.sandbox_id or "", config=self._config
+            )
+        return self._data_api
+
+    @property
+    def file(self) -> FileOperations:
+        """Access file upload/download operations."""
+        if self._file is None:
+            self._file = FileOperations(self)
+        return self._file
+
+    @property
+    def file_system(self) -> FileSystemOperations:
+        """Access file system operations."""
+        if self._file_system is None:
+            self._file_system = FileSystemOperations(self)
+        return self._file_system
+
+    @property
+    def context(self) -> ContextOperations:
+        """Access context management operations."""
+        if self._context is None:
+            self._context = ContextOperations(self)
+        return self._context
+
+    @property
+    def process(self) -> ProcessOperations:
+        """Access process management operations."""
+        if self._process is None:
+            self._process = ProcessOperations(self)
+        return self._process
+
+    async def check_health_async(self):
+        return await self.data_api.check_health_async()
+
+    async def __aenter__(self):
+        """Asynchronous context manager entry."""
+        # Poll health check asynchronously
+        max_retries = 60  # Maximum 60 seconds
+        retry_count = 0
+
+        logger.debug("Waiting for code interpreter to be ready...")
+
+        while retry_count < max_retries:
+            retry_count += 1
+
+            try:
+                health = await self.check_health_async()
+
+                if health["status"] == "ok":
+                    logger.debug(
+                        "Code Interpreter is ready! (took"
+                        f" {retry_count} seconds)"
+                    )
+                    return self
+
+                logger.debug(
+                    f"[{retry_count}/{max_retries}] Health status: not ready"
+                )
+
+                logger.debug(
+                    "[%d/%d] Health status: %d - %s",
+                    retry_count,
+                    max_retries,
+                    health.get("code"),
+                    health.get("message"),
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"[{retry_count}/{max_retries}] Health check failed: {e}"
+                )
+
+            if retry_count < max_retries:
+                await asyncio.sleep(1)
+
+        raise RuntimeError(
+            f"Health check timeout after {max_retries} seconds. "
+            "Code interpreter did not become ready in time."
+        )
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Asynchronous context manager exit."""
+        if self.sandbox_id is None:
+            raise ValueError("Sandbox ID is not set")
+        logger.debug(f"Deleting code interpreter sandbox {self.sandbox_id}...")
+        await self.delete_async()

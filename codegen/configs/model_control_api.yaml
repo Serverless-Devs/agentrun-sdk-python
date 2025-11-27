@@ -1,0 +1,99 @@
+output_path: agentrun/model/api/control.py
+template: control_api.jinja2
+class_name: ModelControlAPI
+description: Model 管控链路 API
+imports: []
+methods:
+  # model service
+  - name: create_model_service
+    description: 创建模型服务
+    params:
+      - name: input
+        type: CreateModelServiceInput
+        wrapper_type: CreateModelServiceRequest
+        description: 模型服务配置
+    return_type: ModelService
+    return_description: 创建的模型服务对象
+  - name: delete_model_service
+    description: 删除模型服务
+    params:
+      - name: model_service_name
+        type: str
+        description: 模型服务名称
+    return_type: ModelService
+    return_description: 无返回值
+  - name: update_model_service
+    description: 更新模型服务
+    params:
+      - name: model_service_name
+        type: str
+        description: 模型服务名称
+      - name: input
+        type: UpdateModelServiceInput
+        wrapper_type: UpdateModelServiceRequest
+        description: 模型服务配置
+    return_type: ModelService
+    return_description: 更新后的模型服务对象
+  - name: get_model_service
+    description: 获取模型服务
+    params:
+      - name: model_service_name
+        type: str
+        description: 模型服务名称
+    return_type: ModelService
+    return_description: 模型服务对象
+  - name: list_model_services
+    description: 列出模型服务
+    params:
+      - name: input
+        type: ListModelServicesRequest
+        description: 查询参数
+    return_type: ListModelServicesOutput
+    return_description: 模型服务列表
+  
+  # model proxy
+  - name: create_model_proxy
+    description: 创建模型服务
+    params:
+      - name: input
+        type: CreateModelProxyInput
+        wrapper_type: CreateModelProxyRequest
+        description: 模型服务配置
+    return_type: ModelProxy
+    return_description: 创建的模型服务对象
+  - name: delete_model_proxy
+    description: 删除模型服务
+    params:
+      - name: model_proxy_name
+        type: str
+        description: 模型服务名称
+    return_type: ModelProxy
+    return_description: 无返回值
+  - name: update_model_proxy
+    description: 更新模型服务
+    params:
+      - name: model_proxy_name
+        type: str
+        description: 模型服务名称
+      - name: input
+        type: UpdateModelProxyInput
+        wrapper_type: UpdateModelProxyRequest
+        description: 模型服务配置
+    return_type: ModelProxy
+    return_description: 更新后的模型服务对象
+  - name: get_model_proxy
+    description: 获取模型服务
+    params:
+      - name: model_proxy_name
+        type: str
+        description: 模型服务名称
+    return_type: ModelProxy
+    return_description: 模型服务对象
+  - name: list_model_proxies
+    description: 列出模型服务
+    params:
+      - name: input
+        type: ListModelProxiesRequest
+        description: 查询参数
+    return_type: ListModelProxiesOutput
+    return_description: 模型服务列表

@@ -1,0 +1,85 @@
+output_path: agentrun/sandbox/api/control.py
+template: control_api.jinja2
+class_name: SandboxControlAPI
+description: Sandbox 管控链路 API
+imports: []
+methods:
+  - name: create_template
+    description: 创建 Sandbox Template
+    params:
+      - name: input
+        type: CreateTemplateInput
+        wrapper_type: CreateTemplateRequest
+        description: Template 配置
+    return_type: Template
+    return_description: 创建的 Template 对象
+  - name: delete_template
+    description: 删除 Sandbox Template
+    params:
+      - name: template_name
+        type: str
+        description: Template 名称
+    return_type: Template
+    return_description: 删除结果
+  - name: update_template
+    description: 更新 Sandbox Template
+    params:
+      - name: template_name
+        type: str
+        description: Template 名称
+      - name: input
+        type: UpdateTemplateInput
+        wrapper_type: UpdateTemplateRequest
+        description: Template 配置
+    return_type: Template
+    return_description: 更新的 Template 对象
+  - name: get_template
+    description: 获取 Sandbox Template
+    params:
+      - name: template_name
+        type: str
+        description: Template 名称
+    return_type: Template
+    return_description: Template 对象
+  - name: list_templates
+    description: 枚举 Sandbox Templates
+    params:
+      - name: input
+        type: ListTemplatesRequest
+        description: 枚举的配置
+    return_type: ListTemplatesOutput
+    return_description: Template 列表
+
+  - name: create_sandbox
+    description: 创建 Sandbox
+    params:
+      - name: input
+        type: CreateSandboxInput
+        wrapper_type: CreateSandboxRequest
+        description: Sandbox 配置
+    return_type: Sandbox
+    return_description: 创建的 Sandbox 对象
+  - name: stop_sandbox
+    description: 停止 Sandbox
+    params:
+      - name: sandbox_id
+        type: str
+        description: Sandbox ID
+    return_type: Sandbox
+    return_description: 停止结果
+  - name: get_sandbox
+    description: 获取 Sandbox
+    params:
+      - name: sandbox_id
+        type: str
+        description: Sandbox ID
+    return_type: Sandbox
+    return_description: Sandbox 对象
+  - name: list_sandboxes
+    description: 枚举 Sandboxes
+    params:
+      - name: input
+        type: ListSandboxesRequest
+        description: 枚举的配置
+    return_type: ListSandboxesOutput
+    return_description: Sandbox 列表

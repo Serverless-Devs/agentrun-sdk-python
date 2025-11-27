@@ -1,0 +1,48 @@
+#!/bin/sh
+
+# Automatically detect the current hook name
+hook_name=$(basename "$0")
+globalHooks="$(git config --global core.hooksPath)"
+if [ -f "${globalHooks}/${hook_name}" ]; then
+    "${globalHooks}/${hook_name}" $@
+    if [ $? -ne 0 ]; then
+        echo "❌ Global ${hook_name} hook failed"
+        exit 1
+    fi
+fi
+
+echo "${hook_name}"
+
+# Get list of staged Python files
+STAGED_PY_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
+
+if [ -z "$STAGED_PY_FILES" ]; then
+    echo "✅ No Python files staged, skipping format"
+    exit 0
+fi
+
+echo "📝 Running format check on entire codebase..."
+
+# Run make fmt on entire codebase
+make fmt
+
+if [ $? -ne 0 ]; then
+    echo "❌ Format check failed"
+    exit 1
+fi
+
+# Check if formatter made changes to any staged files and re-stage them
+echo "📝 Re-staging formatted files..."
+for file in $STAGED_PY_FILES; do
+    if [ -f "$file" ]; then
+        # Check if the file was modified by formatter
+        git diff --exit-code "$file" > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            echo "  📝 Re-staging: $file"
+            git add "$file"
+        fi
+    fi
+done
+
+echo "✅ Format check complete"
+exit 0

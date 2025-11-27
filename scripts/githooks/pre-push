@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Automatically detect the current hook name
+hook_name=$(basename "$0")
+globalHooks="$(git config --global core.hooksPath)"
+if [ -f "${globalHooks}/${hook_name}" ]; then
+    "${globalHooks}/${hook_name}" $@
+    if [ $? -ne 0 ]; then
+        echo "❌ Global ${hook_name} hook failed"
+        exit 1
+    fi
+fi

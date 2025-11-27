@@ -1,0 +1,227 @@
+"""
+Credential 模块的 E2E 测试
+
+测试覆盖:
+- 创建凭证
+- 获取凭证
+- 列举凭证
+- 更新凭证
+- 删除凭证
+"""
+
+import datetime
+import time
+
+import pytest
+
+from agentrun.agent_runtime import (
+    AgentRuntime,
+    AgentRuntimeArtifact,
+    AgentRuntimeClient,
+    AgentRuntimeCode,
+    AgentRuntimeContainer,
+    AgentRuntimeCreateInput,
+    AgentRuntimeLanguage,
+    AgentRuntimeProtocolConfig,
+    AgentRuntimeProtocolType,
+    AgentRuntimeUpdateInput,
+)
+from agentrun.utils.exception import (
+    ResourceAlreadyExistError,
+    ResourceNotExistError,
+)
+from agentrun.utils.model import NetworkMode, Status
+
+
+class TestAgentRuntime:
+    """凭证模块 E2E 测试"""
+
+    @pytest.fixture
+    def agent_runtime_name(self, unique_name: str) -> str:
+        """生成凭证名称"""
+        return f"{unique_name}-runtime"
+
+    async def test_agentruntime_lifecycle_async(self, agent_runtime_name: str):
+        """测试 AgentRuntime 的完整生命周期"""
+        client = AgentRuntimeClient()
+        time1 = datetime.datetime.now(datetime.timezone.utc)
+
+        # 创建 agent runtime
+        ar = await AgentRuntime.create_async(
+            AgentRuntimeCreateInput(
+                agent_runtime_name=agent_runtime_name,
+                description="原始描述",
+                code_configuration=AgentRuntimeCode.from_oss(
+                    language=AgentRuntimeLanguage.PYTHON312,
+                    command=["python3", "main.py"],
+                    bucket="funagent-agent-quickstart-langchain-demo-code-pre",
+                    object="agentrun-quickstart-code.zip",
+                ),
+            )
+        )
+        assert ar.status == Status.CREATING
+        ar.wait_until_ready_or_failed()
+
+        time2 = datetime.datetime.now(datetime.timezone.utc)
+
+        assert ar.agent_runtime_id
+        ar2 = await client.get_async(id=ar.agent_runtime_id)
+
+        # 检查返回的内容是否符合预期
+        pre_created_at: datetime.datetime
+
+        def assert_agent_runtime(ar: AgentRuntime):
+            assert ar.status == Status.READY
+            assert ar.agent_runtime_name == agent_runtime_name
+            assert ar.artifact_type == AgentRuntimeArtifact.CODE
+            assert ar.code_configuration
+            assert (
+                ar.code_configuration.language == AgentRuntimeLanguage.PYTHON312
+            )
+            assert ar.container_configuration is None
+            assert ar.cpu == 2.0
+            assert ar.memory == 4096
+            assert ar.description == "原始描述"
+            assert ar.network_configuration
+            assert ar.network_configuration.network_mode == NetworkMode.PUBLIC
+            assert ar.environment_variables is None
+            assert ar.execution_role_arn is None
+            assert ar.health_check_configuration is None
+            assert ar.port == 9000
+            assert ar.protocol_configuration is None
+            assert ar.session_concurrency_limit_per_instance == 1
+
+            assert ar.created_at is not None
+            created_at = datetime.datetime.strptime(
+                ar.created_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert created_at > time1
+            assert ar.last_updated_at is not None
+            updated_at = datetime.datetime.strptime(
+                ar.last_updated_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert updated_at > created_at
+            assert updated_at < time2
+
+            nonlocal pre_created_at
+            pre_created_at = created_at
+
+        assert_agent_runtime(ar)
+        assert_agent_runtime(ar2)
+        assert ar is not ar2
+        ar3 = ar
+
+        # 更新 credential
+        new_description = f"更新后的描述 - {time.time()}"
+        await ar.update_async(
+            AgentRuntimeUpdateInput(
+                description=new_description,
+                cpu=4,
+                memory=8192,
+                environment_variables={"TEST_ENV": "1"},
+                protocol_configuration=AgentRuntimeProtocolConfig(
+                    type=AgentRuntimeProtocolType.HTTP,
+                ),
+                container_configuration=AgentRuntimeContainer(
+                    image="registry.cn-hangzhou.aliyuncs.com/serverless_devs/custom-container-http-examples:springboot",
+                    command=[],
+                ),
+            )
+        )
+        assert ar.status == Status.UPDATING
+        ar.wait_until_ready_or_failed()
+
+        # 检查返回的内容是否符合预期
+        def assert_agent_runtime_2(ar: AgentRuntime):
+            nonlocal pre_created_at
+            assert ar.status == Status.READY
+            assert ar.agent_runtime_name == agent_runtime_name
+            assert (
+                ar.artifact_type == AgentRuntimeArtifact.CODE
+            )  # code 不允许转换为 container
+            assert ar.code_configuration is not None
+            assert (
+                ar.code_configuration.oss_object_name
+                == "agentrun-quickstart-code.zip"
+            )
+            assert ar.container_configuration is not None
+            assert (
+                ar.container_configuration.image
+                == "registry.cn-hangzhou.aliyuncs.com/serverless_devs/custom-container-http-examples:springboot"
+            )
+            assert ar.cpu == 4.0
+            assert ar.memory == 8192
+            assert ar.description == new_description
+            assert ar.network_configuration
+            assert ar.network_configuration.network_mode == NetworkMode.PUBLIC
+            assert ar.environment_variables == {"TEST_ENV": "1"}
+            assert ar.execution_role_arn is None
+            assert ar.health_check_configuration is None
+            assert ar.port == 9000
+            assert ar.protocol_configuration is not None
+            assert (
+                ar.protocol_configuration.type == AgentRuntimeProtocolType.HTTP
+            )
+            assert ar.session_concurrency_limit_per_instance == 1
+
+            assert ar.created_at is not None
+            created_at = datetime.datetime.strptime(
+                ar.created_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert pre_created_at == created_at
+            assert created_at > time1
+            assert ar.last_updated_at is not None
+            updated_at = datetime.datetime.strptime(
+                ar.last_updated_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert updated_at > created_at
+            assert ar.agent_runtime_name == agent_runtime_name
+
+        assert_agent_runtime_2(ar)
+        assert_agent_runtime_2(ar3)
+        assert_agent_runtime(ar2)
+        assert ar3 is ar
+
+        # 获取 credential
+        await ar2.refresh_async()
+        assert_agent_runtime_2(ar2)
+
+        # 列举 credentials
+        ars = await AgentRuntime.list_all_async()
+        assert len(ars) > 0
+        matched_ar = 0
+        for c in ars:
+            if c.agent_runtime_name == agent_runtime_name:
+                matched_ar += 1
+                assert_agent_runtime_2(c)
+        assert matched_ar == 1
+
+        # 尝试重复创建
+        with pytest.raises(ResourceAlreadyExistError):
+            await client.create_async(
+                AgentRuntimeCreateInput(
+                    agent_runtime_name=agent_runtime_name,
+                    description="重复创建",
+                    code_configuration=AgentRuntimeCode.from_oss(
+                        language=AgentRuntimeLanguage.PYTHON312,
+                        command=["python3", "main.py"],
+                        bucket=(
+                            "funagent-agent-quickstart-langchain-demo-code-pre"
+                        ),
+                        object="agentrun-quickstart-code.zip",
+                    ),
+                )
+            )
+
+        # 删除
+        await ar.delete_async()
+        assert ar.status == Status.DELETING
+        ar.delete_and_wait_until_finished()
+
+        # 尝试重复删除
+        with pytest.raises(ResourceNotExistError):
+            await ar.delete_async()
+
+        # 验证删除
+        with pytest.raises(ResourceNotExistError):
+            await client.get_async(id=ar.agent_runtime_id)

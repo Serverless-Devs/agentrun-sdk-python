@@ -1,0 +1,130 @@
+output_path: agentrun/agent_runtime/api/control.py
+template: control_api.jinja2
+class_name: AgentRuntimeControlAPI
+description: Agent Runtime 管控链路 API
+imports: []
+methods:
+  # agent runtime
+  - name: create_agent_runtime
+    description: 创建 Agent Runtime
+    params:
+      - name: input
+        type: CreateAgentRuntimeInput
+        wrapper_type: CreateAgentRuntimeRequest
+        description: Agent Runtime 配置
+    return_type: AgentRuntime
+    return_description: 创建的 Runtime 对象
+  - name: delete_agent_runtime
+    description: 删除 Agent Runtime
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+    return_type: AgentRuntime
+    return_description: 删除结果
+  - name: update_agent_runtime
+    description: 创建 Agent Runtime
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+      - name: input
+        type: UpdateAgentRuntimeInput
+        wrapper_type: UpdateAgentRuntimeRequest
+        description: Agent Runtime 配置
+    return_type: AgentRuntime
+    return_description: 创建的 Runtime 对象
+  - name: get_agent_runtime
+    description: 获取 Agent Runtime
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+      - name: input
+        type: GetAgentRuntimeRequest
+        description: Agent Runtime 配置
+    return_type: AgentRuntime
+    return_description: 创建的 Runtime 对象
+  - name: list_agent_runtimes
+    description: 枚举 Agent Runtime
+    params:
+      - name: input
+        type: ListAgentRuntimesRequest
+        description: 枚举的配置
+    return_type: ListAgentRuntimesOutput
+    return_description: 创建的 Runtime 对象
+
+  # agent runtime endpoint
+  - name: create_agent_runtime_endpoint
+    description: 创建 Agent Runtime 访问端点
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+      - name: input
+        type: CreateAgentRuntimeEndpointInput
+        wrapper_type: CreateAgentRuntimeEndpointRequest
+        description: 端点配置
+    return_type: AgentRuntimeEndpoint
+    return_description: 创建的 Runtime 对象
+  - name: delete_agent_runtime_endpoint
+    description: 删除 Agent Runtime 访问端点
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+      - name: endpoint_id
+        type: str
+        description: 端点 ID
+    return_type: AgentRuntimeEndpoint
+    return_description: 创建的 Runtime 对象
+  - name: update_agent_runtime_endpoint
+    description: 更新 Agent Runtime 访问端点
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+      - name: endpoint_id
+        type: str
+        description: 端点 ID
+      - name: input
+        type: UpdateAgentRuntimeEndpointInput
+        wrapper_type: UpdateAgentRuntimeEndpointRequest
+        description: 端点配置
+    return_type: AgentRuntimeEndpoint
+    return_description: 创建的 Runtime 对象
+  - name: get_agent_runtime_endpoint
+    description: 获取 Agent Runtime 访问端点
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+      - name: endpoint_id
+        type: str
+        description: 端点 ID
+    return_type: AgentRuntimeEndpoint
+    return_description: 创建的 Runtime 对象
+  - name: list_agent_runtime_endpoints
+    description: 枚举 Agent Runtime 访问端点
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+      - name: input
+        type: ListAgentRuntimeEndpointsRequest
+        description: 枚举的配置
+    return_type: ListAgentRuntimeEndpointsOutput
+    return_description: 创建的 Runtime 对象
+
+  # agent runtime version
+  - name: list_agent_runtime_versions
+    description: 枚举 Agent Runtime 版本
+    params:
+      - name: agent_id
+        type: str
+        description: Agent Runtime ID
+      - name: input
+        type: ListAgentRuntimeVersionsRequest
+        description: 版本配置
+    return_type: ListAgentRuntimeVersionsOutput
+    return_description: Agent Runtime 版本

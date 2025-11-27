@@ -1,0 +1,477 @@
+"""Agent Runtime 高层 API / Agent Runtime High-Level API
+
+此模块定义 Agent Runtime 资源的高级API。
+This module defines the high-level API for Agent Runtime resources.
+"""
+
+import time  # noqa: F401
+from typing import Dict, List, Optional
+
+from typing_extensions import Unpack
+
+from agentrun.agent_runtime.api.data import AgentRuntimeDataAPI, InvokeArgs
+from agentrun.utils.config import Config
+from agentrun.utils.model import PageableInput
+from agentrun.utils.resource import ResourceBase
+
+from .endpoint import AgentRuntimeEndpoint
+from .model import (
+    AgentRuntimeCreateInput,
+    AgentRuntimeEndpointCreateInput,
+    AgentRuntimeEndpointUpdateInput,
+    AgentRuntimeImmutableProps,
+    AgentRuntimeListInput,
+    AgentRuntimeMutableProps,
+    AgentRuntimeSystemProps,
+    AgentRuntimeUpdateInput,
+    AgentRuntimeVersion,
+    AgentRuntimeVersionListInput,
+)
+
+
+class AgentRuntime(
+    AgentRuntimeMutableProps,
+    AgentRuntimeImmutableProps,
+    AgentRuntimeSystemProps,
+    ResourceBase,
+):
+    """Agent Runtime 资源 / Agent Runtime Resource
+
+    提供 Agent Runtime 的完整生命周期管理,包括创建、删除、更新、查询,
+    以及端点和版本管理。
+    Provides complete lifecycle management for Agent Runtime, including create,
+    delete, update, query, and endpoint/version management.
+    """
+
+    @classmethod
+    def __get_client(cls):
+        """获取客户端实例 / Get client instance
+
+        Returns:
+            AgentRuntimeClient: 客户端实例 / Client instance
+        """
+        from .client import AgentRuntimeClient
+
+        return AgentRuntimeClient()
+
+    @classmethod
+    async def create_async(
+        cls, input: AgentRuntimeCreateInput, config: Optional[Config] = None
+    ):
+        """异步创建 Agent Runtime / Create Agent Runtime asynchronously
+
+        Args:
+            input: Agent Runtime 创建配置 / Agent Runtime creation configuration
+            config: 配置对象,可选 / Configuration object, optional
+
+        Returns:
+            AgentRuntime: 创建的 Agent Runtime 对象 / Created Agent Runtime object
+
+        Raises:
+            ValueError: 配置参数错误 / Configuration parameter error
+            ResourceAlreadyExistError: 资源已存在 / Resource already exists
+            HTTPError: HTTP 请求错误 / HTTP request error
+        """
+        return await cls.__get_client().create_async(input, config=config)
+
+    @classmethod
+    async def delete_by_id_async(cls, id: str, config: Optional[Config] = None):
+        """根据 ID 异步删除 Agent Runtime / Delete Agent Runtime by ID asynchronously
+
+        此方法会先删除所有关联的端点,然后再删除 Agent Runtime。
+        This method will first delete all associated endpoints, then delete the Agent Runtime.
+
+        Args:
+            id: Agent Runtime ID
+            config: 配置对象,可选 / Configuration object, optional
+
+        Returns:
+            AgentRuntime: 删除的 Agent Runtime 对象 / Deleted Agent Runtime object
+
+        Raises:
+            ResourceNotExistError: 资源不存在 / Resource does not exist
+            HTTPError: HTTP 请求错误 / HTTP request error
+        """
+        cli = cls.__get_client()
+
+        # 删除所有的 endpoint / Delete all endpoints
+        endpoints = await cli.list_endpoints_async(id, config=config)
+        for endpoint in endpoints:
+            await endpoint.delete_async(config=config)
+
+        # 等待所有端点删除完成 / Wait for all endpoints to be deleted
+        while len(await cli.list_endpoints_async(id, config=config)) > 0:
+            import asyncio
+
+            await asyncio.sleep(1)
+
+        return await cli.delete_async(
+            id,
+            config=config,
+        )
+
+    @classmethod
+    async def update_by_id_async(
+        cls,
+        id: str,
+        input: AgentRuntimeUpdateInput,
+        config: Optional[Config] = None,
+    ):
+        """根据 ID 异步更新 Agent Runtime / Update Agent Runtime by ID asynchronously
+
+        Args:
+            id: Agent Runtime ID
+            input: Agent Runtime 更新配置 / Agent Runtime update configuration
+            config: 配置对象,可选 / Configuration object, optional
+
+        Returns:
+            AgentRuntime: 更新后的 Agent Runtime 对象 / Updated Agent Runtime object
+
+        Raises:
+            ResourceNotExistError: 资源不存在 / Resource does not exist
+            HTTPError: HTTP 请求错误 / HTTP request error
+        """
+        return await cls.__get_client().update_async(id, input, config=config)
+
+    @classmethod
+    async def get_by_id_async(cls, id: str, config: Optional[Config] = None):
+        """根据 ID 异步获取 Agent Runtime / Get Agent Runtime by ID asynchronously
+
+        Args:
+            id: Agent Runtime ID
+            config: 配置对象,可选 / Configuration object, optional
+
+        Returns:
+            AgentRuntime: Agent Runtime 对象 / Agent Runtime object
+
+        Raises:
+            ResourceNotExistError: 资源不存在 / Resource does not exist
+            HTTPError: HTTP 请求错误 / HTTP request error
+        """
+        return await cls.__get_client().get_async(id, config=config)
+
+    @classmethod
+    async def _list_page_async(
+        cls, page_input: PageableInput, config: Config | None = None, **kwargs
+    ):
+        return await cls.__get_client().list_async(
+            input=AgentRuntimeListInput(
+                **kwargs,
+                **page_input.model_dump(),
+            ),
+            config=config,
+        )
+
+    @classmethod
+    async def list_all_async(
+        cls,
+        *,
+        agent_runtime_name: Optional[str] = None,
+        tags: Optional[str] = None,
+        search_mode: Optional[str] = None,
+        config: Optional[Config] = None,
+    ) -> List["AgentRuntime"]:
+        return await cls._list_all_async(
+            lambda ar: ar.agent_runtime_id or "",
+            config=config,
+            agent_runtime_name=agent_runtime_name,
+            tags=tags,
+            search_mode=search_mode,
+        )
+
+    @classmethod
+    async def list_async(cls, config: Optional[Config] = None):
+        """异步列出所有 Agent Runtimes / List all Agent Runtimes asynchronously
+
+        此方法会自动分页获取所有 Agent Runtimes 并去重。
+        This method automatically paginates to get all Agent Runtimes and deduplicates them.
+
+        Args:
+            config: 配置对象,可选 / Configuration object, optional
+
+        Returns:
+            List[AgentRuntime]: Agent Runtime 对象列表 / List of Agent Runtime objects
+
+        Raises:
+            HTTPError: HTTP 请求错误 / HTTP request error
+        """
+        cli = cls.__get_client()
+
+        runtimes: List[AgentRuntime] = []
+        page = 1
+        page_size = 50
+        while True:
+            result = await cli.list_async(
+                AgentRuntimeListInput(
+                    page_number=page,
+                    page_size=page_size,
+                ),
+                config=config,
+            )
+            page += 1
+            runtimes.extend(result)  # type: ignore
+            if len(result) < page_size:
+                break
+
+        # 去重 / Deduplicate
+        runtime_id_set = set()
+        results: List[AgentRuntime] = []
+        for runtime in runtimes:
+            if runtime.agent_runtime_id not in runtime_id_set:
+                runtime_id_set.add(runtime.agent_runtime_id)
+                results.append(runtime)
+
+        return results
+
+    @classmethod
+    async def create_endpoint_by_id_async(
+        cls,
+        agent_runtime_id: str,
+        input: AgentRuntimeEndpointCreateInput,
+        config: Optional[Config] = None,
+    ) -> AgentRuntimeEndpoint:
+        return await AgentRuntimeEndpoint.create_by_id_async(
+            agent_runtime_id,
+            input,
+            config=config,
+        )
+
+    @classmethod
+    async def delete_endpoint_by_id_async(
+        cls,
+        agent_runtime_id: str,
+        endpoint_id: str,
+        config: Optional[Config] = None,
+    ) -> AgentRuntimeEndpoint:
+        return await AgentRuntimeEndpoint.delete_by_id_async(
+            agent_runtime_id,
+            endpoint_id,
+            config=config,
+        )
+
+    @classmethod
+    async def update_endpoint_by_id_async(
+        cls,
+        agent_runtime_id: str,
+        endpoint_id: str,
+        input: AgentRuntimeEndpointUpdateInput,
+        config: Optional[Config] = None,
+    ) -> AgentRuntimeEndpoint:
+        return await AgentRuntimeEndpoint.update_by_id_async(
+            agent_runtime_id,
+            endpoint_id,
+            input,
+            config=config,
+        )
+
+    @classmethod
+    async def get_endpoint_by_id_async(
+        cls,
+        agent_runtime_id: str,
+        endpoint_id: str,
+        config: Optional[Config] = None,
+    ) -> AgentRuntimeEndpoint:
+        return await AgentRuntimeEndpoint.get_by_id_async(
+            agent_runtime_id,
+            endpoint_id,
+            config=config,
+        )
+
+    @classmethod
+    async def list_endpoints_by_id_async(
+        cls, agent_runtime_id: str, config: Optional[Config] = None
+    ) -> List[AgentRuntimeEndpoint]:
+        return await AgentRuntimeEndpoint.list_by_id_async(
+            agent_runtime_id,
+            config=config,
+        )
+
+    @classmethod
+    async def list_versions_by_id_async(
+        cls,
+        agent_runtime_id: str,
+        config: Optional[Config] = None,
+    ):
+        cli = cls.__get_client()
+
+        versions: List[AgentRuntimeVersion] = []
+        page = 1
+        page_size = 50
+        while True:
+            result = await cli.list_versions_async(
+                agent_runtime_id,
+                AgentRuntimeVersionListInput(
+                    page_number=page,
+                    page_size=page_size,
+                ),
+                config=config,
+            )
+            page += 1
+            versions.extend(result)
+            if len(result) < page_size:
+                break
+
+        version_id_set = set()
+        results: List[AgentRuntimeVersion] = []
+        for version in versions:
+            if version.agent_runtime_version not in version_id_set:
+                version_id_set.add(version.agent_runtime_version)
+                results.append(version)
+
+        return results
+
+    async def delete_async(self, config: Optional[Config] = None):
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to delete an Agent Runtime"
+            )
+
+        result = await self.delete_by_id_async(
+            self.agent_runtime_id, config=config
+        )
+        self.update_self(result)
+        return self
+
+    async def update_async(
+        self, input: AgentRuntimeUpdateInput, config: Optional[Config] = None
+    ):
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to delete an Agent Runtime"
+            )
+
+        result = await self.update_by_id_async(
+            self.agent_runtime_id, input=input, config=config
+        )
+        self.update_self(result)
+        return self
+
+    async def get_async(self, config: Optional[Config] = None):
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to get an Agent Runtime"
+            )
+
+        result = await self.get_by_id_async(
+            self.agent_runtime_id, config=config
+        )
+        self.update_self(result)
+        return self
+
+    async def refresh_async(self, config: Optional[Config] = None):
+        return await self.get_async(config=config)
+
+    async def create_endpoint_async(
+        self,
+        input: AgentRuntimeEndpointCreateInput,
+        config: Optional[Config] = None,
+    ):
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to create an Agent Runtime"
+                " Endpoint"
+            )
+
+        return await self.create_endpoint_by_id_async(
+            self.agent_runtime_id, input=input, config=config
+        )
+
+    async def delete_endpoint_async(
+        self,
+        endpoint_id: str,
+        config: Optional[Config] = None,
+    ):
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to delete an Agent Runtime"
+                " Endpoint"
+            )
+
+        return await self.delete_endpoint_by_id_async(
+            self.agent_runtime_id, endpoint_id, config=config
+        )
+
+    async def update_endpoint_async(
+        self,
+        endpoint_id: str,
+        endpoint: AgentRuntimeEndpointUpdateInput,
+        config: Optional[Config] = None,
+    ) -> AgentRuntimeEndpoint:
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to update an Agent Runtime"
+                " Endpoint"
+            )
+
+        return await self.update_endpoint_by_id_async(
+            self.agent_runtime_id,
+            endpoint_id,
+            endpoint,
+            config=config,
+        )
+
+    async def get_endpoint_async(
+        self,
+        endpoint_id: str,
+        config: Optional[Config] = None,
+    ) -> AgentRuntimeEndpoint:
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to get an Agent Runtime Endpoint"
+            )
+
+        return await self.get_endpoint_by_id_async(
+            self.agent_runtime_id,
+            endpoint_id,
+            config=config,
+        )
+
+    async def list_endpoints_async(
+        self,
+        config: Optional[Config] = None,
+    ) -> List[AgentRuntimeEndpoint]:
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to list Agent Runtime Endpoints"
+            )
+
+        return await self.list_endpoints_by_id_async(
+            self.agent_runtime_id,
+            config=config,
+        )
+
+    async def list_versions_async(
+        self,
+        config: Optional[Config] = None,
+    ) -> List[AgentRuntimeVersion]:
+        if self.agent_runtime_id is None:
+            raise ValueError(
+                "agent_runtime_id is required to list Agent Runtime Versions"
+            )
+
+        return await self.list_versions_by_id_async(
+            self.agent_runtime_id,
+            config=config,
+        )
+
+    async def invoke_openai_async(
+        self,
+        agent_runtime_endpoint_name: str = "Default",
+        **kwargs: Unpack[InvokeArgs],
+    ):
+        cfg = Config.with_configs(self._config, kwargs.get("config"))
+        kwargs["config"] = cfg
+
+        if not self.__data_api:
+            self.__data_api: Dict[str, AgentRuntimeDataAPI] = {}
+
+        if self.__data_api[agent_runtime_endpoint_name] is None:
+            self.__data_api[agent_runtime_endpoint_name] = AgentRuntimeDataAPI(
+                agent_runtime_name=self.agent_runtime_name or "",
+                agent_runtime_endpoint_name=agent_runtime_endpoint_name or "",
+                config=cfg,
+            )
+
+        return await self.__data_api[
+            agent_runtime_endpoint_name
+        ].invoke_openai_async(**kwargs)

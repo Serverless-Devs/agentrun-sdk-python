@@ -1,0 +1,204 @@
+"""ToolSet 资源类 / ToolSet Resource Class
+
+提供工具集资源的面向对象封装和完整生命周期管理。
+Provides object-oriented wrapper and complete lifecycle management for toolset resources.
+"""
+
+from typing import Any, Dict, Optional, Tuple
+
+import pydash
+
+from agentrun.utils.config import Config
+from agentrun.utils.log import logger
+from agentrun.utils.model import BaseModel
+
+from .api.openapi import OpenAPI
+from .model import (
+    MCPServerConfig,
+    SchemaType,
+    ToolInfo,
+    ToolSetSpec,
+    ToolSetStatus,
+)
+
+
+class ToolSet(BaseModel):
+    """工具集资源 / ToolSet Resource
+
+    提供工具集的查询、调用等功能。
+    Provides query, invocation and other functionality for toolsets.
+
+    Attributes:
+        created_time: 创建时间 / Creation time
+        description: 描述 / Description
+        generation: 版本号 / Generation number
+        kind: 资源类型 / Resource kind
+        labels: 标签 / Labels
+        name: 工具集名称 / ToolSet name
+        spec: 规格配置 / Specification
+        status: 状态 / Status
+        uid: 唯一标识符 / Unique identifier
+    """
+
+    created_time: Optional[str] = None
+    description: Optional[str] = None
+    generation: Optional[int] = None
+    kind: Optional[str] = None
+    labels: Optional[Dict[str, str]] = None
+    name: Optional[str] = None
+    spec: Optional[ToolSetSpec] = None
+    status: Optional[ToolSetStatus] = None
+    uid: Optional[str] = None
+
+    @classmethod
+    def __get_client(cls, config: Optional[Config] = None):
+        from .client import ToolSetClient
+
+        return ToolSetClient(config)
+
+    @classmethod
+    async def get_by_name_async(
+        cls, name: str, config: Optional[Config] = None
+    ):
+        cli = cls.__get_client(config)
+        return await cli.get_async(name=name)
+
+    def type(self):
+        return SchemaType(pydash.get(self, "spec.tool_schema.type", ""))
+
+    def _get_openapi_auth_defaults(
+        self,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        headers: Dict[str, Any] = {}
+        query: Dict[str, Any] = {}
+
+        auth_config = pydash.get(self, "spec.auth_config", None)
+        auth_type = getattr(auth_config, "type", None) if auth_config else None
+
+        if auth_type == "APIKey":
+            api_key_param = pydash.get(
+                auth_config,
+                "parameters.api_key_parameter",
+                None,
+            )
+            if api_key_param:
+                key = getattr(api_key_param, "key", None)
+                value = getattr(api_key_param, "value", None)
+                location = getattr(api_key_param, "in_", None)
+                if key and value is not None:
+                    if location == "header":
+                        headers[key] = value
+                    elif location == "query":
+                        query[key] = value
+
+        return headers, query
+
+    def _get_openapi_base_url(self) -> Optional[str]:
+        return pydash.get(
+            self,
+            "status.outputs.urls.intranet_url",
+            None,
+        ) or pydash.get(self, "status.outputs.urls.internet_url", None)
+
+    async def get_async(self, config: Optional[Config] = None):
+        if self.name is None:
+            raise ValueError("ToolSet name is required to get the ToolSet.")
+
+        result = await self.get_by_name_async(name=self.name, config=config)
+        return self.update_self(result)
+
+    async def list_tools_async(self, config: Optional[Config] = None):
+        """异步获取工具列表,返回统一的 ToolInfo 列表"""
+        if self.type() == SchemaType.MCP:
+            mcp_tools = pydash.get(self, "status.outputs.tools", [])
+            return [ToolInfo.from_mcp_tool(tool) for tool in mcp_tools]
+        elif self.type() == SchemaType.OpenAPI:
+            # 直接使用 to_apiset 转换
+            apiset = self.to_apiset(config=config)
+            return apiset.tools()
+        return []
+
+    async def call_tool_async(
+        self,
+        name: str,
+        arguments: Optional[Dict[str, str]] = None,
+        config: Optional[Config] = None,
+    ):
+        """异步调用工具,统一使用 ApiSet 实现"""
+        apiset = self.to_apiset(config=config)
+
+        # 对于 OpenAPI,可能需要解析 operation name
+        if self.type() == SchemaType.OpenAPI:
+            # 尝试查找实际的 operation name
+            tool = apiset.get_tool(name)
+            if tool is None:
+                # 尝试通过 tool_id 映射查找
+                openapi_tools = (
+                    pydash.get(self, "status.outputs.open_api_tools", []) or []
+                )
+                for tool_meta in openapi_tools:
+                    if tool_meta is None:
+                        continue
+                    if hasattr(tool_meta, "model_dump"):
+                        tool_meta = tool_meta.model_dump()
+                    if not isinstance(tool_meta, dict):
+                        continue
+                    if tool_meta.get("tool_id") == name:
+                        name = tool_meta.get("tool_name") or name
+                        break
+
+        logger.debug("invoke tool %s with arguments %s", name, arguments)
+        result = await apiset.invoke_async(
+            name=name, arguments=arguments, config=config
+        )
+        logger.debug("invoke tool %s got result %s", name, result)
+        return result
+
+    def to_apiset(self, config: Optional[Config] = None):
+        """将 ToolSet 转换为统一的 ApiSet 对象
+
+        Returns:
+            ApiSet: 统一的工具集接口
+        """
+        from .api.openapi import ApiSet
+
+        if self.type() == SchemaType.MCP:
+            from .api.mcp import MCPToolSet
+
+            mcp_server_config: MCPServerConfig = pydash.get(
+                self, "status.outputs.mcp_server_config", None
+            )
+            assert (
+                mcp_server_config.url is not None
+            ), "MCP server URL is missing."
+
+            cfg = Config.with_configs(
+                config, Config(headers=mcp_server_config.headers)
+            )
+
+            mcp_client = MCPToolSet(
+                url=mcp_server_config.url,
+                config=cfg,
+            )
+
+            # 获取 MCP tools
+            mcp_tools = pydash.get(self, "status.outputs.tools", [])
+
+            return ApiSet.from_mcp_tools(
+                tools=mcp_tools,
+                mcp_client=mcp_client,
+                config=cfg,
+            )
+
+        elif self.type() == SchemaType.OpenAPI:
+            headers, query = self._get_openapi_auth_defaults()
+
+            return ApiSet.from_openapi_schema(
+                schema=pydash.get(self, "spec.tool_schema.detail", None),
+                base_url=self._get_openapi_base_url(),
+                headers=headers,
+                query_params=query,
+                config=config,
+            )
+
+        raise ValueError(f"Unsupported ToolSet type: {self.type()}")

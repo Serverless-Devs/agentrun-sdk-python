@@ -1,0 +1,618 @@
+"""
+Model 模块的 E2E 测试
+
+测试覆盖:
+- 创建 ModelService
+- 获取 ModelService
+- 列举 ModelService
+- 更新 ModelService
+- 删除 ModelService
+- 创建 ModelProxy
+- 获取 ModelProxy
+- 列举 ModelProxy
+- 更新 ModelProxy
+- 删除 ModelProxy
+"""
+
+import datetime
+import os
+import time
+
+import pydash
+import pytest
+
+from agentrun.model import (
+    BackendType,
+    ModelClient,
+    ModelProxy,
+    ModelProxyCreateInput,
+    ModelProxyUpdateInput,
+    ModelResponse,
+    ModelService,
+    ModelServiceCreateInput,
+    ModelServiceListInput,
+    ModelServiceUpdateInput,
+    ModelType,
+    ProviderSettings,
+    ProxyConfig,
+    ProxyConfigEndpoint,
+)
+from agentrun.utils.config import Config
+from agentrun.utils.exception import (
+    ClientError,
+    ResourceAlreadyExistError,
+    ResourceNotExistError,
+)
+from agentrun.utils.model import Status
+
+api_key = os.getenv("API_KEY", "sk-test-key")
+base_url = os.getenv(
+    "BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+)
+model_names = ["qwen-flash", "qwen-max"]
+
+
+class TestModelService:
+    """ModelService 模块 E2E 测试"""
+
+    @pytest.fixture
+    def model_service_name(self, unique_name: str) -> str:
+        """生成模型服务名称"""
+        return f"{unique_name}-model-service"
+
+    async def test_model_service_lifecycle_async(self, model_service_name: str):
+        """测试 ModelService 的完整生命周期"""
+        client = ModelClient()
+        time1 = datetime.datetime.now(datetime.timezone.utc)
+
+        # 创建 model service
+        ms = await ModelService.create_async(
+            ModelServiceCreateInput(
+                model_service_name=model_service_name,
+                description="原始描述",
+                model_type=ModelType.LLM,
+                provider="openai",
+                provider_settings=ProviderSettings(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_names=model_names,
+                ),
+            )
+        )
+        ms.wait_until_ready_or_failed()
+
+        time2 = datetime.datetime.now(datetime.timezone.utc)
+
+        # assert ms.model_service_id
+        ms2 = await client.get_async(
+            name=model_service_name, backend_type=BackendType.SERVICE
+        )
+
+        # 检查返回的内容是否符合预期
+        pre_created_at: datetime.datetime
+
+        def assert_model_service(ms: ModelService):
+            assert ms.status == Status.READY
+            assert ms.model_service_name == model_service_name
+            assert ms.model_type == ModelType.LLM
+            assert ms.provider == "openai"
+            assert ms.provider_settings is not None
+            assert ms.provider_settings.base_url == base_url
+            assert ms.provider_settings.model_names == model_names
+            assert ms.description == "原始描述"
+
+            assert ms.created_at is not None
+            created_at = datetime.datetime.strptime(
+                ms.created_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert created_at > time1
+            assert ms.last_updated_at is not None
+            updated_at = datetime.datetime.strptime(
+                ms.last_updated_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert updated_at >= created_at
+            assert updated_at < time2
+
+            nonlocal pre_created_at
+            pre_created_at = created_at
+
+        assert_model_service(ms)
+        assert_model_service(ms2)
+        assert ms is not ms2
+        ms3 = ms
+
+        # 更新 model service
+        new_description = f"更新后的描述 - {time.time()}"
+        await ms.update_async(
+            ModelServiceUpdateInput(description=new_description)
+        )
+        ms.wait_until_ready_or_failed()
+
+        # 检查返回的内容是否符合预期
+        def assert_model_service_2(ms: ModelService):
+            nonlocal pre_created_at
+            assert ms.status == Status.READY
+            assert ms.model_service_name == model_service_name
+            assert ms.model_type == ModelType.LLM
+            assert ms.provider == "openai"
+            assert ms.provider_settings is not None
+            assert ms.provider_settings.base_url == base_url
+            assert ms.description == new_description
+
+            assert ms.created_at is not None
+            created_at = datetime.datetime.strptime(
+                ms.created_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert pre_created_at == created_at
+            assert created_at > time1
+            assert ms.last_updated_at is not None
+            updated_at = datetime.datetime.strptime(
+                ms.last_updated_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert updated_at > created_at
+
+        assert_model_service_2(ms)
+        assert_model_service_2(ms3)
+        assert_model_service(ms2)
+        assert ms3 is ms
+
+        # 获取 model service
+        await ms2.refresh_async()
+        assert_model_service_2(ms2)
+
+        # 列举 model services
+        ms_list = await client.list_async(
+            ModelServiceListInput(model_type=ModelType.LLM)
+        )
+        assert len(ms_list) > 0
+        matched_ms = 0
+        for m in ms_list:
+            if m.model_service_name == model_service_name:
+                matched_ms += 1
+                assert_model_service_2(m)
+        assert matched_ms == 1
+
+        # 尝试重复创建
+        with pytest.raises(ResourceAlreadyExistError):
+            await client.create_async(
+                ModelServiceCreateInput(
+                    model_service_name=model_service_name,
+                    description="重复创建",
+                    model_type=ModelType.LLM,
+                    provider="openai",
+                    provider_settings=ProviderSettings(
+                        api_key=api_key,
+                        base_url=base_url,
+                        model_names=model_names,
+                    ),
+                )
+            )
+
+        # 删除
+        await ms.delete_async()
+        ms.delete_and_wait_until_finished()
+
+        # 尝试重复删除
+        with pytest.raises(ResourceNotExistError):
+            await ms.delete_async()
+
+        # 验证删除
+        with pytest.raises(ResourceNotExistError):
+            await client.get_async(
+                name=model_service_name, backend_type=BackendType.SERVICE
+            )
+
+    async def test_model_service_invoke_async(self, model_service_name: str):
+        # 创建 model service
+        ms = await ModelService.create_async(
+            ModelServiceCreateInput(
+                model_service_name=model_service_name,
+                description="原始描述",
+                model_type=ModelType.LLM,
+                provider="openai",
+                provider_settings=ProviderSettings(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_names=model_names,
+                ),
+            )
+        )
+        ms.wait_until_ready_or_failed()
+
+        result = ms.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=False,
+        )
+        assert isinstance(result, ModelResponse)
+        assert (
+            pydash.get(result, "choices[0].message.content")
+            == "今天天气怎么样？"
+        )
+
+        result = ms.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=True,
+        )
+        content = ""
+        chunk_size = 0
+        for chunk in result:
+            from agentrun.utils.log import logger
+
+            logger.error(chunk)
+            delta = pydash.get(chunk, "choices[0].delta.content")
+            if delta:
+                content += delta
+                chunk_size += 1
+        assert chunk_size > 0
+        assert content == "今天天气怎么样？"
+
+        ms.delete()
+
+
+class TestModelProxy:
+    """ModelProxy 模块 E2E 测试"""
+
+    @pytest.fixture
+    def model_proxy_name(self, unique_name: str) -> str:
+        """生成模型代理名称"""
+        return f"{unique_name}-model-proxy"
+
+    async def prepare_model_proxy_async(self, model_proxy_name: str):
+        model_service_name = f"{model_proxy_name}-service"
+        ms = await ModelService.create_async(
+            ModelServiceCreateInput(
+                model_service_name=model_service_name,
+                description="原始描述",
+                model_type=ModelType.LLM,
+                provider="openai",
+                provider_settings=ProviderSettings(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_names=model_names,
+                ),
+            )
+        )
+        ms.wait_until_ready_or_failed()
+
+        mp = await ModelProxy.create_async(
+            ModelProxyCreateInput(
+                model_proxy_name=model_proxy_name,
+                description="原始描述",
+                model_type=ModelType.LLM,
+                proxy_config=ProxyConfig(
+                    endpoints=[
+                        ProxyConfigEndpoint(
+                            model_names=[model_name],
+                            model_service_name=model_service_name,
+                        )
+                        for model_name in model_names[:1]
+                    ],
+                    policies={},
+                ),
+            )
+        )
+        mp.wait_until_ready_or_failed()
+
+        async def defer():
+            await mp.delete_and_wait_until_finished_async()
+            await ms.delete_and_wait_until_finished_async()
+
+        return ms, mp, defer
+
+    async def test_model_proxy_lifecycle_async(self, model_proxy_name: str):
+        """测试 ModelProxy 的完整生命周期"""
+        client = ModelClient()
+        time1 = datetime.datetime.now(datetime.timezone.utc)
+
+        # 创建 model service
+        ms, mp, defer = await self.prepare_model_proxy_async(model_proxy_name)
+
+        time2 = datetime.datetime.now(datetime.timezone.utc)
+
+        assert mp.model_proxy_id
+        mp2 = await client.get_async(
+            name=model_proxy_name, backend_type=BackendType.PROXY
+        )
+
+        # 检查返回的内容是否符合预期
+        pre_created_at: datetime.datetime
+
+        def assert_model_proxy(mp: ModelProxy):
+            assert mp.status == Status.READY
+            assert mp.model_proxy_name == model_proxy_name
+            assert mp.model_type == ModelType.LLM
+            assert mp.proxy_mode == "single"
+            assert mp.proxy_config is not None
+            assert mp.description == "原始描述"
+            assert mp.cpu == 2
+            assert mp.memory == 4096
+
+            assert mp.created_at is not None
+            created_at = datetime.datetime.strptime(
+                mp.created_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert created_at > time1
+            assert mp.last_updated_at is not None
+            updated_at = datetime.datetime.strptime(
+                mp.last_updated_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert updated_at >= created_at
+            assert updated_at < time2
+
+            nonlocal pre_created_at
+            pre_created_at = created_at
+
+        assert_model_proxy(mp)
+        assert_model_proxy(mp2)
+        assert mp is not mp2
+        mp3 = mp
+
+        # 更新 model proxy
+        new_description = f"更新后的描述 - {time.time()}"
+        await mp.update_async(
+            ModelProxyUpdateInput(description=new_description)
+        )
+        mp.wait_until_ready_or_failed()
+
+        # 检查返回的内容是否符合预期
+        def assert_model_proxy_2(mp: ModelProxy):
+            nonlocal pre_created_at
+            assert mp.status == Status.READY
+            assert mp.model_proxy_name == model_proxy_name
+            assert mp.model_type == ModelType.LLM
+            assert mp.proxy_mode == "single"
+            assert mp.description == new_description
+
+            assert mp.created_at is not None
+            created_at = datetime.datetime.strptime(
+                mp.created_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert pre_created_at == created_at
+            assert created_at > time1
+            assert mp.last_updated_at is not None
+            updated_at = datetime.datetime.strptime(
+                mp.last_updated_at, "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+            assert updated_at > created_at
+
+        assert_model_proxy_2(mp)
+        assert_model_proxy_2(mp3)
+        assert_model_proxy(mp2)
+        assert mp3 is mp
+
+        # 获取 model proxy
+        await mp2.refresh_async()
+        assert_model_proxy_2(mp2)
+
+        # 尝试重复创建
+        with pytest.raises(ResourceAlreadyExistError):
+            await client.create_async(
+                ModelProxyCreateInput(
+                    model_proxy_name=model_proxy_name,
+                    description="重复创建",
+                    model_type=ModelType.LLM,
+                    proxy_config=ProxyConfig(
+                        endpoints=[
+                            ProxyConfigEndpoint(
+                                model_names=[model_name],
+                                model_service_name=ms.model_service_name,
+                            )
+                            for model_name in model_names[:1]
+                        ],
+                        policies={},
+                    ),
+                )
+            )
+
+        # 删除
+        await mp.delete_async()
+        mp.delete_and_wait_until_finished()
+
+        # 尝试重复删除
+        with pytest.raises(ResourceNotExistError):
+            await mp.delete_async()
+
+        # 验证删除
+        with pytest.raises(ResourceNotExistError):
+            await client.get_async(
+                name=model_proxy_name, backend_type=BackendType.PROXY
+            )
+
+        await defer()
+
+    async def test_model_proxy_invoke_single_async(self, model_proxy_name: str):
+        # 创建 model service
+        _, mp, defer = await self.prepare_model_proxy_async(model_proxy_name)
+
+        result = mp.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=False,
+        )
+        assert isinstance(result, ModelResponse)
+        assert (
+            pydash.get(result, "choices[0].message.content")
+            == "今天天气怎么样？"
+        )
+
+        result = mp.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=True,
+        )
+        content = ""
+        chunk_size = 0
+        for chunk in result:
+            from agentrun.utils.log import logger
+
+            logger.error(chunk)
+            delta = pydash.get(chunk, "choices[0].delta.content")
+            if delta:
+                content += delta
+                chunk_size += 1
+        assert chunk_size > 0
+        assert content == "今天天气怎么样？"
+
+        await defer()
+
+    async def test_model_proxy_invoke_multi_async(self, model_proxy_name: str):
+        ms, mp, defer = await self.prepare_model_proxy_async(model_proxy_name)
+
+        await mp.update_async(
+            ModelProxyUpdateInput(
+                proxy_config=ProxyConfig(
+                    endpoints=[
+                        ProxyConfigEndpoint(
+                            model_names=[model_name],
+                            model_service_name=ms.model_service_name,
+                        )
+                        for model_name in model_names[:1]
+                    ]
+                )
+            )
+        )
+        result = mp.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=False,
+        )
+        assert isinstance(result, ModelResponse)
+        assert (
+            pydash.get(result, "choices[0].message.content")
+            == "今天天气怎么样？"
+        )
+        await defer()
+
+    async def prepare_model_proxy_with_credential_async(
+        self, model_proxy_name: str
+    ):
+
+        from agentrun.credential import (
+            Credential,
+            CredentialConfig,
+            CredentialCreateInput,
+        )
+
+        credential_name = f"{model_proxy_name}-credential"
+        cred = await Credential.create_async(
+            CredentialCreateInput(
+                credential_name=credential_name,
+                description="测试凭证",
+                credential_config=CredentialConfig.inbound_api_key("sk-123456"),
+            )
+        )
+
+        ms, mp, defer = await self.prepare_model_proxy_async(model_proxy_name)
+        mp.update(ModelProxyUpdateInput(credential_name=credential_name))
+        mp.wait_until_ready_or_failed()
+
+        async def defer2():
+            await defer()
+            await cred.delete_async()
+
+        return ms, mp, defer2
+
+    async def test_model_proxy_invoke_credential_async(
+        self, model_proxy_name: str
+    ):
+        _, mp, defer = await self.prepare_model_proxy_with_credential_async(
+            model_proxy_name
+        )
+
+        # 没有权限的情况下 invoke
+        with pytest.raises(Exception) as e:
+            mp.completions(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "你是一个回音壁，会原封不动返回用户的输入",
+                    },
+                    {"role": "user", "content": "你好！"},
+                    {"role": "assistant", "content": "你好！"},
+                    {"role": "user", "content": "今天天气怎么样？"},
+                ],
+                stream=False,
+                config=Config(access_key_id="000"),
+            )
+        assert "API key mismatc" in f"{e.value!s}"
+
+        # 直接使用 key 进行 invoke
+        info = mp.model_info()
+        api_key = pydash.get(info, "headers.Agentrun-Access-Token")
+        assert api_key
+        result = mp.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=False,
+            config=Config(access_key_id="000", token=api_key),
+        )
+        assert isinstance(result, ModelResponse)
+        assert (
+            pydash.get(result, "choices[0].message.content")
+            == "今天天气怎么样？"
+        )
+
+        # 使用 ak/sk 自动签名
+        result = mp.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=False,
+        )
+        assert isinstance(result, ModelResponse)
+        assert (
+            pydash.get(result, "choices[0].message.content")
+            == "今天天气怎么样？"
+        )
+
+        await defer()
