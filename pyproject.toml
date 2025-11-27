@@ -1,6 +1,6 @@
 [project]
 name = "agentrun-sdk"
-version = "0.0.0"
+version = "0.0.1"
 description = "Alibaba Cloud Agent Run SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -100,7 +100,7 @@ known_third_party = ["alibabacloud_tea_openapi", "alibabacloud_devs20230714", "a
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "0.0.1"
 exclude = "tests/"
 plugins = ["pydantic.mypy"]
 # Start with non-strict mode, and switch to strict mode later.
