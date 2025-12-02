@@ -49,7 +49,6 @@ from agentrun.model import (
 )
 from agentrun.utils.config import Config
 from agentrun.utils.exception import (
-    ClientError,
     ResourceAlreadyExistError,
     ResourceNotExistError,
 )
@@ -473,6 +472,120 @@ class TestModelService:
         assert content == "今天天气怎么样？"
 
         ms.delete()
+
+    async def test_model_service_with_credential_async(
+        self, model_service_name: str
+    ):
+        # 创建 Credential
+        from agentrun.credential import (
+            Credential,
+            CredentialConfig,
+            CredentialCreateInput,
+        )
+
+        cr = Credential.create(
+            CredentialCreateInput(
+                credential_name=f"{model_service_name}-credential",
+                enabled=True,
+                credential_config=CredentialConfig.outbound_llm_api_key(
+                    api_key=api_key,
+                    provider="openai",
+                ),
+            )
+        )
+
+        # 创建 model service
+        ms = await ModelService.create_async(
+            ModelServiceCreateInput(
+                model_service_name=model_service_name,
+                description="原始描述",
+                model_type=ModelType.LLM,
+                provider="openai",
+                credential_name=cr.credential_name,
+                provider_settings=ProviderSettings(
+                    base_url=base_url,
+                    model_names=model_names,
+                ),
+            )
+        )
+        ms.wait_until_ready_or_failed()
+
+        result = ms.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=False,
+        )
+        assert isinstance(result, ModelResponse)
+        assert (
+            pydash.get(result, "choices[0].message.content")
+            == "今天天气怎么样？"
+        )
+
+        await ms.delete_async()
+        await cr.delete_async()
+
+    def test_model_service_with_credential(self, model_service_name: str):
+        # 创建 Credential
+        from agentrun.credential import (
+            Credential,
+            CredentialConfig,
+            CredentialCreateInput,
+        )
+
+        cr = Credential.create(
+            CredentialCreateInput(
+                credential_name=f"{model_service_name}-credential",
+                enabled=True,
+                credential_config=CredentialConfig.outbound_llm_api_key(
+                    api_key=api_key,
+                    provider="openai",
+                ),
+            )
+        )
+
+        # 创建 model service
+        ms = ModelService.create(
+            ModelServiceCreateInput(
+                model_service_name=model_service_name,
+                description="原始描述",
+                model_type=ModelType.LLM,
+                provider="openai",
+                credential_name=cr.credential_name,
+                provider_settings=ProviderSettings(
+                    base_url=base_url,
+                    model_names=model_names,
+                ),
+            )
+        )
+        ms.wait_until_ready_or_failed()
+
+        result = ms.completions(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个回音壁，会原封不动返回用户的输入",
+                },
+                {"role": "user", "content": "你好！"},
+                {"role": "assistant", "content": "你好！"},
+                {"role": "user", "content": "今天天气怎么样？"},
+            ],
+            stream=False,
+        )
+        assert isinstance(result, ModelResponse)
+        assert (
+            pydash.get(result, "choices[0].message.content")
+            == "今天天气怎么样？"
+        )
+
+        ms.delete()
+        cr.delete()
 
 
 class TestModelProxy:

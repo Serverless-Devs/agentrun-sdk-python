@@ -208,6 +208,15 @@ class ModelService(
         assert self.provider_settings is not None
         assert self.provider_settings.base_url is not None
 
+        api_key = self.provider_settings.api_key or ""
+        if not api_key and self.credential_name:
+            from agentrun.credential import Credential
+
+            credential = Credential.get_by_name(
+                self.credential_name, config=cfg
+            )
+            api_key = credential.credential_secret
+
         default_model = (
             self.provider_settings.model_names[0]
             if self.provider_settings.model_names is not None
@@ -216,7 +225,7 @@ class ModelService(
         )
 
         return BaseInfo(
-            api_key=self.provider_settings.api_key or "",
+            api_key=api_key,
             base_url=self.provider_settings.base_url,
             model=default_model,
             headers=cfg.get_headers(),
