@@ -1,8 +1,10 @@
-from typing import Dict, Optional, Union
-
-from litellm import completion, ResponseInputParam, responses
+from typing import Dict, Optional, TYPE_CHECKING, Union
 
 from agentrun.utils.config import Config
+
+if TYPE_CHECKING:
+    from litellm import ResponseInputParam
+
 from agentrun.utils.data_api import DataAPI, ResourceType
 from agentrun.utils.helper import mask_password
 from agentrun.utils.log import logger
@@ -52,6 +54,8 @@ class ModelCompletionAPI:
             **self.headers,
             **kwargs.get("headers", {}),
         }
+        from litellm import completion
+
         return completion(
             **kwargs,
             api_key=self.api_key,
@@ -63,7 +67,7 @@ class ModelCompletionAPI:
 
     def responses(
         self,
-        input: Union[str, ResponseInputParam],
+        input: Union[str, "ResponseInputParam"],
         model: Optional[str] = None,
         custom_llm_provider: Optional[str] = None,
         **kwargs,
@@ -78,6 +82,8 @@ class ModelCompletionAPI:
             **self.headers,
             **kwargs.get("headers", {}),
         }
+        from litellm import responses
+
         return responses(
             **kwargs,
             api_key=self.api_key,
@@ -163,7 +169,7 @@ class ModelDataAPI(DataAPI):
 
     def responses(
         self,
-        input: Union[str, ResponseInputParam],
+        input: Union[str, "ResponseInputParam"],
         model: Optional[str] = None,
         config: Optional[Config] = None,
         **kwargs,

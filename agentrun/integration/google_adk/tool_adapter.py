@@ -2,8 +2,7 @@
 
 将标准工具定义转换为 Google ADK 函数格式。"""
 
-import inspect
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from agentrun.integration.utils.adapter import ToolAdapter
 from agentrun.integration.utils.canonical import CanonicalTool

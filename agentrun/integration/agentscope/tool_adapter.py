@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from typing import Any, List
 
-from agentscope.message import TextBlock, ToolUseBlock
+from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from agentrun.integration.utils.adapter import ToolAdapter

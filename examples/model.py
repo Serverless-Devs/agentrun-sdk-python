@@ -141,7 +141,6 @@ def create_or_get_model_proxy():
                 model_proxy_name=model_proxy_name,
                 description="测试模型治理",
                 model_type=model.ModelType.LLM,
-                proxy_mode="single",
                 proxy_config=model.ProxyConfig(
                     endpoints=[
                         model.ProxyConfigEndpoint(

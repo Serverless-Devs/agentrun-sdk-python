@@ -14,7 +14,7 @@ dependencies = [
     "alibabacloud-devs20230714>=2.4.1",
     "pydash>=8.0.5",
     "alibabacloud-agentrun20250910>=4.0.1",
-    
+    "alibabacloud_tea_openapi>=0.4.2",
 ]
 
 [project.optional-dependencies]

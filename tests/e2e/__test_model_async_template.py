@@ -18,6 +18,7 @@ import datetime
 import os
 import time
 
+from pydantic_ai import ModelResponse
 import pydash
 import pytest
 
@@ -27,7 +28,6 @@ from agentrun.model import (
     ModelProxy,
     ModelProxyCreateInput,
     ModelProxyUpdateInput,
-    ModelResponse,
     ModelService,
     ModelServiceCreateInput,
     ModelServiceListInput,

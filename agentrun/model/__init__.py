@@ -1,8 +1,5 @@
 """Model Service 模块 / Model Service Module"""
 
-from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
-from litellm.types.utils import ModelResponse
-
 from .api import ModelCompletionAPI, ModelControlAPI, ModelDataAPI
 from .client import ModelClient
 from .model import (
@@ -57,7 +54,4 @@ __all__ = [
     "ModelProxyCreateInput",
     "ModelProxyUpdateInput",
     "ModelProxyListInput",
-    # others
-    "ModelResponse",
-    "CustomStreamWrapper",
 ]
