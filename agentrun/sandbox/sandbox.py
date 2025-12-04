@@ -21,6 +21,7 @@ from agentrun.utils.config import Config
 from agentrun.utils.model import BaseModel
 
 if TYPE_CHECKING:
+    from agentrun.sandbox.aio_sandbox import AioSandbox
     from agentrun.sandbox.browser_sandbox import BrowserSandbox
     from agentrun.sandbox.code_interpreter_sandbox import CodeInterpreterSandbox
     from agentrun.sandbox.model import (
@@ -111,13 +112,35 @@ class Sandbox(BaseModel):
         ...
 
     @classmethod
+    @overload
+    async def create_async(
+        cls,
+        template_type: Literal[TemplateType.AIO],
+        template_name: Optional[str] = None,
+        sandbox_idle_timeout_seconds: Optional[int] = 600,
+        config: Optional[Config] = None,
+    ) -> "AioSandbox":
+        ...
+
+    @classmethod
+    @overload
+    def create(
+        cls,
+        template_type: Literal[TemplateType.AIO],
+        template_name: Optional[str] = None,
+        sandbox_idle_timeout_seconds: Optional[int] = 600,
+        config: Optional[Config] = None,
+    ) -> "AioSandbox":
+        ...
+
+    @classmethod
     async def create_async(
         cls,
         template_type: TemplateType,
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
         config: Optional[Config] = None,
-    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox"]:
+    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
 
         if template_name is None:
             # todo 可以考虑为用户创建一个模板？
@@ -127,6 +150,7 @@ class Sandbox(BaseModel):
         template = await cls.get_template_async(template_name, config=config)
 
         # 根据 template 类型创建相应的 Sandbox 子类
+        from agentrun.sandbox.aio_sandbox import AioSandbox
         from agentrun.sandbox.browser_sandbox import BrowserSandbox
         from agentrun.sandbox.code_interpreter_sandbox import (
             CodeInterpreterSandbox,
@@ -154,6 +178,10 @@ class Sandbox(BaseModel):
             sandbox = BrowserSandbox.model_validate(
                 base_sandbox.model_dump(by_alias=False)
             )
+        elif template.template_type == TemplateType.AIO:
+            sandbox = AioSandbox.model_validate(
+                base_sandbox.model_dump(by_alias=False)
+            )
         else:
             raise ValueError(
                 f"template_type {template.template_type} is not supported"
@@ -169,7 +197,7 @@ class Sandbox(BaseModel):
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
         config: Optional[Config] = None,
-    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox"]:
+    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
 
         if template_name is None:
             # todo 可以考虑为用户创建一个模板？
@@ -179,6 +207,7 @@ class Sandbox(BaseModel):
         template = cls.get_template(template_name, config=config)
 
         # 根据 template 类型创建相应的 Sandbox 子类
+        from agentrun.sandbox.aio_sandbox import AioSandbox
         from agentrun.sandbox.browser_sandbox import BrowserSandbox
         from agentrun.sandbox.code_interpreter_sandbox import (
             CodeInterpreterSandbox,
@@ -204,6 +233,10 @@ class Sandbox(BaseModel):
             )
         elif template.template_type == TemplateType.BROWSER:
             sandbox = BrowserSandbox.model_validate(
+                base_sandbox.model_dump(by_alias=False)
+            )
+        elif template.template_type == TemplateType.AIO:
+            sandbox = AioSandbox.model_validate(
                 base_sandbox.model_dump(by_alias=False)
             )
         else:
@@ -355,9 +388,29 @@ class Sandbox(BaseModel):
     async def connect_async(
         cls,
         sandbox_id: str,
+        template_type: Literal[TemplateType.AIO],
+        config: Optional[Config] = None,
+    ) -> "AioSandbox":
+        ...
+
+    @classmethod
+    @overload
+    def connect(
+        cls,
+        sandbox_id: str,
+        template_type: Literal[TemplateType.AIO],
+        config: Optional[Config] = None,
+    ) -> "AioSandbox":
+        ...
+
+    @classmethod
+    @overload
+    async def connect_async(
+        cls,
+        sandbox_id: str,
         template_type: None = None,
         config: Optional[Config] = None,
-    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox"]:
+    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
         ...
 
     @classmethod
@@ -367,7 +420,7 @@ class Sandbox(BaseModel):
         sandbox_id: str,
         template_type: None = None,
         config: Optional[Config] = None,
-    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox"]:
+    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
         ...
 
     @classmethod
@@ -376,7 +429,7 @@ class Sandbox(BaseModel):
         sandbox_id: str,
         template_type: Optional[TemplateType] = None,
         config: Optional[Config] = None,
-    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox"]:
+    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
         """连接一个SandBox（异步）
 
         Args:
@@ -417,6 +470,7 @@ class Sandbox(BaseModel):
             )
 
         # 根据 template 类型创建相应的 Sandbox 子类
+        from agentrun.sandbox.aio_sandbox import AioSandbox
         from agentrun.sandbox.browser_sandbox import BrowserSandbox
         from agentrun.sandbox.code_interpreter_sandbox import (
             CodeInterpreterSandbox,
@@ -431,10 +485,14 @@ class Sandbox(BaseModel):
             result = BrowserSandbox.model_validate(
                 sandbox.model_dump(by_alias=False)
             )
+        elif template.template_type == TemplateType.AIO:
+            result = AioSandbox.model_validate(
+                sandbox.model_dump(by_alias=False)
+            )
         else:
             raise ValueError(
                 f"Unsupported template type: {template.template_type}. "
-                "Expected 'code-interpreter' or 'browser'"
+                "Expected 'code-interpreter', 'browser' or 'aio'"
             )
 
         result._config = config
@@ -448,7 +506,7 @@ class Sandbox(BaseModel):
         sandbox_id: str,
         template_type: Optional[TemplateType] = None,
         config: Optional[Config] = None,
-    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox"]:
+    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
         """连接一个SandBox（同步）
 
         Args:
@@ -485,6 +543,7 @@ class Sandbox(BaseModel):
             )
 
         # 根据 template 类型创建相应的 Sandbox 子类
+        from agentrun.sandbox.aio_sandbox import AioSandbox
         from agentrun.sandbox.browser_sandbox import BrowserSandbox
         from agentrun.sandbox.code_interpreter_sandbox import (
             CodeInterpreterSandbox,
@@ -499,10 +558,14 @@ class Sandbox(BaseModel):
             result = BrowserSandbox.model_validate(
                 sandbox.model_dump(by_alias=False)
             )
+        elif template.template_type == TemplateType.AIO:
+            result = AioSandbox.model_validate(
+                sandbox.model_dump(by_alias=False)
+            )
         else:
             raise ValueError(
                 f"Unsupported template type: {template.template_type}. "
-                "Expected 'code-interpreter' or 'browser'"
+                "Expected 'code-interpreter', 'browser' or 'aio'"
             )
 
         result._config = config

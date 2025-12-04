@@ -1,6 +1,10 @@
 # AgentRun Sandbox SDK
 
-AgentRun Sandbox SDK 提供了一种强大而灵活的方式来创建隔离环境，用于代码执行和浏览器自动化。该 SDK 支持两种主要的沙箱类型：用于执行多种语言代码的 **Code Interpreter**，以及用于自动化 Web 交互的 **Browser**。
+AgentRun Sandbox SDK 提供了一种强大而灵活的方式来创建隔离环境，用于代码执行和浏览器自动化。该 SDK 支持三种沙箱类型：
+
+- **Code Interpreter** - 用于在隔离环境中执行 Python 代码
+- **Browser** - 用于自动化 Web 交互，支持 Playwright、VNC 和 CDP
+- **All-in-One (AIO)** - 在单个沙箱中结合 Code Interpreter 和 Browser 的全部功能
 
 ## 目录
 
@@ -9,6 +13,7 @@ AgentRun Sandbox SDK 提供了一种强大而灵活的方式来创建隔离环�
 - [快速开始](#快速开始)
   - [Code Interpreter 快速开始](#code-interpreter-快速开始)
   - [Browser 快速开始](#browser-快速开始)
+  - [All-in-One 快速开始](#all-in-one-快速开始)
 - [核心概念](#核心概念)
   - [Templates](#templates)
   - [Sandboxes](#sandboxes)
@@ -23,6 +28,10 @@ AgentRun Sandbox SDK 提供了一种强大而灵活的方式来创建隔离环�
   - [Playwright 集成](#playwright-集成)
   - [VNC 和 CDP 访问](#vnc-和-cdp-访问)
   - [录制管理](#录制管理)
+- [All-in-One Sandbox](#all-in-one-sandbox)
+  - [快速开始](#all-in-one-快速开始-1)
+  - [功能特性](#功能特性)
+  - [使用示例](#使用示例)
 - [异步支持](#异步支持)
 - [最佳实践](#最佳实践)
 - [示例](#示例)
@@ -41,6 +50,7 @@ Sandbox SDK 使您能够：
 
 - ✅ **Code Interpreter**：支持 Python 执行和 context 管理
 - ✅ **Browser Automation**：Playwright 集成，支持 CDP 和 VNC
+- ✅ **All-in-One Sandbox**：在单个环境中结合代码解释器和浏览器功能
 - ✅ **File Management**：上传、下载、读取、写入、移动文件
 - ✅ **Process Control**：执行命令和管理进程
 - ✅ **Session Recording**：录制浏览器会话
@@ -65,6 +75,14 @@ export AGENTRUN_ACCOUNT_ID=your_account_id
 ```
 
 ## 快速开始
+
+### 沙箱类型概览
+
+| 类型 | 类名 | 描述 |
+|------|------|------|
+| `TemplateType.CODE_INTERPRETER` | `CodeInterpreterSandbox` | Python 代码执行、文件管理、进程控制 |
+| `TemplateType.BROWSER` | `BrowserSandbox` | 浏览器自动化，支持 Playwright、VNC、CDP |
+| `TemplateType.AIO` | `AioSandbox` | **All-in-One**：结合 Code Interpreter 和 Browser 的全部功能 |
 
 ### Code Interpreter 快速开始
 
@@ -165,18 +183,72 @@ sandbox.delete()
 Sandbox.delete_template(template_name)
 ```
 
+### All-in-One 快速开始
+
+```python
+import time
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+
+# 创建 All-in-One 模板
+template_name = f"my-aio-template-{time.strftime('%Y%m%d%H%M%S')}"
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,  # All-in-One 类型
+    )
+)
+
+print(f"All-in-One template created: {template.template_name}")
+
+# 使用上下文管理器创建 All-in-One 沙箱
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+) as sandbox:
+    print(f"All-in-One sandbox created: {sandbox.sandbox_id}")
+    
+    # Code Interpreter 功能
+    result = sandbox.context.execute(code="print('Hello from AIO!')")
+    print(f"Code execution result: {result}")
+    
+    sandbox.file.write(path="/tmp/test.txt", content="Hello World")
+    content = sandbox.file.read(path="/tmp/test.txt")
+    print(f"File content: {content}")
+    
+    # Browser 功能
+    print(f"VNC URL: {sandbox.get_vnc_url()}")
+    
+    with sandbox.sync_playwright(record=True) as playwright:
+        playwright.new_page().goto("https://www.example.com")
+        title = playwright.title()
+        print(f"Page title: {title}")
+
+# 退出上下文后沙箱自动清理
+
+# 清理模板
+Sandbox.delete_template(template_name)
+```
+
 ## 核心概念
 
 ### Templates
 
 Template 定义了沙箱的配置，它们指定了：
-- **类型**：Code Interpreter 或 Browser
+- **类型**：Code Interpreter、Browser 或 All-in-One (AIO)
 - **资源**：CPU、内存、磁盘大小
 - **网络**：网络模式和 VPC 配置
 - **环境**：环境变量和凭证
 - **超时时间**：空闲超时和 TTL
 
 Template 是可重用的，可以用来创建多个具有相同配置的沙箱。
+
+#### 模板类型
+
+| 类型 | 描述 | 使用场景 |
+|------|------|----------|
+| `TemplateType.CODE_INTERPRETER` | Python 代码执行环境 | 数据处理、脚本执行、计算任务 |
+| `TemplateType.BROWSER` | 浏览器自动化环境 | Web 抓取、测试、自动化 |
+| `TemplateType.AIO` | All-in-One 组合环境 | 需要同时使用代码和浏览器的复杂工作流 |
 
 ### Sandboxes
 
@@ -217,6 +289,16 @@ template = Sandbox.create_template(
         network_configuration=TemplateNetworkConfiguration(
             network_mode=TemplateNetworkMode.PUBLIC
         ),
+    )
+)
+
+# All-in-One 模板（结合 Code Interpreter + Browser）
+# 默认值：4 核 CPU，8GB 内存，10GB 磁盘
+aio_template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name="my-aio-template",
+        template_type=TemplateType.AIO,
+        # cpu, memory, disk_size 使用 AIO 的更高默认值
     )
 )
 ```
@@ -313,6 +395,18 @@ sandbox = Sandbox.connect(sandbox_id="your-sandbox-id")
 sandbox = Sandbox.connect(
     sandbox_id="your-sandbox-id",
     template_type=TemplateType.CODE_INTERPRETER
+)
+
+# 连接到 Browser 沙箱
+browser_sandbox = Sandbox.connect(
+    sandbox_id="your-browser-sandbox-id",
+    template_type=TemplateType.BROWSER
+)
+
+# 连接到 All-in-One 沙箱
+aio_sandbox = Sandbox.connect(
+    sandbox_id="your-aio-sandbox-id",
+    template_type=TemplateType.AIO
 )
 ```
 
@@ -657,6 +751,346 @@ print(f"Downloaded: {result['saved_path']}, Size: {result['size']} bytes")
 
 ```python
 sandbox.delete_recording(filename="recording.mkv")
+```
+
+## All-in-One Sandbox
+
+**All-in-One (AIO) Sandbox** 将 **Code Interpreter** 和 **Browser** 沙箱的功能结合到一个统一的环境中。这使您可以在同一个沙箱实例中执行代码、管理文件和自动化浏览器。
+
+### 为什么选择 All-in-One？
+
+- **统一环境**：在同一个沙箱中运行 Python 代码和浏览器自动化
+- **无缝集成**：在代码执行和浏览器任务之间共享文件和数据
+- **资源效率**：单个沙箱实例即可完成复杂工作流
+- **简化管理**：一个模板、一个沙箱、全部功能
+
+### All-in-One 快速开始
+
+```python
+import time
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+
+# 创建 All-in-One 模板
+template_name = f"my-aio-template-{time.strftime('%Y%m%d%H%M%S')}"
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,  # All-in-One 类型
+        # 默认值：4 核 CPU，8GB 内存，10GB 磁盘
+    )
+)
+
+print(f"All-in-One template created: {template.template_name}")
+
+# 创建并使用 All-in-One 沙箱
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+    sandbox_idle_timeout_seconds=600,
+) as sandbox:
+    print(f"Sandbox created: {sandbox.sandbox_id}")
+    
+    # ===== Code Interpreter 功能 =====
+    # 执行 Python 代码
+    result = sandbox.context.execute(code="print('Hello from AIO!')")
+    print(f"Code result: {result}")
+    
+    # 文件操作
+    sandbox.file.write(path="/tmp/data.txt", content="Hello World")
+    content = sandbox.file.read(path="/tmp/data.txt")
+    print(f"File content: {content}")
+    
+    # ===== Browser 功能 =====
+    # 获取浏览器访问 URL
+    print(f"VNC URL: {sandbox.get_vnc_url()}")
+    print(f"CDP URL: {sandbox.get_cdp_url()}")
+    
+    # 使用 Playwright 进行浏览器自动化
+    with sandbox.sync_playwright(record=True) as playwright:
+        playwright.new_page().goto("https://www.example.com")
+        title = playwright.title()
+        print(f"Page title: {title}")
+        playwright.screenshot(path="screenshot.png")
+
+# 沙箱自动清理
+Sandbox.delete_template(template_name)
+```
+
+### 功能特性
+
+AIO 沙箱提供了 Code Interpreter 和 Browser 沙箱的所有功能：
+
+| 功能 | 描述 | 访问方式 |
+|------|------|----------|
+| **代码执行** | 支持 context 管理的 Python 代码执行 | `sandbox.context.execute()` |
+| **文件操作** | 读写文件 | `sandbox.file.read()`, `sandbox.file.write()` |
+| **文件系统** | 列出、移动、删除、上传、下载文件 | `sandbox.file_system.*` |
+| **进程管理** | 执行命令、管理进程 | `sandbox.process.*` |
+| **Playwright** | Playwright 浏览器自动化 | `sandbox.sync_playwright()`, `sandbox.async_playwright()` |
+| **VNC 访问** | 实时浏览器视图 | `sandbox.get_vnc_url()` |
+| **CDP 访问** | Chrome DevTools Protocol | `sandbox.get_cdp_url()` |
+| **录制** | 录制浏览器会话 | `sandbox.list_recordings()`, `sandbox.download_recording()` |
+
+### 默认资源
+
+All-in-One 沙箱使用更高的默认资源配置以支持浏览器和代码执行：
+
+| 资源 | 默认值 |
+|------|--------|
+| CPU | 4 核 |
+| 内存 | 8192 MB (8GB) |
+| 磁盘大小 | 10240 MB (10GB) |
+
+### 使用示例
+
+#### 示例 1：Web 抓取与数据处理
+
+```python
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+import time
+
+template_name = f"scrape-and-process-{time.strftime('%Y%m%d%H%M%S')}"
+
+# 创建 AIO 模板
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,
+    )
+)
+
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+) as sandbox:
+    # 步骤 1：使用浏览器抓取数据
+    with sandbox.sync_playwright(record=True) as playwright:
+        playwright.new_page().goto("https://news.ycombinator.com")
+        playwright.wait_for_selector(".titleline")
+        
+        # 使用 JavaScript 提取标题
+        titles = playwright.evaluate("""
+            Array.from(document.querySelectorAll('.titleline a'))
+                .slice(0, 10)
+                .map(a => a.textContent)
+        """)
+        
+        # 将抓取的数据保存到文件
+        sandbox.file.write(
+            path="/tmp/scraped_titles.txt",
+            content="\\n".join(titles)
+        )
+    
+    # 步骤 2：使用 Python 处理数据
+    code = '''
+import json
+
+# 读取抓取的数据
+with open("/tmp/scraped_titles.txt", "r") as f:
+    titles = f.read().strip().split("\\n")
+
+# 处理：添加编号并计算统计信息
+processed = {
+    "total_count": len(titles),
+    "titles": [{"index": i+1, "title": t} for i, t in enumerate(titles)],
+    "avg_title_length": sum(len(t) for t in titles) / len(titles)
+}
+
+# 保存处理结果
+with open("/tmp/processed_data.json", "w") as f:
+    json.dump(processed, f, indent=2)
+
+print(f"Processed {len(titles)} titles")
+print(f"Average title length: {processed['avg_title_length']:.1f} chars")
+'''
+    
+    result = sandbox.context.execute(code=code)
+    print(result)
+    
+    # 步骤 3：下载处理后的数据
+    sandbox.file_system.download(
+        path="/tmp/processed_data.json",
+        save_path="./processed_data.json"
+    )
+
+Sandbox.delete_template(template_name)
+```
+
+#### 示例 2：自动化测试与结果分析
+
+```python
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+import time
+
+template_name = f"test-and-analyze-{time.strftime('%Y%m%d%H%M%S')}"
+
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,
+    )
+)
+
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+) as sandbox:
+    # 运行浏览器测试
+    test_results = []
+    
+    with sandbox.sync_playwright(record=True) as playwright:
+        # 测试 1：首页加载
+        playwright.new_page().goto("https://example.com")
+        title = playwright.title()
+        test_results.append({
+            "test": "homepage_loads",
+            "passed": "Example Domain" in title,
+            "details": f"Title: {title}"
+        })
+        
+        # 测试 2：截图
+        playwright.screenshot(path="/tmp/test_screenshot.png")
+        test_results.append({
+            "test": "screenshot_captured",
+            "passed": True,
+            "details": "Screenshot saved"
+        })
+    
+    # 使用 Python 分析结果
+    code = f'''
+import json
+
+results = {test_results}
+
+passed = sum(1 for r in results if r["passed"])
+failed = len(results) - passed
+
+report = {{
+    "total_tests": len(results),
+    "passed": passed,
+    "failed": failed,
+    "pass_rate": f"{{passed/len(results)*100:.1f}}%",
+    "details": results
+}}
+
+with open("/tmp/test_report.json", "w") as f:
+    json.dump(report, f, indent=2)
+
+print(f"Test Results: {{passed}}/{{len(results)}} passed ({{report['pass_rate']}})")
+'''
+    
+    result = sandbox.context.execute(code=code)
+    print(result)
+
+Sandbox.delete_template(template_name)
+```
+
+#### 示例 3：截图与图像分析
+
+```python
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+import time
+
+template_name = f"screenshot-analysis-{time.strftime('%Y%m%d%H%M%S')}"
+
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,
+    )
+)
+
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+) as sandbox:
+    # 捕获截图
+    with sandbox.sync_playwright() as playwright:
+        playwright.new_page().goto("https://www.google.com")
+        playwright.screenshot(path="/tmp/google.png", full_page=True)
+    
+    # 使用 Python 分析截图
+    code = '''
+from PIL import Image
+import os
+
+# 加载并分析截图
+img = Image.open("/tmp/google.png")
+
+analysis = {
+    "filename": "google.png",
+    "format": img.format,
+    "mode": img.mode,
+    "size": f"{img.width}x{img.height}",
+    "file_size_kb": os.path.getsize("/tmp/google.png") / 1024
+}
+
+print(f"Image Analysis:")
+print(f"  Size: {analysis['size']}")
+print(f"  Format: {analysis['format']}")
+print(f"  Mode: {analysis['mode']}")
+print(f"  File size: {analysis['file_size_kb']:.1f} KB")
+'''
+    
+    result = sandbox.context.execute(code=code)
+    print(result)
+    
+    # 下载截图
+    sandbox.file_system.download(
+        path="/tmp/google.png",
+        save_path="./google_screenshot.png"
+    )
+
+Sandbox.delete_template(template_name)
+```
+
+#### 异步示例
+
+```python
+import asyncio
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+
+async def aio_workflow():
+    template_name = "async-aio-example"
+    
+    # 创建模板
+    template = await Sandbox.create_template_async(
+        input=TemplateInput(
+            template_name=template_name,
+            template_type=TemplateType.AIO,
+        )
+    )
+    
+    # 创建并使用 AIO 沙箱
+    async with await Sandbox.create_async(
+        template_type=TemplateType.AIO,
+        template_name=template_name,
+    ) as sandbox:
+        # 异步执行代码
+        result = await sandbox.context.execute_async(
+            code="print('Async AIO sandbox!')"
+        )
+        print(result)
+        
+        # 异步文件操作
+        await sandbox.file.write_async(
+            path="/tmp/async_test.txt",
+            content="Async content"
+        )
+        
+        content = await sandbox.file.read_async(path="/tmp/async_test.txt")
+        print(f"File content: {content}")
+        
+        # 异步浏览器自动化
+        async with sandbox.async_playwright(record=True) as playwright:
+            await playwright.goto("https://example.com")
+            title = await playwright.title()
+            print(f"Page title: {title}")
+    
+    # 清理
+    await Sandbox.delete_template_async(template_name)
+
+asyncio.run(aio_workflow())
 ```
 
 ## 异步支持

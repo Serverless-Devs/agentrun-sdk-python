@@ -32,6 +32,8 @@ class TemplateType(str, Enum):
     """代码解释器 / Code Interpreter"""
     BROWSER = "Browser"
     """浏览器 / Browser"""
+    AIO = "AllInOne"
+    """All-in-One 沙箱 / All-in-One Sandbox"""
 
 
 class TemplateNetworkMode(str, Enum):
@@ -202,25 +204,39 @@ class TemplateInput(BaseModel):
         ):
             values["disk_size"] = 512
         elif (
-            template_type == TemplateType.BROWSER or template_type == "Browser"
+            template_type == TemplateType.BROWSER
+            or template_type == "Browser"
+            or template_type == TemplateType.AIO
+            or template_type == "AllInOne"
         ):
             values["disk_size"] = 10240
         else:
             # 如果 template_type 未设置或为其他值，使用 512 作为默认值
             values["disk_size"] = 512
 
+        # 如果 template_type 为 AIO，则设置 cpu 和 memory 的默认值4C8G
+        if template_type == TemplateType.AIO or template_type == "AllInOne":
+            values["cpu"] = 4.0
+            values["memory"] = 8192
+
         return values
 
     @model_validator(mode="after")
     def validate_template_constraints(self):
-        if self.template_type == TemplateType.BROWSER:
+        if (
+            self.template_type == TemplateType.BROWSER
+            or self.template_type == TemplateType.AIO
+        ):
             if self.disk_size != 10240:
                 raise ValueError(
                     "when template_type is BROWSER，disk_size should be 10240，"
                     f"the current disk size is {self.disk_size}"
                 )
 
-        if self.template_type == TemplateType.CODE_INTERPRETER:
+        if (
+            self.template_type == TemplateType.CODE_INTERPRETER
+            or self.template_type == TemplateType.AIO
+        ):
             if (
                 self.network_configuration
                 and self.network_configuration.network_mode

@@ -2,6 +2,7 @@
 
 提供沙箱环境管理功能，包括 Sandbox 和 Template 的创建、管理和控制。"""
 
+from .aio_sandbox import AioSandbox
 from .browser_sandbox import BrowserSandbox
 from .client import SandboxClient
 from .code_interpreter_sandbox import CodeInterpreterSandbox
@@ -21,6 +22,7 @@ from .model import (
     TemplateNetworkConfiguration,
     TemplateNetworkMode,
     TemplateOssConfiguration,
+    TemplateOSSPermission,
     TemplateType,
 )
 from .sandbox import Sandbox
@@ -34,6 +36,7 @@ __all__ = [
     "Template",
     "CodeInterpreterSandbox",
     "BrowserSandbox",
+    "AioSandbox",
     # 模型类
     "SandboxInput",
     "TemplateInput",
@@ -51,4 +54,5 @@ __all__ = [
     "ListSandboxesInput",
     "ListSandboxesOutput",
     "CodeLanguage",
+    "TemplateOSSPermission",
 ]

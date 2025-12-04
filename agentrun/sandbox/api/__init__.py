@@ -4,6 +4,7 @@
 This module contains API interfaces for sandbox environments.
 """
 
+from .aio_data import AioDataAPI
 from .browser_data import BrowserDataAPI
 from .code_interpreter_data import CodeInterpreterDataAPI
 from .control import SandboxControlAPI
@@ -14,4 +15,5 @@ __all__ = [
     "SandboxDataAPI",
     "CodeInterpreterDataAPI",
     "BrowserDataAPI",
+    "AioDataAPI",
 ]

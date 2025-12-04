@@ -1,0 +1,634 @@
+"""
+Sandbox All-in-One (AIO) 模块的 E2E 测试
+
+测试覆盖:
+- 创建 AIO Sandbox
+- 健康检查
+- Browser 功能:
+  - Playwright 同步/异步操作
+  - VNC 和 CDP 连接
+  - 录制功能
+- Code Interpreter 功能:
+  - 代码执行 (Context)
+  - 文件系统操作 (FileSystem)
+  - 文件读写操作 (File)
+  - 进程操作 (Process)
+  - 上传下载
+"""
+
+import asyncio
+import os
+from pathlib import Path
+import tempfile
+import time
+
+import pytest
+
+from agentrun.sandbox import AioSandbox, Sandbox, Template
+from agentrun.sandbox.model import (
+    CodeLanguage,
+    TemplateInput,
+    TemplateNetworkConfiguration,
+    TemplateNetworkMode,
+    TemplateType,
+)
+from agentrun.utils.exception import ResourceNotExistError
+
+
+class TestSandboxAio:
+    """Sandbox All-in-One 模块 E2E 测试"""
+
+    @pytest.fixture
+    async def template(self, unique_name: str):
+        """创建测试模板"""
+        template_name = f"{unique_name}-aio-template"
+        template = await Template.create_async(
+            TemplateInput(
+                template_name=template_name,
+                template_type=TemplateType.AIO,
+                description="E2E 测试 - All-in-One Sandbox",
+                cpu=2.0,
+                memory=4096,
+                disk_size=10240,
+                sandbox_idle_timeout_in_seconds=600,
+                sandbox_ttlin_seconds=600,
+                network_configuration=TemplateNetworkConfiguration(
+                    network_mode=TemplateNetworkMode.PUBLIC
+                ),
+            )
+        )
+        yield template
+        # 清理资源
+        try:
+            await Template.delete_by_name_async(template_name=template_name)
+        except ResourceNotExistError:
+            pass
+
+    @pytest.fixture
+    async def sandbox(self, template):
+        """创建测试 Sandbox"""
+        sb = await Sandbox.create_async(
+            template_type=TemplateType.AIO,
+            template_name=template.template_name,
+            sandbox_idle_timeout_seconds=600,
+        )
+
+        # 验证返回类型
+        assert isinstance(sb, AioSandbox)
+
+        # 等待 Sandbox 就绪
+        max_retries = 120
+        for _ in range(max_retries):
+            try:
+                health = await sb.check_health_async()
+                if health.get("status") == "ok":
+                    break
+            except Exception:
+                pass  # 忽略健康检查错误，继续重试
+            await asyncio.sleep(2)
+
+        yield sb
+
+        # 清理资源
+        try:
+            await sb.delete_async()
+        except Exception:
+            pass
+
+    # ========== 基础测试 ==========
+
+    async def test_create_aio_sandbox_async(self, template):
+        """测试创建 AIO Sandbox"""
+        sb = await Sandbox.create_async(
+            template_type=TemplateType.AIO,
+            template_name=template.template_name,
+            sandbox_idle_timeout_seconds=600,
+        )
+
+        try:
+            assert sb is not None
+            assert isinstance(sb, AioSandbox)
+            assert sb.sandbox_id is not None
+            assert sb.template_id == template.template_id
+            assert sb.status is not None
+        finally:
+            await sb.delete_async()
+
+    async def test_aio_health_check_async(self, sandbox):
+        """测试健康检查"""
+        result = await sandbox.check_health_async()
+        assert result is not None
+        assert isinstance(result, dict)
+        assert "status" in result
+        assert result["status"] == "ok"
+
+    async def test_aio_connect_async(self, template):
+        """测试连接到已存在的 AIO Sandbox"""
+        # 创建 Sandbox
+        sb1 = await Sandbox.create_async(
+            template_type=TemplateType.AIO,
+            template_name=template.template_name,
+            sandbox_idle_timeout_seconds=600,
+        )
+
+        try:
+            # 等待就绪
+            max_retries = 120
+            for _ in range(max_retries):
+                try:
+                    health = await sb1.check_health_async()
+                    if health.get("status") == "ok":
+                        break
+                except Exception:
+                    pass  # 忽略健康检查错误，继续重试
+                await asyncio.sleep(2)
+
+            sandbox_id = sb1.sandbox_id
+
+            # 连接到已存在的 Sandbox
+            assert sandbox_id
+            sb2 = await Sandbox.connect_async(sandbox_id)
+            assert sb2 is not None
+            assert isinstance(sb2, AioSandbox)
+            assert sb2.sandbox_id == sandbox_id
+
+            # 验证连接的 Sandbox 可以正常使用
+            health_status = await sb2.check_health_async()
+            assert health_status.get("status") == "ok"
+        finally:
+            await sb1.delete_async()
+
+    # ========== Browser 功能测试 ==========
+
+    async def test_browser_vnc_cdp_urls_async(self, sandbox):
+        """测试获取 VNC 和 CDP 连接 URL"""
+        # 获取 VNC URL
+        vnc_url = sandbox.get_vnc_url(record=False)
+        assert vnc_url is not None
+        assert isinstance(vnc_url, str)
+        assert "ws://" in vnc_url or "wss://" in vnc_url
+
+        # 获取带录制的 VNC URL
+        vnc_url_with_record = sandbox.get_vnc_url(record=True)
+        assert vnc_url_with_record is not None
+        assert "recording" in vnc_url_with_record
+
+        # 获取 CDP URL
+        cdp_url = sandbox.get_cdp_url(record=False)
+        assert cdp_url is not None
+        assert isinstance(cdp_url, str)
+        assert "ws://" in cdp_url or "wss://" in cdp_url
+
+        # 获取带录制的 CDP URL
+        cdp_url_with_record = sandbox.get_cdp_url(record=True)
+        assert cdp_url_with_record is not None
+        assert "recording" in cdp_url_with_record
+
+    async def test_playwright_async_navigation_async(self, sandbox):
+        """测试 Playwright 异步导航功能"""
+        async with sandbox.async_playwright() as playwright:
+            # 导航到百度首页
+            response = await playwright.goto("https://www.baidu.com")
+            assert response is not None
+
+            # 获取页面标题
+            title = await playwright.title()
+            assert title is not None
+            assert len(title) > 0
+            assert "百度" in title
+
+            # 使用 evaluate 获取页面 URL
+            url = await playwright.evaluate("window.location.href")
+            assert url is not None
+            assert "baidu.com" in url
+
+    async def test_playwright_async_screenshot_async(self, sandbox):
+        """测试 Playwright 异步截图功能"""
+        screenshot_path = f"test_aio_screenshot_{int(time.time())}.png"
+
+        try:
+            async with sandbox.async_playwright() as playwright:
+                await playwright.goto("https://www.baidu.com")
+                await asyncio.sleep(2)
+                await playwright.screenshot(path=screenshot_path)
+
+            # 验证截图文件已创建
+            assert os.path.exists(screenshot_path)
+            assert os.path.getsize(screenshot_path) > 0
+        finally:
+            if os.path.exists(screenshot_path):
+                os.remove(screenshot_path)
+
+    async def test_browser_recordings_async(self, sandbox):
+        """测试浏览器录制功能"""
+        download_path = f"test_aio_recording_{int(time.time())}.mkv"
+
+        try:
+            # 使用带录制的 Playwright
+            async with sandbox.async_playwright(record=True) as playwright:
+                await playwright.goto("https://www.baidu.com")
+                await asyncio.sleep(3)
+
+            # 等待录制完成
+            await asyncio.sleep(5)
+
+            # 列出录制文件
+            recordings = await sandbox.list_recordings_async()
+            assert recordings is not None
+            assert "recordings" in recordings
+
+            if len(recordings["recordings"]) > 0:
+                # 下载第一个录制文件
+                first_recording = recordings["recordings"][0]
+                filename = first_recording["filename"]
+
+                await sandbox.download_recording_async(filename, download_path)
+
+                # 验证下载的文件
+                assert os.path.exists(download_path)
+        finally:
+            if os.path.exists(download_path):
+                os.remove(download_path)
+
+    # ========== Code Interpreter - 代码执行测试 ==========
+
+    async def test_context_execute_python_async(self, sandbox):
+        """测试执行 Python 代码"""
+        result = await sandbox.context.execute_async(
+            code="print('hello from aio sandbox')",
+            language=CodeLanguage.PYTHON,
+        )
+
+        assert result is not None
+        if isinstance(result, dict):
+            assert "hello from aio sandbox" in str(result)
+
+    async def test_context_create_and_execute_async(self, sandbox):
+        """测试创建上下文并执行代码"""
+        async with await sandbox.context.create_async(
+            language=CodeLanguage.PYTHON
+        ) as ctx:
+            # 执行代码
+            result = await ctx.execute_async(code="x = 10\nprint(x)")
+            assert result is not None
+
+            # 在同一上下文中继续执行
+            result = await ctx.execute_async(code="print(x + 5)")
+            assert result is not None
+
+            # 获取上下文信息
+            ctx_info = await ctx.get_async()
+            assert ctx_info is not None
+            assert ctx_info._context_id is not None
+
+    async def test_context_list_async(self, sandbox):
+        """测试列举上下文"""
+        async with await sandbox.context.create_async(
+            language=CodeLanguage.PYTHON
+        ) as ctx:
+            contexts = await ctx.list_async()
+            assert contexts is not None
+            assert isinstance(contexts, (list, dict))
+
+    # ========== Code Interpreter - 文件系统测试 ==========
+
+    async def test_filesystem_list_async(self, sandbox):
+        """测试列举目录"""
+        result = await sandbox.file_system.list_async(path="/home/user")
+        assert result is not None
+        assert isinstance(result, (list, dict))
+
+    async def test_filesystem_mkdir_async(self, sandbox):
+        """测试创建目录"""
+        test_dir = f"/home/user/test-dir-{int(time.time())}"
+        result = await sandbox.file_system.mkdir_async(path=test_dir)
+        assert result is not None
+
+        # 验证目录已创建
+        stat_result = await sandbox.file_system.stat_async(path=test_dir)
+        assert stat_result is not None
+
+        # 清理
+        await sandbox.file_system.remove_async(path=test_dir)
+
+    async def test_filesystem_move_async(self, sandbox):
+        """测试移动文件"""
+        base_dir = f"/home/user/test-move-{int(time.time())}"
+        await sandbox.file_system.mkdir_async(path=base_dir)
+
+        # 创建源文件
+        source_path = f"{base_dir}/source.txt"
+        await sandbox.file.write_async(path=source_path, content="test content")
+
+        # 移动文件
+        dest_path = f"{base_dir}/dest.txt"
+        result = await sandbox.file_system.move_async(
+            source=source_path,
+            destination=dest_path,
+        )
+        assert result is not None
+
+        # 验证新文件存在
+        read_result = await sandbox.file.read_async(path=dest_path)
+        content = (
+            read_result.get("content", read_result)
+            if isinstance(read_result, dict)
+            else read_result
+        )
+        assert "test content" in str(content)
+
+        # 清理
+        await sandbox.file_system.remove_async(path=base_dir)
+
+    async def test_filesystem_upload_download_async(self, sandbox):
+        """测试上传和下载文件"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".txt"
+        ) as f:
+            test_content = f"AIO Test file created at {time.time()}\n"
+            f.write(test_content)
+            local_file_path = f.name
+
+        try:
+            # 上传文件
+            remote_path = f"/home/user/test-upload-{int(time.time())}.txt"
+            upload_result = await sandbox.file_system.upload_async(
+                local_file_path=local_file_path,
+                target_file_path=remote_path,
+            )
+            assert upload_result is not None
+
+            # 验证文件已上传
+            stat_result = await sandbox.file_system.stat_async(path=remote_path)
+            assert stat_result is not None
+
+            # 下载文件
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
+                download_path = f.name
+
+            download_result = await sandbox.file_system.download_async(
+                path=remote_path,
+                save_path=download_path,
+            )
+            assert download_result is not None
+
+            # 验证下载的内容
+            with open(download_path, "r", encoding="utf-8") as f:
+                downloaded_content = f.read()
+            assert test_content in downloaded_content
+
+            # 清理下载的文件
+            os.remove(download_path)
+
+            # 清理远程文件
+            await sandbox.file_system.remove_async(path=remote_path)
+        finally:
+            if os.path.exists(local_file_path):
+                os.remove(local_file_path)
+
+    # ========== Code Interpreter - 文件读写测试 ==========
+
+    async def test_file_write_read_async(self, sandbox):
+        """测试文件写入和读取"""
+        test_path = f"/home/user/test-file-{int(time.time())}.txt"
+        test_content = "Hello from AIO Sandbox!\nThis is a test file."
+
+        # 写入文件
+        write_result = await sandbox.file.write_async(
+            path=test_path,
+            content=test_content,
+        )
+        assert write_result is not None
+
+        # 读取文件
+        read_result = await sandbox.file.read_async(path=test_path)
+        assert read_result is not None
+        content = (
+            read_result.get("content", read_result)
+            if isinstance(read_result, dict)
+            else read_result
+        )
+        assert test_content in str(content)
+
+        # 清理
+        await sandbox.file_system.remove_async(path=test_path)
+
+    async def test_file_write_unicode_async(self, sandbox):
+        """测试写入和读取 Unicode 内容"""
+        test_path = f"/home/user/test-unicode-{int(time.time())}.txt"
+        test_content = "你好，世界！\nこんにちは世界\n안녕하세요 세계"
+
+        # 写入 Unicode 内容
+        await sandbox.file.write_async(path=test_path, content=test_content)
+
+        # 读取并验证
+        read_result = await sandbox.file.read_async(path=test_path)
+        content = (
+            read_result.get("content", read_result)
+            if isinstance(read_result, dict)
+            else read_result
+        )
+        assert test_content in str(content)
+
+        # 清理
+        await sandbox.file_system.remove_async(path=test_path)
+
+    # ========== Code Interpreter - 进程测试 ==========
+
+    async def test_process_list_async(self, sandbox):
+        """测试列举进程"""
+        result = await sandbox.process.list_async()
+        assert result is not None
+        assert isinstance(result, (list, dict))
+
+    async def test_process_cmd_async(self, sandbox):
+        """测试执行命令"""
+        result = await sandbox.process.cmd_async(command="ls", cwd="/home/user")
+        assert result is not None
+        assert isinstance(result, dict)
+
+    async def test_process_cmd_with_output_async(self, sandbox):
+        """测试执行命令并获取输出"""
+        result = await sandbox.process.cmd_async(
+            command="echo 'aio test output'",
+            cwd="/home/user",
+        )
+        assert result is not None
+        if isinstance(result, dict):
+            inner_result = result.get("result", {})
+            output = inner_result.get("stdout", "") or inner_result.get(
+                "output", ""
+            )
+            exit_code = inner_result.get("exitCode")
+            assert "aio test output" in str(output) or exit_code == 0
+
+    async def test_process_get_async(self, sandbox):
+        """测试获取进程信息"""
+        result = await sandbox.process.get_async(pid="1")
+        assert result is not None
+
+    # ========== 综合测试 ==========
+
+    async def test_aio_combined_workflow_async(self, sandbox):
+        """测试 Browser + Code Interpreter 组合工作流"""
+        workflow_dir = f"/home/user/workflow-{int(time.time())}"
+        screenshot_path = f"workflow_screenshot_{int(time.time())}.png"
+
+        try:
+            # 1. 创建工作目录
+            await sandbox.file_system.mkdir_async(path=workflow_dir)
+
+            # 2. 使用浏览器获取网页信息
+            async with sandbox.async_playwright() as playwright:
+                await playwright.goto("https://www.baidu.com")
+                title = await playwright.title()
+                await playwright.screenshot(path=screenshot_path)
+
+            # 3. 将信息写入文件
+            info_path = f"{workflow_dir}/page_info.txt"
+            await sandbox.file.write_async(
+                path=info_path,
+                content=f"Page Title: {title}\nCaptured at: {time.time()}",
+            )
+
+            # 4. 使用 Python 代码处理数据
+            result = await sandbox.context.execute_async(
+                code=f"""
+with open('{info_path}', 'r') as f:
+    content = f.read()
+print(f"Read from file: {{content}}")
+                """,
+                language=CodeLanguage.PYTHON,
+            )
+            assert result is not None
+
+            # 5. 使用命令行验证
+            cmd_result = await sandbox.process.cmd_async(
+                command=f"cat {info_path}",
+                cwd=workflow_dir,
+            )
+            assert cmd_result is not None
+
+            # 6. 清理
+            await sandbox.file_system.remove_async(path=workflow_dir)
+        finally:
+            if os.path.exists(screenshot_path):
+                os.remove(screenshot_path)
+
+    async def test_aio_context_manager_async(self, template):
+        """测试使用上下文管理器创建 AIO Sandbox"""
+        async with await Sandbox.create_async(
+            template_type=TemplateType.AIO,
+            template_name=template.template_name,
+            sandbox_idle_timeout_seconds=600,
+        ) as sb:
+            assert isinstance(sb, AioSandbox)
+
+            # 等待就绪
+            max_retries = 120
+            for _ in range(max_retries):
+                try:
+                    health = await sb.check_health_async()
+                    if health.get("status") == "ok":
+                        break
+                except Exception:
+                    pass  # 忽略健康检查错误，继续重试
+                await asyncio.sleep(2)
+
+            # 测试 Browser 功能
+            vnc_url = sb.get_vnc_url()
+            assert vnc_url is not None
+
+            # 测试 Code Interpreter 功能
+            result = await sb.context.execute_async(
+                code="print('context manager test')",
+                language=CodeLanguage.PYTHON,
+            )
+            assert result is not None
+
+        # Sandbox 应该在退出上下文后自动清理
+
+    async def test_browser_code_file_integration_async(self, sandbox):
+        """测试浏览器、代码和文件操作的集成"""
+        # 1. 浏览器操作
+        async with sandbox.async_playwright() as playwright:
+            await playwright.goto("https://www.baidu.com")
+            browser_result = await playwright.title()
+        assert browser_result is not None
+
+        # 2. 代码执行
+        code_result = await sandbox.context.execute_async(
+            code="print(sum(range(100)))",
+            language=CodeLanguage.PYTHON,
+        )
+        assert code_result is not None
+
+        # 3. 文件操作
+        test_path = f"/home/user/integration-{int(time.time())}.txt"
+        await sandbox.file.write_async(
+            path=test_path, content="integration test"
+        )
+        file_result = await sandbox.file.read_async(path=test_path)
+        await sandbox.file_system.remove_async(path=test_path)
+        assert file_result is not None
+
+    async def test_aio_lifecycle_async(self, template):
+        """测试 AIO Sandbox 完整生命周期"""
+        # 1. 创建
+        sb = await Sandbox.create_async(
+            template_type=TemplateType.AIO,
+            template_name=template.template_name,
+            sandbox_idle_timeout_seconds=600,
+        )
+        assert sb.sandbox_id is not None
+        assert isinstance(sb, AioSandbox)
+
+        try:
+            # 2. 健康检查
+            max_retries = 120
+            for _ in range(max_retries):
+                try:
+                    health_status = await sb.check_health_async()
+                    if health_status.get("status") == "ok":
+                        break
+                except Exception:
+                    pass  # 忽略健康检查错误，继续重试
+                await asyncio.sleep(2)
+
+            # 3. 获取 Browser 连接 URL
+            vnc_url = sb.get_vnc_url()
+            assert vnc_url is not None
+            cdp_url = sb.get_cdp_url()
+            assert cdp_url is not None
+
+            # 4. 使用 Playwright
+            async with sb.async_playwright() as playwright:
+                await playwright.goto("https://www.baidu.com")
+                title = await playwright.title()
+                assert "百度" in title
+
+            # 5. 执行代码
+            result = await sb.context.execute_async(
+                code="print('lifecycle test')",
+                language=CodeLanguage.PYTHON,
+            )
+            assert result is not None
+
+            # 6. 文件操作
+            await sb.file.write_async(
+                path="/home/user/lifecycle.txt",
+                content="test",
+            )
+            read_result = await sb.file.read_async(
+                path="/home/user/lifecycle.txt"
+            )
+            assert read_result is not None
+
+            # 7. 删除
+            await sb.delete_async()
+        except Exception as e:
+            try:
+                await sb.delete_async()
+            except Exception:
+                pass
+            raise e

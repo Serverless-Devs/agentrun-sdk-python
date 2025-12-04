@@ -1,6 +1,10 @@
 # AgentRun Sandbox SDK
 
-The AgentRun Sandbox SDK provides a powerful and flexible way to create isolated environments for code execution and browser automation. This SDK supports two main sandbox types: **Code Interpreter** for executing code in various languages, and **Browser** for automated web interactions.
+The AgentRun Sandbox SDK provides a powerful and flexible way to create isolated environments for code execution and browser automation. This SDK supports three sandbox types:
+
+- **Code Interpreter** - For executing Python code in isolated environments
+- **Browser** - For automated web interactions with Playwright, VNC, and CDP support
+- **All-in-One (AIO)** - Combines both Code Interpreter and Browser capabilities in a single sandbox
 
 ## Table of Contents
 
@@ -9,6 +13,7 @@ The AgentRun Sandbox SDK provides a powerful and flexible way to create isolated
 - [Quick Start](#quick-start)
   - [Code Interpreter Quick Start](#code-interpreter-quick-start)
   - [Browser Quick Start](#browser-quick-start)
+  - [All-in-One Quick Start](#all-in-one-quick-start-1)
 - [Core Concepts](#core-concepts)
   - [Templates](#templates)
   - [Sandboxes](#sandboxes)
@@ -23,6 +28,10 @@ The AgentRun Sandbox SDK provides a powerful and flexible way to create isolated
   - [Playwright Integration](#playwright-integration)
   - [VNC and CDP Access](#vnc-and-cdp-access)
   - [Recording Management](#recording-management)
+- [All-in-One Sandbox](#all-in-one-sandbox)
+  - [Quick Start](#all-in-one-quick-start)
+  - [Features](#all-in-one-features)
+  - [Usage Examples](#all-in-one-usage-examples)
 - [Async Support](#async-support)
 - [Best Practices](#best-practices)
 - [Examples](#examples)
@@ -41,6 +50,7 @@ The Sandbox SDK enables you to:
 
 - ✅ **Code Interpreter**: Python execution with context management
 - ✅ **Browser Automation**: Playwright integration with CDP and VNC support
+- ✅ **All-in-One Sandbox**: Combined code interpreter + browser in single environment
 - ✅ **File Management**: Upload, download, read, write, move files
 - ✅ **Process Control**: Execute commands and manage processes
 - ✅ **Session Recording**: Record browser sessions
@@ -51,7 +61,7 @@ The Sandbox SDK enables you to:
 ## Installation
 
 ```bash
-pip install agentrun
+pip install agentrun-sdk
 ```
 
 ## Configurations
@@ -65,6 +75,14 @@ export AGENTRUN_ACCOUNT_ID=your_account_id
 ```
 
 ## Quick Start
+
+### Sandbox Types Overview
+
+| Type | Class | Description |
+|------|-------|-------------|
+| `TemplateType.CODE_INTERPRETER` | `CodeInterpreterSandbox` | Python code execution, file management, process control |
+| `TemplateType.BROWSER` | `BrowserSandbox` | Browser automation with Playwright, VNC, CDP |
+| `TemplateType.AIO` | `AioSandbox` | **All-in-One**: Combines both Code Interpreter and Browser capabilities |
 
 ### Code Interpreter Quick Start
 
@@ -165,18 +183,72 @@ sandbox.delete()
 Sandbox.delete_template(template_name)
 ```
 
+### All-in-One Quick Start
+
+```python
+import time
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+
+# Create an All-in-One template
+template_name = f"my-aio-template-{time.strftime('%Y%m%d%H%M%S')}"
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,  # All-in-One type
+    )
+)
+
+print(f"All-in-One template created: {template.template_name}")
+
+# Create an All-in-One sandbox with context manager
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+) as sandbox:
+    print(f"All-in-One sandbox created: {sandbox.sandbox_id}")
+    
+    # Code Interpreter features
+    result = sandbox.context.execute(code="print('Hello from AIO!')")
+    print(f"Code execution result: {result}")
+    
+    sandbox.file.write(path="/tmp/test.txt", content="Hello World")
+    content = sandbox.file.read(path="/tmp/test.txt")
+    print(f"File content: {content}")
+    
+    # Browser features
+    print(f"VNC URL: {sandbox.get_vnc_url()}")
+    
+    with sandbox.sync_playwright(record=True) as playwright:
+        playwright.new_page().goto("https://www.example.com")
+        title = playwright.title()
+        print(f"Page title: {title}")
+
+# Sandbox is automatically cleaned up after exiting the context
+
+# Clean up template
+Sandbox.delete_template(template_name)
+```
+
 ## Core Concepts
 
 ### Templates
 
 Templates define the configuration for sandboxes. They specify:
-- **Type**: Code Interpreter or Browser
+- **Type**: Code Interpreter, Browser, or All-in-One (AIO)
 - **Resources**: CPU, memory, disk size
 - **Network**: Network mode and VPC configuration
 - **Environment**: Environment variables and credentials
 - **Timeouts**: Idle timeout and TTL
 
 Templates are reusable and can be used to create multiple sandboxes with the same configuration.
+
+#### Template Types
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| `TemplateType.CODE_INTERPRETER` | Python code execution environment | Data processing, scripting, computation |
+| `TemplateType.BROWSER` | Browser automation environment | Web scraping, testing, automation |
+| `TemplateType.AIO` | All-in-One combined environment | Complex workflows requiring both code and browser |
 
 ### Sandboxes
 
@@ -194,7 +266,9 @@ Sandboxes are isolated runtime environments created from templates. Each sandbox
 Create a new sandbox template:
 
 ```python
-from agentrun.sandbox import Sandbox, TemplateInput, TemplateType, TemplateNetworkConfiguration, TemplateNetworkMode
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+from agentrun.sandbox import TemplateNetworkConfiguration, TemplateOSSPermission
+from agentrun.sandbox import TemplateNetworkMode, TemplateLogConfiguration, TemplateOssConfiguration
 
 # Basic template
 template = Sandbox.create_template(
@@ -217,6 +291,27 @@ template = Sandbox.create_template(
         network_configuration=TemplateNetworkConfiguration(
             network_mode=TemplateNetworkMode.PUBLIC
         ),
+        log_configuration=TemplateLogConfiguration(
+            project="my-project",
+            logstore="my-logstore",
+        ),
+        oss_configuration=[TemplateOssConfiguration(
+            bucket_name="my-bucket",
+            mount_point="/mnt/oss",
+            permission=TemplateOSSPermission.READ_WRITE,
+            region="cn-hangzhou",
+            prefix="my-object",
+        )],
+    )
+)
+
+# All-in-One template (combines Code Interpreter + Browser)
+# Default: 4 CPU cores, 8GB RAM, 10GB disk
+aio_template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name="my-aio-template",
+        template_type=TemplateType.AIO,
+        # cpu, memory, disk_size use higher defaults for AIO
     )
 )
 ```
@@ -313,6 +408,18 @@ sandbox = Sandbox.connect(sandbox_id="your-sandbox-id")
 sandbox = Sandbox.connect(
     sandbox_id="your-sandbox-id",
     template_type=TemplateType.CODE_INTERPRETER
+)
+
+# Connect to a Browser sandbox
+browser_sandbox = Sandbox.connect(
+    sandbox_id="your-browser-sandbox-id",
+    template_type=TemplateType.BROWSER
+)
+
+# Connect to an All-in-One sandbox
+aio_sandbox = Sandbox.connect(
+    sandbox_id="your-aio-sandbox-id",
+    template_type=TemplateType.AIO
 )
 ```
 
@@ -657,6 +764,346 @@ print(f"Downloaded: {result['saved_path']}, Size: {result['size']} bytes")
 
 ```python
 sandbox.delete_recording(filename="recording.mkv")
+```
+
+## All-in-One Sandbox
+
+The **All-in-One (AIO) Sandbox** combines the capabilities of both **Code Interpreter** and **Browser** sandboxes into a single unified environment. This allows you to execute code, manage files, and automate browsers all within the same sandbox instance.
+
+### Why All-in-One?
+
+- **Unified Environment**: Run Python code and browser automation in the same sandbox
+- **Seamless Integration**: Share files and data between code execution and browser tasks
+- **Resource Efficiency**: Single sandbox instance for complex workflows
+- **Simplified Management**: One template, one sandbox, all capabilities
+
+### All-in-One Quick Start
+
+```python
+import time
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+
+# Create an All-in-One template
+template_name = f"my-aio-template-{time.strftime('%Y%m%d%H%M%S')}"
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,  # All-in-One type
+        # Default: 4 CPU cores, 8GB RAM, 10GB disk
+    )
+)
+
+print(f"All-in-One template created: {template.template_name}")
+
+# Create and use an All-in-One sandbox
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+    sandbox_idle_timeout_seconds=600,
+) as sandbox:
+    print(f"Sandbox created: {sandbox.sandbox_id}")
+    
+    # ===== Code Interpreter Features =====
+    # Execute Python code
+    result = sandbox.context.execute(code="print('Hello from AIO!')")
+    print(f"Code result: {result}")
+    
+    # File operations
+    sandbox.file.write(path="/tmp/data.txt", content="Hello World")
+    content = sandbox.file.read(path="/tmp/data.txt")
+    print(f"File content: {content}")
+    
+    # ===== Browser Features =====
+    # Get browser access URLs
+    print(f"VNC URL: {sandbox.get_vnc_url()}")
+    print(f"CDP URL: {sandbox.get_cdp_url()}")
+    
+    # Use Playwright for browser automation
+    with sandbox.sync_playwright(record=True) as playwright:
+        playwright.new_page().goto("https://www.example.com")
+        title = playwright.title()
+        print(f"Page title: {title}")
+        playwright.screenshot(path="screenshot.png")
+
+# Sandbox is automatically cleaned up
+Sandbox.delete_template(template_name)
+```
+
+### All-in-One Features
+
+The AIO sandbox provides access to all features from both Code Interpreter and Browser sandboxes:
+
+| Feature | Description | Access |
+|---------|-------------|--------|
+| **Code Execution** | Execute Python code with context management | `sandbox.context.execute()` |
+| **File Operations** | Read/write files | `sandbox.file.read()`, `sandbox.file.write()` |
+| **File System** | List, move, remove, upload, download files | `sandbox.file_system.*` |
+| **Process Management** | Execute commands, manage processes | `sandbox.process.*` |
+| **Playwright** | Browser automation with Playwright | `sandbox.sync_playwright()`, `sandbox.async_playwright()` |
+| **VNC Access** | Live browser view | `sandbox.get_vnc_url()` |
+| **CDP Access** | Chrome DevTools Protocol | `sandbox.get_cdp_url()` |
+| **Recording** | Record browser sessions | `sandbox.list_recordings()`, `sandbox.download_recording()` |
+
+### Default Resources
+
+The All-in-One sandbox uses higher default resources to support both browser and code execution:
+
+| Resource | Default Value |
+|----------|---------------|
+| CPU | 4 cores |
+| Memory | 8192 MB (8GB) |
+| Disk Size | 10240 MB (10GB) |
+
+### All-in-One Usage Examples
+
+#### Example 1: Web Scraping with Data Processing
+
+```python
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+import time
+
+template_name = f"scrape-and-process-{time.strftime('%Y%m%d%H%M%S')}"
+
+# Create AIO template
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,
+    )
+)
+
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+) as sandbox:
+    # Step 1: Scrape data using browser
+    with sandbox.sync_playwright(record=True) as playwright:
+        playwright.new_page().goto("https://news.ycombinator.com")
+        playwright.wait_for_selector(".titleline")
+        
+        # Extract titles using JavaScript
+        titles = playwright.evaluate("""
+            Array.from(document.querySelectorAll('.titleline a'))
+                .slice(0, 10)
+                .map(a => a.textContent)
+        """)
+        
+        # Save scraped data to file
+        sandbox.file.write(
+            path="/tmp/scraped_titles.txt",
+            content="\\n".join(titles)
+        )
+    
+    # Step 2: Process data using Python
+    code = '''
+import json
+
+# Read scraped data
+with open("/tmp/scraped_titles.txt", "r") as f:
+    titles = f.read().strip().split("\\n")
+
+# Process: add numbering and calculate stats
+processed = {
+    "total_count": len(titles),
+    "titles": [{"index": i+1, "title": t} for i, t in enumerate(titles)],
+    "avg_title_length": sum(len(t) for t in titles) / len(titles)
+}
+
+# Save processed result
+with open("/tmp/processed_data.json", "w") as f:
+    json.dump(processed, f, indent=2)
+
+print(f"Processed {len(titles)} titles")
+print(f"Average title length: {processed['avg_title_length']:.1f} chars")
+'''
+    
+    result = sandbox.context.execute(code=code)
+    print(result)
+    
+    # Step 3: Download processed data
+    sandbox.file_system.download(
+        path="/tmp/processed_data.json",
+        save_path="./processed_data.json"
+    )
+
+Sandbox.delete_template(template_name)
+```
+
+#### Example 2: Automated Testing with Result Analysis
+
+```python
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+import time
+
+template_name = f"test-and-analyze-{time.strftime('%Y%m%d%H%M%S')}"
+
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,
+    )
+)
+
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+) as sandbox:
+    # Run browser tests
+    test_results = []
+    
+    with sandbox.sync_playwright(record=True) as playwright:
+        # Test 1: Homepage loads
+        playwright.new_page().goto("https://example.com")
+        title = playwright.title()
+        test_results.append({
+            "test": "homepage_loads",
+            "passed": "Example Domain" in title,
+            "details": f"Title: {title}"
+        })
+        
+        # Test 2: Take screenshot
+        playwright.screenshot(path="/tmp/test_screenshot.png")
+        test_results.append({
+            "test": "screenshot_captured",
+            "passed": True,
+            "details": "Screenshot saved"
+        })
+    
+    # Analyze results with Python
+    code = f'''
+import json
+
+results = {test_results}
+
+passed = sum(1 for r in results if r["passed"])
+failed = len(results) - passed
+
+report = {{
+    "total_tests": len(results),
+    "passed": passed,
+    "failed": failed,
+    "pass_rate": f"{{passed/len(results)*100:.1f}}%",
+    "details": results
+}}
+
+with open("/tmp/test_report.json", "w") as f:
+    json.dump(report, f, indent=2)
+
+print(f"Test Results: {{passed}}/{{len(results)}} passed ({{report['pass_rate']}})")
+'''
+    
+    result = sandbox.context.execute(code=code)
+    print(result)
+
+Sandbox.delete_template(template_name)
+```
+
+#### Example 3: Screenshot and Image Analysis
+
+```python
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+import time
+
+template_name = f"screenshot-analysis-{time.strftime('%Y%m%d%H%M%S')}"
+
+template = Sandbox.create_template(
+    input=TemplateInput(
+        template_name=template_name,
+        template_type=TemplateType.AIO,
+    )
+)
+
+with Sandbox.create(
+    template_type=TemplateType.AIO,
+    template_name=template_name,
+) as sandbox:
+    # Capture screenshot
+    with sandbox.sync_playwright() as playwright:
+        playwright.new_page().goto("https://www.google.com")
+        playwright.screenshot(path="/tmp/google.png", full_page=True)
+    
+    # Analyze screenshot with Python
+    code = '''
+from PIL import Image
+import os
+
+# Load and analyze the screenshot
+img = Image.open("/tmp/google.png")
+
+analysis = {
+    "filename": "google.png",
+    "format": img.format,
+    "mode": img.mode,
+    "size": f"{img.width}x{img.height}",
+    "file_size_kb": os.path.getsize("/tmp/google.png") / 1024
+}
+
+print(f"Image Analysis:")
+print(f"  Size: {analysis['size']}")
+print(f"  Format: {analysis['format']}")
+print(f"  Mode: {analysis['mode']}")
+print(f"  File size: {analysis['file_size_kb']:.1f} KB")
+'''
+    
+    result = sandbox.context.execute(code=code)
+    print(result)
+    
+    # Download the screenshot
+    sandbox.file_system.download(
+        path="/tmp/google.png",
+        save_path="./google_screenshot.png"
+    )
+
+Sandbox.delete_template(template_name)
+```
+
+#### Async Example
+
+```python
+import asyncio
+from agentrun.sandbox import Sandbox, TemplateInput, TemplateType
+
+async def aio_workflow():
+    template_name = "async-aio-example"
+    
+    # Create template
+    template = await Sandbox.create_template_async(
+        input=TemplateInput(
+            template_name=template_name,
+            template_type=TemplateType.AIO,
+        )
+    )
+    
+    # Create and use AIO sandbox
+    async with await Sandbox.create_async(
+        template_type=TemplateType.AIO,
+        template_name=template_name,
+    ) as sandbox:
+        # Execute code asynchronously
+        result = await sandbox.context.execute_async(
+            code="print('Async AIO sandbox!')"
+        )
+        print(result)
+        
+        # Async file operations
+        await sandbox.file.write_async(
+            path="/tmp/async_test.txt",
+            content="Async content"
+        )
+        
+        content = await sandbox.file.read_async(path="/tmp/async_test.txt")
+        print(f"File content: {content}")
+        
+        # Async browser automation
+        async with sandbox.async_playwright(record=True) as playwright:
+            await playwright.goto("https://example.com")
+            title = await playwright.title()
+            print(f"Page title: {title}")
+    
+    # Clean up
+    await Sandbox.delete_template_async(template_name)
+
+asyncio.run(aio_workflow())
 ```
 
 ## Async Support
