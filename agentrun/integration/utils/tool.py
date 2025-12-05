@@ -35,6 +35,7 @@ from typing import (
     Set,
     Tuple,
     Type,
+    TYPE_CHECKING,
 )
 
 from pydantic import (
@@ -45,7 +46,9 @@ from pydantic import (
     ValidationError,
 )
 
-from agentrun.toolset import ToolSet
+if TYPE_CHECKING:
+    from agentrun.toolset import ToolSet
+
 from agentrun.utils.log import logger
 
 # Tool name constraints for external providers like OpenAI

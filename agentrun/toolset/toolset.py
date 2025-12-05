@@ -22,7 +22,6 @@ from agentrun.utils.config import Config
 from agentrun.utils.log import logger
 from agentrun.utils.model import BaseModel
 
-from .api.openapi import OpenAPI
 from .model import (
     MCPServerConfig,
     SchemaType,
