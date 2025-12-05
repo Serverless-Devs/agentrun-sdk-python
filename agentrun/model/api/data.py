@@ -54,7 +54,7 @@ class ModelCompletionAPI:
             **self.headers,
             **kwargs.get("headers", {}),
         }
-        if kwargs["stream_options"] is None:
+        if kwargs.get("stream_options") is None:
             kwargs["stream_options"] = {}
         kwargs["stream_options"]["include_usage"] = True
 
@@ -86,7 +86,7 @@ class ModelCompletionAPI:
             **self.headers,
             **kwargs.get("headers", {}),
         }
-        if kwargs["stream_options"] is None:
+        if kwargs.get("stream_options") is None:
             kwargs["stream_options"] = {}
         kwargs["stream_options"]["include_usage"] = True
         from litellm import responses
