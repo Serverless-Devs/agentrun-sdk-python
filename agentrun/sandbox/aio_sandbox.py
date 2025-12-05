@@ -715,8 +715,8 @@ class AioSandbox(Sandbox):
                     "[%d/%d] Health status: %d %s",
                     retry_count,
                     max_retries,
-                    health.get("code"),
-                    health.get("message"),
+                    health.get("code", 0),
+                    health.get("message", "not ready"),
                 )
 
             except Exception as e:
@@ -757,8 +757,8 @@ class AioSandbox(Sandbox):
                     "[%d/%d] Health status: %d %s",
                     retry_count,
                     max_retries,
-                    health.get("code"),
-                    health.get("message"),
+                    health.get("code", 0),
+                    health.get("message", "not ready"),
                 )
 
             except Exception as e:

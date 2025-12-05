@@ -449,11 +449,13 @@ def all_in_one_sync():
         # 测试 Playwright
         logger.info("\n--- 测试 Playwright 同步操作 ---")
         with sb.sync_playwright() as playwright:
-            playwright.new_page().goto("https://www.baidu.com")
-            logger.info(f"✓ 导航到百度首页")
+            playwright.goto("https://www.aliyun.com")
+            logger.info(f"✓ 导航到阿里巴巴首页")
 
             title = playwright.title()
             logger.info(f"✓ 页面标题: {title}")
+
+            logger.info(f"✓ 页面列表: {playwright.list_pages()}")
 
             html = playwright.html_content()
             logger.info(f"✓ 页面 HTML: {html[:500]}...")
@@ -737,7 +739,7 @@ if __name__ == "__main__":
 
     # code_interpreter_sync()
     # browser_sync()
-    # all_in_one_sync()
+    all_in_one_sync()
     # asyncio.run(browser_async())
     # asyncio.run(code_interpreter_async())
-    asyncio.run(all_in_one_async())
+    # asyncio.run(all_in_one_async())
