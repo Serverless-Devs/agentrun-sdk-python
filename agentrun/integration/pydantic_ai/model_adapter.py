@@ -1,8 +1,6 @@
 """PydanticAI 模型适配器 / PydanticAI Model Adapter"""
 
-from contextlib import asynccontextmanager
-import json
-from typing import Any, AsyncIterator
+from typing import Any
 
 from agentrun.integration.utils.adapter import ModelAdapter
 from agentrun.integration.utils.model import CommonModel
@@ -19,6 +17,7 @@ class PydanticAIModelAdapter(ModelAdapter):
         try:
             from pydantic_ai.models.openai import OpenAIChatModel
             from pydantic_ai.providers.openai import OpenAIProvider
+            from pydantic_ai.settings import ModelSettings
         except Exception as e:
             raise ImportError(
                 "PydanticAI is not installed. "
@@ -35,6 +34,9 @@ class PydanticAIModelAdapter(ModelAdapter):
                 base_url=info.base_url,
                 api_key=info.api_key,
                 http_client=AsyncClient(headers=info.headers),
+            ),
+            settings=ModelSettings(
+                extra_body={"stream_options": {"include_usage": True}}
             ),
         )
 

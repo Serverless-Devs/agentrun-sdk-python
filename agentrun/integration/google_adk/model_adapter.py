@@ -39,4 +39,5 @@ class GoogleADKModelAdapter(ModelAdapter):
             api_base=info.base_url,
             api_key=info.api_key,
             extra_headers=info.headers,
+            stream_options={"include_usage": True},
         )

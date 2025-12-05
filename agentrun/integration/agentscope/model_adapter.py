@@ -56,4 +56,5 @@ class AgentScopeModelAdapter(ModelAdapter):
                 "base_url": info.base_url,
                 "http_client": AsyncClient(headers=info.headers),
             },
+            generate_kwargs={"stream_options": {"include_usage": True}},
         )

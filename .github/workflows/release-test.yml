@@ -1,0 +1,135 @@
+name: Release Test Package
+
+on:
+  # 支持手动触发，用户可以在 GitHub Actions 页面点击 "Run workflow"
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: '版本递增类型'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch   # 0.0.1 -> 0.0.2
+          - minor   # 0.0.1 -> 0.1.0
+          - major   # 0.0.1 -> 1.0.0
+
+jobs:
+  release-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 获取所有历史和 tags
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Get latest test version and calculate next version
+      id: version
+      run: |
+        # 获取所有 agentrun-inner-test-v* 的 tags，找到最新版本
+        LATEST_TAG=$(git tag -l "agentrun-inner-test-v*" | sort -V | tail -n 1)
+        
+        if [ -z "$LATEST_TAG" ]; then
+          # 如果没有找到任何 tag，从 0.0.0 开始
+          CURRENT_VERSION="0.0.0"
+          echo "No existing test tags found, starting from 0.0.0"
+        else
+          # 从 tag 中提取版本号
+          CURRENT_VERSION="${LATEST_TAG#agentrun-inner-test-v}"
+          echo "Latest test tag: $LATEST_TAG (version: $CURRENT_VERSION)"
+        fi
+        
+        # 解析版本号
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+        
+        # 根据用户选择递增版本
+        BUMP_TYPE="${{ inputs.version_bump }}"
+        case "$BUMP_TYPE" in
+          major)
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+            ;;
+          minor)
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            ;;
+          patch)
+            PATCH=$((PATCH + 1))
+            ;;
+        esac
+        
+        NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+        NEW_TAG="agentrun-inner-test-v${NEW_VERSION}"
+        
+        echo "VERSION=${NEW_VERSION}" >> $GITHUB_OUTPUT
+        echo "TAG=${NEW_TAG}" >> $GITHUB_OUTPUT
+        echo "New version: ${NEW_VERSION}"
+        echo "New tag: ${NEW_TAG}"
+
+    - name: Update package name and version in pyproject.toml
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        # 修改包名为 agentrun-inner-test
+        sed -i 's/name = "agentrun-sdk"/name = "agentrun-inner-test"/' pyproject.toml
+        # 修改版本号
+        sed -i 's/version = "[^"]*"/version = "'${VERSION}'"/' pyproject.toml
+        echo "Updated pyproject.toml:"
+        head -10 pyproject.toml
+
+    - name: Update __version__ in __init__.py
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        if grep -q "__version__" agentrun/__init__.py; then
+          sed -i 's/__version__ = "[^"]*"/__version__ = "'${VERSION}'"/' agentrun/__init__.py
+        else
+          sed -i '1a __version__ = "'${VERSION}'"' agentrun/__init__.py
+        fi
+        echo "Updated __init__.py version to ${VERSION}"
+        grep "__version__" agentrun/__init__.py
+
+    - name: Build package
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+        python -m build
+        echo "Package built successfully"
+        ls -la dist/
+
+    - name: Verify package
+      run: |
+        python -m twine check dist/*
+        echo "Package verification completed"
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
+        verify-metadata: false
+
+    - name: Create and push tag
+      run: |
+        TAG="${{ steps.version.outputs.TAG }}"
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git tag -a "$TAG" -m "Release test package version ${{ steps.version.outputs.VERSION }}"
+        git push origin "$TAG"
+        echo "Created and pushed tag: $TAG"
+
+    - name: Summary
+      run: |
+        echo "## 🎉 Test Package Released!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Package Name:** agentrun-inner-test" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version:** ${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Tag:** ${{ steps.version.outputs.TAG }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Install with: \`pip install agentrun-inner-test==${{ steps.version.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY

@@ -53,12 +53,16 @@ class MockLLMTransport:
             messages = kwargs.get("messages") or []
             tools_payload = kwargs.get("tools")
             assert kwargs.get("stream") in (None, False)
+            assert pydash.get(kwargs, "stream_options.include_usage") is True
+
             return self._build_model_response(messages, tools_payload)
 
         async def fake_acompletion(*args, **kwargs):
             messages = kwargs.get("messages") or []
             tools_payload = kwargs.get("tools")
             assert kwargs.get("stream") in (None, False)
+            assert pydash.get(kwargs, "stream_options.include_usage") is True
+
             return self._build_model_response(messages, tools_payload)
 
         monkeypatch.setattr("litellm.completion", fake_completion)

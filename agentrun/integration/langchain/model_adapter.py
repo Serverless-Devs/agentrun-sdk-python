@@ -33,4 +33,5 @@ class LangChainModelAdapter(ModelAdapter):
             model=info.model,
             base_url=info.base_url,
             async_client=AsyncClient(headers=info.headers),
+            stream_usage=True,
         )

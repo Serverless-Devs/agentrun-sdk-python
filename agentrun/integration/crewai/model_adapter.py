@@ -22,5 +22,6 @@ class CrewAIModelAdapter(ModelAdapter):
             model=f"{info.provider or 'openai'}/{info.model}",
             base_url=info.base_url,
             default_headers=info.headers,
+            stream_options={"include_usage": True},
             # async_client=AsyncClient(headers=info.headers),
         )
