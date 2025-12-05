@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import httpx
 from pydash import get as pg
 
+from agentrun.integration.utils.tool import normalize_tool_name
 from agentrun.utils.config import Config
 from agentrun.utils.log import logger
 from agentrun.utils.model import BaseModel
@@ -322,6 +323,8 @@ class ApiSet:
 
         # 设置函数属性
         clean_name = re.sub(r"[^0-9a-zA-Z_]", "_", name)
+        # Normalize for provider limits / external frameworks
+        clean_name = normalize_tool_name(clean_name)
         wrapper.__name__ = clean_name
         wrapper.__qualname__ = clean_name
         wrapper.__doc__ = "\n".join(doc_parts)
@@ -609,7 +612,7 @@ class ApiSet:
 
                         tools.append(
                             ToolInfo(
-                                name=operation_id,
+                                name=normalize_tool_name(operation_id),
                                 description=description,
                                 parameters=parameters,
                             )
@@ -682,7 +685,7 @@ class ApiSet:
 
                 tool_infos.append(
                     ToolInfo(
-                        name=tool_name,
+                        name=normalize_tool_name(tool_name),
                         description=tool_description,
                         parameters=parameters
                         or ToolSchema(type="object", properties={}),

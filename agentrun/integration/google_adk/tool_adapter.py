@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from agentrun.integration.utils.adapter import ToolAdapter
 from agentrun.integration.utils.canonical import CanonicalTool
+from agentrun.integration.utils.tool import normalize_tool_name
 
 
 def _json_schema_to_google_schema(
@@ -179,7 +180,7 @@ class GoogleADKToolAdapter(ToolAdapter):
 
     def get_registered_tool(self, name: str) -> Optional[CanonicalTool]:
         """根据名称获取最近注册的工具定义 / Google ADK Tool Adapter"""
-        return self._registered_tools.get(name)
+        return self._registered_tools.get(normalize_tool_name(name))
 
     def from_canonical(self, tools: List[CanonicalTool]):
         """将标准格式转换为 Google ADK 工具 / Google ADK Tool Adapter
@@ -207,7 +208,7 @@ class GoogleADKToolAdapter(ToolAdapter):
 
             # 创建 FunctionDeclaration
             declaration = types.FunctionDeclaration(
-                name=tool.name,
+                name=normalize_tool_name(tool.name),
                 description=tool.description or "",
                 parameters=google_schema,
             )

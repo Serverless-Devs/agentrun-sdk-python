@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import wraps
+import hashlib
 import inspect
 import json
 import re
@@ -46,6 +47,25 @@ from pydantic import (
 
 from agentrun.toolset import ToolSet
 from agentrun.utils.log import logger
+
+# Tool name constraints for external providers like OpenAI
+MAX_TOOL_NAME_LEN = 64
+TOOL_NAME_HEAD_LEN = 32
+
+
+def normalize_tool_name(name: str) -> str:
+    """Normalize a tool name to fit provider limits.
+
+    If `name` length is <= MAX_TOOL_NAME_LEN, return it unchanged.
+    Otherwise, return the first TOOL_NAME_HEAD_LEN characters + md5(full_name)
+    (32 hex chars), resulting in a 64-char string.
+    """
+    if not isinstance(name, str):
+        name = str(name)
+    if len(name) <= MAX_TOOL_NAME_LEN:
+        return name
+    digest = hashlib.md5(name.encode("utf-8")).hexdigest()
+    return name[:TOOL_NAME_HEAD_LEN] + digest
 
 
 class ToolParameter:
@@ -253,7 +273,9 @@ class Tool:
         args_schema: Optional[Type[BaseModel]] = None,
         func: Optional[Callable] = None,
     ):
-        self.name = name
+        # Normalize tool name to avoid external provider limits (e.g. OpenAI 64 chars)
+        # If name length > 64, keep first 32 chars and append 32-char md5 sum of full name.
+        self.name = normalize_tool_name(name)
         self.description = description
         self.parameters = list(parameters or [])
         self.args_schema = args_schema or _build_args_model_from_parameters(
@@ -982,6 +1004,8 @@ def tool(
 
     def decorator(func: Callable) -> Tool:
         tool_name = name or func.__name__
+        # ensure tool name is normalized
+        tool_name = normalize_tool_name(tool_name)
         tool_description = description or (
             func.__doc__.strip() if func.__doc__ else ""
         )
@@ -1362,6 +1386,7 @@ def _create_function_with_signature(
 
     # 设置函数属性（清理特殊字符，确保是有效的 Python 标识符）
     clean_name = re.sub(r"[^0-9a-zA-Z_]", "_", tool_name)
+    clean_name = normalize_tool_name(clean_name)
     wrapper.__name__ = clean_name
     wrapper.__qualname__ = clean_name
     if parameters:

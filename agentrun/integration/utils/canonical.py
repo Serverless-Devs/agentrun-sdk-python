@@ -18,6 +18,8 @@ else:
 
 from enum import Enum
 
+from agentrun.integration.utils.tool import normalize_tool_name
+
 
 class MessageRole(str, Enum):
     """统一的消息角色枚举"""
@@ -101,6 +103,11 @@ class CanonicalTool:
     description: str
     parameters: Dict[str, Any]  # JSON Schema 格式
     func: Optional[Callable] = None
+
+    def __post_init__(self):
+        # Normalize canonical tool name to avoid exceeding provider limits
+        if self.name:
+            self.name = normalize_tool_name(self.name)
 
     def to_openai_function(self) -> Dict[str, Any]:
         """转换为 OpenAI Function Calling 格式"""

@@ -16,6 +16,7 @@ from pydantic import create_model, Field
 
 from agentrun.integration.utils.canonical import CanonicalMessage, CanonicalTool
 from agentrun.integration.utils.model import CommonModel
+from agentrun.integration.utils.tool import normalize_tool_name
 
 # 用于缓存动态创建的 Pydantic 模型，避免重复创建
 _dynamic_models_cache: Dict[str, type] = {}
@@ -510,8 +511,8 @@ class ToolAdapter(ABC):
 
                     return canonical_tool.func(**kwargs)
 
-                # 设置函数元数据
-                tool_func.__name__ = canonical_tool.name
+                # 设置函数元数据（函数名也需要标准化以防第三方工具名限制）
+                tool_func.__name__ = normalize_tool_name(canonical_tool.name)
 
                 # 生成文档字符串
                 base_doc = canonical_tool.description or ""
