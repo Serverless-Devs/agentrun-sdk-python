@@ -384,6 +384,11 @@ class DataAPI:
                         return response.json()
                     except ValueError as e:
                         error_msg = f"Failed to parse JSON response: {e}"
+                        bad_gateway_error_message = "502 Bad Gateway"
+                        if response.status_code == 502 and (
+                            bad_gateway_error_message in response_text
+                        ):
+                            error_msg = bad_gateway_error_message
                         logger.error(error_msg)
                         raise ClientError(
                             status_code=response.status_code, message=error_msg
@@ -462,6 +467,11 @@ class DataAPI:
                         return response.json()
                     except ValueError as e:
                         error_msg = f"Failed to parse JSON response: {e}"
+                        bad_gateway_error_message = "502 Bad Gateway"
+                        if response.status_code == 502 and (
+                            bad_gateway_error_message in response_text
+                        ):
+                            error_msg = bad_gateway_error_message
                         logger.error(error_msg)
                         raise ClientError(
                             status_code=response.status_code, message=error_msg
