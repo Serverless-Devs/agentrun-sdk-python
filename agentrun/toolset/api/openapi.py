@@ -422,7 +422,7 @@ class ApiSet:
             config: 配置对象
             timeout: 超时时间
         """
-        # 创建 OpenAPI 客户端
+        # 创建 OpenAPI 客户端（会解析 $ref）
         openapi_client = OpenAPI(
             schema=schema,
             base_url=base_url,
@@ -433,19 +433,11 @@ class ApiSet:
         )
 
         tools = []
-        if isinstance(schema, str):
-            try:
-                schema = json.loads(schema)
-            except json.JSONDecodeError:
-                try:
-                    import yaml
+        # 使用已解析 $ref 的 schema
+        resolved_schema = openapi_client._schema
 
-                    schema = yaml.safe_load(schema)
-                except Exception:
-                    pass
-
-        if isinstance(schema, dict):
-            paths = schema.get("paths", {})
+        if isinstance(resolved_schema, dict):
+            paths = resolved_schema.get("paths", {})
             if isinstance(paths, dict):
                 for path, path_item in paths.items():
                     if not isinstance(path_item, dict):
@@ -757,6 +749,15 @@ class OpenAPI:
     ):
         self._raw_schema = schema or ""
         self._schema = self._load_schema(self._raw_schema)
+        # Resolve local $ref (e.g. "#/components/schemas/...") to simplify later usage.
+        # Only resolves internal JSON Pointers; external refs (urls) are left as-is.
+        try:
+            self._resolve_refs(self._schema)
+        except Exception:
+            # If resolving fails for any reason, fall back to original schema.
+            logger.debug(
+                "OpenAPI $ref resolution failed; continuing without expansion"
+            )
         self._operations = self._build_operations(self._schema)
         self._base_url = base_url or self._extract_base_url(self._schema)
         self._default_headers = headers.copy() if headers else {}
@@ -873,6 +874,69 @@ class OpenAPI:
             return yaml.safe_load(schema) or {}
         except yaml.YAMLError as exc:  # pragma: no cover
             raise ValueError("Invalid OpenAPI schema content.") from exc
+
+    def _resolve_refs(self, root: Any) -> None:
+        """Resolve local JSON-Pointer $ref entries in-place.
+
+        This implementation only handles refs that start with "#/" and
+        resolves them by replacing the node with a deep copy of the target.
+        It also merges other sibling keys (e.g. description) onto the
+        resolved target, matching common OpenAPI semantics.
+        """
+        if not isinstance(root, (dict, list)):
+            return
+
+        def resolve_pointer(doc: Dict[str, Any], parts: List[str]):
+            cur = doc
+            for p in parts:
+                # unescape per JSON Pointer spec
+                p = p.replace("~1", "/").replace("~0", "~")
+                if isinstance(cur, dict) and p in cur:
+                    cur = cur[p]
+                else:
+                    return None
+            return cur
+
+        def _walk(node: Any):
+            if isinstance(node, dict):
+                # if this node is a $ref, resolve it and return replacement
+                if "$ref" in node and isinstance(node["$ref"], str):
+                    ref = node["$ref"]
+                    if ref.startswith("#/"):
+                        parts = ref[2:].split("/")
+                        target = resolve_pointer(root, parts)
+                        if target is None:
+                            return node
+                        replacement = deepcopy(target)
+                        # merge other keys (except $ref) into replacement
+                        for k, v in node.items():
+                            if k == "$ref":
+                                continue
+                            replacement[k] = v
+                        # continue resolving inside replacement
+                        return _walk(replacement)
+                    # external refs: leave as-is
+                    return node
+
+                # otherwise recurse into children
+                for k, v in list(node.items()):
+                    node[k] = _walk(v)
+                return node
+            elif isinstance(node, list):
+                return [_walk(item) for item in node]
+            else:
+                return node
+
+        # perform in-place walk and resolution
+        resolved = _walk(root)
+        # If root was replaced by a resolved value, try to update it in-place
+        if (
+            resolved is not root
+            and isinstance(root, dict)
+            and isinstance(resolved, dict)
+        ):
+            root.clear()
+            root.update(resolved)
 
     def _extract_base_url(self, schema: Dict[str, Any]) -> Optional[str]:
         servers = schema.get("servers") or []
