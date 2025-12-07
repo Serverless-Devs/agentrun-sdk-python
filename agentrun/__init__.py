@@ -16,7 +16,7 @@ Provides simple and easy-to-use APIs for managing AI Agent runtime environments,
 - Integration: 框架集成 / Framework integration
 """
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 # Agent Runtime
 from agentrun.agent_runtime import (
