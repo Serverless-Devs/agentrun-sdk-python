@@ -41,7 +41,7 @@ class BrowserSandbox(Sandbox):
 
                 logger.debug(
                     f"[{retry_count}/{max_retries}] Health status:"
-                    f" {health.get('code')} { health.get('message')}",
+                    f" {health.get('code')} {health.get('message')}",
                 )
 
             except Exception as e:
