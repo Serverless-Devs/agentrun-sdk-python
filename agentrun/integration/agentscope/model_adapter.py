@@ -51,7 +51,7 @@ class AgentScopeModelAdapter(ModelAdapter):
         return OpenAIChatModel(
             model_name=info.model or "",
             api_key=info.api_key,
-            stream=False,
+            stream=True,
             client_args={
                 "base_url": info.base_url,
                 "http_client": AsyncClient(headers=info.headers),

@@ -85,9 +85,17 @@ class MockLLMTransport:
 
         def build_response(request, route):
             payload = extract_payload(request)
+            is_stream = payload.get("stream", False)
             response_json = self._build_response(
                 payload.get("messages") or [], payload.get("tools")
             )
+            if is_stream:
+                # Return SSE streaming response
+                return respx.MockResponse(
+                    status_code=200,
+                    content=self._build_sse_stream(response_json),
+                    headers={"content-type": "text/event-stream"},
+                )
             return respx.MockResponse(status_code=200, json=response_json)
 
         # Route all requests to the mock base URL (already within respx.mock context)
@@ -171,6 +179,84 @@ class MockLLMTransport:
         """Build response as ModelResponse for litellm mock"""
         response_dict = self._build_response(messages, tools_payload)
         return ModelResponse(**response_dict)
+
+    def _build_sse_stream(self, response_json: dict) -> bytes:
+        """Build SSE stream from response JSON for streaming requests"""
+        chunks = []
+        choice = response_json.get("choices", [{}])[0]
+        message = choice.get("message", {})
+        tool_calls = message.get("tool_calls")
+
+        # First chunk with role
+        first_chunk = {
+            "id": response_json.get("id", "chatcmpl-mock"),
+            "object": "chat.completion.chunk",
+            "created": response_json.get("created", 1234567890),
+            "model": response_json.get("model", "mock-model"),
+            "choices": [{
+                "index": 0,
+                "delta": {"role": "assistant", "content": ""},
+                "finish_reason": None,
+            }],
+        }
+        chunks.append(f"data: {json.dumps(first_chunk)}\n\n")
+
+        if tool_calls:
+            # Stream tool calls
+            for i, tool_call in enumerate(tool_calls):
+                tc_chunk = {
+                    "id": response_json.get("id", "chatcmpl-mock"),
+                    "object": "chat.completion.chunk",
+                    "created": response_json.get("created", 1234567890),
+                    "model": response_json.get("model", "mock-model"),
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [{
+                                "index": i,
+                                "id": tool_call.get("id"),
+                                "type": "function",
+                                "function": tool_call.get("function"),
+                            }],
+                        },
+                        "finish_reason": None,
+                    }],
+                }
+                chunks.append(f"data: {json.dumps(tc_chunk)}\n\n")
+        else:
+            # Stream content
+            content = message.get("content", "")
+            if content:
+                content_chunk = {
+                    "id": response_json.get("id", "chatcmpl-mock"),
+                    "object": "chat.completion.chunk",
+                    "created": response_json.get("created", 1234567890),
+                    "model": response_json.get("model", "mock-model"),
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": content},
+                        "finish_reason": None,
+                    }],
+                }
+                chunks.append(f"data: {json.dumps(content_chunk)}\n\n")
+
+        # Final chunk with finish_reason
+        finish_reason = "tool_calls" if tool_calls else "stop"
+        final_chunk = {
+            "id": response_json.get("id", "chatcmpl-mock"),
+            "object": "chat.completion.chunk",
+            "created": response_json.get("created", 1234567890),
+            "model": response_json.get("model", "mock-model"),
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": finish_reason,
+            }],
+        }
+        chunks.append(f"data: {json.dumps(final_chunk)}\n\n")
+        chunks.append("data: [DONE]\n\n")
+
+        return "".join(chunks).encode("utf-8")
 
     def _assert_tools(self, tools_payload):
         assert isinstance(tools_payload, list)
