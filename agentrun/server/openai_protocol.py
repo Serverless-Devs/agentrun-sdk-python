@@ -1,18 +1,35 @@
-"""OpenAI Completions API 协议实现 / OpenAI Completions API 协议Implements
+"""OpenAI Completions API 协议实现 / OpenAI Completions API Protocol Implementation
 
 基于 Router 的设计:
 - 协议自己创建 FastAPI Router
 - 定义所有端点和处理逻辑
-- Server 只需挂载 Router"""
+- Server 只需挂载 Router
+
+生命周期钩子:
+- OpenAI 协议支持部分钩子（主要是文本消息和工具调用）
+- 不支持的钩子返回空迭代器
+"""
 
 import json
 import time
-from typing import Any, AsyncIterator, Dict, Iterator, TYPE_CHECKING, Union
+from typing import (
+    Any,
+    AsyncIterator,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Union,
+)
+import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .model import (
+    AgentEvent,
+    AgentLifecycleHooks,
     AgentRequest,
     AgentResponse,
     AgentResult,
@@ -23,22 +40,232 @@ from .model import (
     Message,
     MessageRole,
 )
-from .protocol import ProtocolHandler
+from .protocol import BaseProtocolHandler
 
 if TYPE_CHECKING:
     from .invoker import AgentInvoker
 
 
-class OpenAIProtocolHandler(ProtocolHandler):
+# ============================================================================
+# OpenAI 协议生命周期钩子实现
+# ============================================================================
+
+
+class OpenAILifecycleHooks(AgentLifecycleHooks):
+    """OpenAI 协议的生命周期钩子实现
+
+    OpenAI Chat Completions API 支持的事件有限，主要是：
+    - 文本消息流式输出（通过 delta.content）
+    - 工具调用流式输出（通过 delta.tool_calls）
+
+    不支持的事件（如 step、state 等）返回 None。
+
+    所有 on_* 方法直接返回 AgentEvent，可以直接 yield。
+    """
+
+    def __init__(self, context: Dict[str, Any]):
+        """初始化钩子
+
+        Args:
+            context: 运行上下文，包含 response_id, model 等
+        """
+        self.context = context
+        self.response_id = context.get(
+            "response_id", f"chatcmpl-{uuid.uuid4().hex[:8]}"
+        )
+        self.model = context.get("model", "agentrun-model")
+        self.created = context.get("created", int(time.time()))
+
+    def _create_event(
+        self,
+        delta: Dict[str, Any],
+        finish_reason: Optional[str] = None,
+        event_type: str = "text_message",
+    ) -> AgentEvent:
+        """创建 AgentEvent
+
+        Args:
+            delta: delta 内容
+            finish_reason: 结束原因
+            event_type: 事件类型
+
+        Returns:
+            AgentEvent 对象
+        """
+        chunk = {
+            "id": self.response_id,
+            "object": "chat.completion.chunk",
+            "created": self.created,
+            "model": self.model,
+            "choices": [{
+                "index": 0,
+                "delta": delta,
+                "finish_reason": finish_reason,
+            }],
+        }
+        raw_sse = f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        return AgentEvent(event_type=event_type, data=chunk, raw_sse=raw_sse)
+
+    # =========================================================================
+    # 生命周期事件方法 (on_*) - 直接返回 AgentEvent 或 None
+    # =========================================================================
+
+    def on_run_start(self) -> Optional[AgentEvent]:
+        """OpenAI 不支持 run_start 事件"""
+        return None
+
+    def on_run_finish(self) -> AgentEvent:
+        """OpenAI 发送 [DONE] 标记"""
+        return AgentEvent(event_type="run_finish", raw_sse="data: [DONE]\n\n")
+
+    def on_run_error(
+        self, error: str, code: Optional[str] = None
+    ) -> Optional[AgentEvent]:
+        """OpenAI 错误通过 HTTP 状态码返回"""
+        return None
+
+    def on_step_start(
+        self, step_name: Optional[str] = None
+    ) -> Optional[AgentEvent]:
+        """OpenAI 不支持 step 事件"""
+        return None
+
+    def on_step_finish(
+        self, step_name: Optional[str] = None
+    ) -> Optional[AgentEvent]:
+        """OpenAI 不支持 step 事件"""
+        return None
+
+    def on_text_message_start(
+        self, message_id: str, role: str = "assistant"
+    ) -> AgentEvent:
+        """发送消息开始，包含 role"""
+        return self._create_event(
+            {"role": role}, event_type="text_message_start"
+        )
+
+    def on_text_message_content(
+        self, message_id: str, delta: str
+    ) -> Optional[AgentEvent]:
+        """发送消息内容增量"""
+        if not delta:
+            return None
+        return self._create_event(
+            {"content": delta}, event_type="text_message_content"
+        )
+
+    def on_text_message_end(self, message_id: str) -> AgentEvent:
+        """发送消息结束，包含 finish_reason"""
+        return self._create_event(
+            {}, finish_reason="stop", event_type="text_message_end"
+        )
+
+    def on_tool_call_start(
+        self,
+        id: str,
+        name: str,
+        parent_message_id: Optional[str] = None,
+    ) -> AgentEvent:
+        """发送工具调用开始"""
+        # 记录当前工具调用索引
+        if "tool_call_index" not in self.context:
+            self.context["tool_call_index"] = 0
+        else:
+            self.context["tool_call_index"] += 1
+
+        index = self.context["tool_call_index"]
+
+        return self._create_event(
+            {
+                "tool_calls": [{
+                    "index": index,
+                    "id": id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": ""},
+                }]
+            },
+            event_type="tool_call_start",
+        )
+
+    def on_tool_call_args_delta(
+        self, id: str, delta: str
+    ) -> Optional[AgentEvent]:
+        """发送工具调用参数增量"""
+        if not delta:
+            return None
+        index = self.context.get("tool_call_index", 0)
+        return self._create_event(
+            {
+                "tool_calls": [{
+                    "index": index,
+                    "function": {"arguments": delta},
+                }]
+            },
+            event_type="tool_call_args_delta",
+        )
+
+    def on_tool_call_args(
+        self, id: str, args: Union[str, Dict[str, Any]]
+    ) -> Optional[AgentEvent]:
+        """工具调用参数完成 - OpenAI 通过增量累积"""
+        return None
+
+    def on_tool_call_result_delta(
+        self, id: str, delta: str
+    ) -> Optional[AgentEvent]:
+        """工具调用结果增量 - OpenAI 不直接支持"""
+        return None
+
+    def on_tool_call_result(self, id: str, result: str) -> Optional[AgentEvent]:
+        """工具调用结果 - OpenAI 需要作为 tool role 消息返回"""
+        return None
+
+    def on_tool_call_end(self, id: str) -> Optional[AgentEvent]:
+        """工具调用结束"""
+        return None
+
+    def on_state_snapshot(
+        self, snapshot: Dict[str, Any]
+    ) -> Optional[AgentEvent]:
+        """OpenAI 不支持状态事件"""
+        return None
+
+    def on_state_delta(
+        self, delta: List[Dict[str, Any]]
+    ) -> Optional[AgentEvent]:
+        """OpenAI 不支持状态事件"""
+        return None
+
+    def on_custom_event(self, name: str, value: Any) -> Optional[AgentEvent]:
+        """OpenAI 不支持自定义事件"""
+        return None
+
+
+# ============================================================================
+# OpenAI 协议处理器
+# ============================================================================
+
+
+class OpenAIProtocolHandler(BaseProtocolHandler):
     """OpenAI Completions API 协议处理器
 
     实现 OpenAI Chat Completions API 兼容接口
     参考: https://platform.openai.com/docs/api-reference/chat/create
+
+    特点:
+    - 完全兼容 OpenAI API 格式
+    - 支持流式和非流式响应
+    - 支持工具调用
+    - 提供生命周期钩子（部分支持）
     """
 
     def get_prefix(self) -> str:
-        """OpenAI 协议建议使用 /v1 前缀"""
+        """OpenAI 协议建议使用 /openai/v1 前缀"""
         return "/openai/v1"
+
+    def create_hooks(self, context: Dict[str, Any]) -> AgentLifecycleHooks:
+        """创建 OpenAI 协议的生命周期钩子"""
+        return OpenAILifecycleHooks(context)
 
     def as_fastapi_router(self, agent_invoker: "AgentInvoker") -> APIRouter:
         """创建 OpenAI 协议的 FastAPI Router"""
@@ -47,26 +274,43 @@ class OpenAIProtocolHandler(ProtocolHandler):
         @router.post("/chat/completions")
         async def chat_completions(request: Request):
             """OpenAI Chat Completions 端点"""
+            # SSE 响应头，禁用缓冲
+            sse_headers = {
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # 禁用 nginx 缓冲
+            }
+
             try:
                 # 1. 解析请求
                 request_data = await request.json()
-                agent_request = await self.parse_request(request_data)
+                agent_request, context = await self.parse_request(
+                    request, request_data
+                )
 
                 # 2. 调用 Agent
                 agent_result = await agent_invoker.invoke(agent_request)
 
                 # 3. 格式化响应
-                formatted_result = await self.format_response(
-                    agent_result, agent_request
+                is_stream = agent_request.stream or self._is_iterator(
+                    agent_result
                 )
 
-                # 4. 返回响应
-                # 自动检测是否为流式响应
-                if hasattr(formatted_result, "__aiter__"):
+                if is_stream:
+                    # 流式响应
+                    response_stream = self.format_response(
+                        agent_result, agent_request, context
+                    )
                     return StreamingResponse(
-                        formatted_result, media_type="text/event-stream"
+                        response_stream,
+                        media_type="text/event-stream",
+                        headers=sse_headers,
                     )
                 else:
+                    # 非流式响应
+                    formatted_result = await self._format_non_stream_response(
+                        agent_result, agent_request, context
+                    )
                     return JSONResponse(formatted_result)
 
             except ValueError as e:
@@ -85,7 +329,6 @@ class OpenAIProtocolHandler(ProtocolHandler):
                     status_code=500,
                 )
 
-        # 可以添加更多端点
         @router.get("/models")
         async def list_models():
             """列出可用模型"""
@@ -101,14 +344,19 @@ class OpenAIProtocolHandler(ProtocolHandler):
 
         return router
 
-    async def parse_request(self, request_data: Dict[str, Any]) -> AgentRequest:
+    async def parse_request(
+        self,
+        request: Request,
+        request_data: Dict[str, Any],
+    ) -> tuple[AgentRequest, Dict[str, Any]]:
         """解析 OpenAI 格式的请求
 
         Args:
+            request: FastAPI Request 对象
             request_data: HTTP 请求体 JSON 数据
 
         Returns:
-            AgentRequest: 标准化的请求对象
+            tuple: (AgentRequest, context)
 
         Raises:
             ValueError: 请求格式不正确
@@ -126,7 +374,6 @@ class OpenAIProtocolHandler(ProtocolHandler):
             if "role" not in msg_data:
                 raise ValueError("Message missing 'role' field")
 
-            # 转换消息
             try:
                 role = MessageRole(msg_data["role"])
             except ValueError as e:
@@ -144,7 +391,20 @@ class OpenAIProtocolHandler(ProtocolHandler):
                 )
             )
 
-        # 提取标准参数
+        # 创建上下文
+        context = {
+            "response_id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+            "model": request_data.get("model", "agentrun-model"),
+            "created": int(time.time()),
+        }
+
+        # 创建钩子
+        hooks = self.create_hooks(context)
+
+        # 提取原始请求头
+        raw_headers = dict(request.headers)
+
+        # 构建 AgentRequest
         agent_request = AgentRequest(
             messages=messages,
             model=request_data.get("model"),
@@ -155,6 +415,9 @@ class OpenAIProtocolHandler(ProtocolHandler):
             tools=request_data.get("tools"),
             tool_choice=request_data.get("tool_choice"),
             user=request_data.get("user"),
+            raw_headers=raw_headers,
+            raw_body=request_data,
+            hooks=hooks,
         )
 
         # 保存其他额外参数
@@ -173,120 +436,200 @@ class OpenAIProtocolHandler(ProtocolHandler):
             k: v for k, v in request_data.items() if k not in standard_fields
         }
 
-        return agent_request
+        return agent_request, context
 
     async def format_response(
-        self, result: AgentResult, request: AgentRequest
-    ) -> Any:
-        """格式化响应为 OpenAI 格式
+        self,
+        result: AgentResult,
+        request: AgentRequest,
+        context: Dict[str, Any],
+    ) -> AsyncIterator[str]:
+        """格式化流式响应为 OpenAI SSE 格式
+
+        Agent 可以 yield 三种类型的内容:
+        1. 普通字符串 - 会被包装成 OpenAI 流式响应格式
+        2. AgentEvent - 直接输出其 raw_sse（如果是 OpenAI 格式）
+        3. None - 忽略
 
         Args:
-            result: Agent 执行结果,支持:
-                - AgentRunResult: 核心数据结构 (推荐)
-                - AgentResponse: 完整响应对象
-                - ModelResponse: litellm 的 ModelResponse
-                - CustomStreamWrapper: litellm 的流式响应
+            result: Agent 执行结果
             request: 原始请求
+            context: 运行上下文
+
+        Yields:
+            SSE 格式的数据行
+        """
+        hooks = request.hooks
+        message_id = str(uuid.uuid4())
+        text_message_started = False
+
+        # 处理内容
+        content = self._extract_content(result)
+
+        if self._is_iterator(content):
+            # 流式内容
+            async for chunk in self._iterate_content(content):
+                if chunk is None:
+                    continue
+
+                # 检查是否是 AgentEvent
+                if isinstance(chunk, AgentEvent):
+                    # 只输出有 raw_sse 且是 OpenAI 格式的事件
+                    if chunk.raw_sse and chunk.event_type.startswith(
+                        ("text_message", "tool_call", "run_finish")
+                    ):
+                        yield chunk.raw_sse
+                    continue
+
+                # 普通文本内容
+                if isinstance(chunk, str) and chunk:
+                    if not text_message_started and hooks:
+                        # 延迟发送消息开始
+                        event = hooks.on_text_message_start(message_id)
+                        if event and event.raw_sse:
+                            yield event.raw_sse
+                        text_message_started = True
+
+                    if hooks:
+                        event = hooks.on_text_message_content(message_id, chunk)
+                        if event and event.raw_sse:
+                            yield event.raw_sse
+        else:
+            # 非流式内容转换为单个 chunk
+            if isinstance(content, AgentEvent):
+                if content.raw_sse:
+                    yield content.raw_sse
+            elif content:
+                content_str = str(content)
+                if hooks:
+                    event = hooks.on_text_message_start(message_id)
+                    if event and event.raw_sse:
+                        yield event.raw_sse
+                    text_message_started = True
+                    event = hooks.on_text_message_content(
+                        message_id, content_str
+                    )
+                    if event and event.raw_sse:
+                        yield event.raw_sse
+
+        # 发送消息结束（如果有文本消息）
+        if text_message_started and hooks:
+            event = hooks.on_text_message_end(message_id)
+            if event and event.raw_sse:
+                yield event.raw_sse
+
+        # 发送运行结束
+        if hooks:
+            event = hooks.on_run_finish()
+            if event and event.raw_sse:
+                yield event.raw_sse
+
+    async def _format_non_stream_response(
+        self,
+        result: AgentResult,
+        request: AgentRequest,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """格式化非流式响应
+
+        Args:
+            result: Agent 执行结果
+            request: 原始请求
+            context: 运行上下文
 
         Returns:
-            格式化后的响应(dict 或 AsyncIterator)
+            OpenAI 格式的响应字典
         """
-        # 1. 检测 ModelResponse (来自 Model Service)
+        # 检测 ModelResponse (来自 Model Service)
         if self._is_model_response(result):
             return self._format_model_response(result, request)
 
-        # 2. 处理 AgentRunResult
+        # 处理 AgentRunResult
         if isinstance(result, AgentRunResult):
-            return await self._format_agent_run_result(result, request)
+            content = result.content
+            if isinstance(content, str):
+                return self._build_completion_response(content, context)
+            raise TypeError(
+                "AgentRunResult.content must be str for non-stream, got"
+                f" {type(content)}"
+            )
 
-        # 3. 自动检测流式响应:
-        #    - 请求明确指定 stream=true
-        #    - 或返回值是迭代器/生成器
-        is_stream = request.stream or self._is_iterator(result)
-
-        if is_stream:
-            return self._format_stream_response(result, request)
-
-        # 4. 非流式响应
-        # 如果是字符串,包装成 AgentResponse
+        # 处理字符串
         if isinstance(result, str):
-            result = self._wrap_string_response(result, request)
+            return self._build_completion_response(result, context)
 
-        # 如果是 AgentResponse,补充 OpenAI 必需字段并序列化
+        # 处理 AgentResponse
         if isinstance(result, AgentResponse):
-            return self._ensure_openai_format(result, request)
+            return self._ensure_openai_format(result, request, context)
 
         raise TypeError(
-            "Expected AgentRunResult, AgentResponse, or ModelResponse, "
-            f"got {type(result)}"
+            "Expected AgentRunResult, AgentResponse, or str, got"
+            f" {type(result)}"
         )
 
-    async def _format_agent_run_result(
-        self, result: AgentRunResult, request: AgentRequest
-    ) -> Union[Dict[str, Any], AsyncIterator[str]]:
-        """格式化 AgentRunResult 为 OpenAI 格式
+    def _build_completion_response(
+        self, content: str, context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """构建完整的 OpenAI completion 响应"""
+        return {
+            "id": context.get(
+                "response_id", f"chatcmpl-{uuid.uuid4().hex[:12]}"
+            ),
+            "object": "chat.completion",
+            "created": context.get("created", int(time.time())),
+            "model": context.get("model", "agentrun-model"),
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": content,
+                },
+                "finish_reason": "stop",
+            }],
+        }
 
-        AgentRunResult 的 content 可以是:
-        - string: 非流式响应
-        - Iterator[str] 或 AsyncIterator[str]: 流式响应
+    def _extract_content(self, result: AgentResult) -> Any:
+        """从结果中提取内容"""
+        if isinstance(result, AgentRunResult):
+            return result.content
+        if isinstance(result, AgentResponse):
+            return result.content
+        if isinstance(result, str):
+            return result
+        # 可能是迭代器
+        return result
 
-        Args:
-            result: AgentRunResult 对象
-            request: 原始请求
+    async def _iterate_content(
+        self, content: Union[Iterator, AsyncIterator]
+    ) -> AsyncIterator:
+        """统一迭代同步和异步迭代器
 
-        Returns:
-            非流式: OpenAI 格式的字典
-            流式: SSE 格式的异步迭代器
+        支持迭代包含字符串或 AgentEvent 的迭代器。
+        对于同步迭代器，每次 next() 调用都在线程池中执行，避免阻塞事件循环。
         """
-        content = result.content
+        import asyncio
 
-        # 检查 content 是否是迭代器
-        if self._is_iterator(content):
-            # 流式响应
-            return self._format_stream_content(content, request)
+        if hasattr(content, "__aiter__"):
+            # 异步迭代器
+            async for chunk in content:  # type: ignore
+                yield chunk
+        else:
+            # 同步迭代器 - 在线程池中迭代，避免阻塞
+            loop = asyncio.get_event_loop()
+            iterator = iter(content)  # type: ignore
 
-        # 非流式响应
-        if isinstance(content, str):
-            return {
-                "id": f"chatcmpl-{int(time.time() * 1000)}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": request.model or "agentrun-model",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": content,
-                    },
-                    "finish_reason": "stop",
-                }],
-            }
-
-        raise TypeError(
-            "AgentRunResult.content must be str or Iterator[str], got"
-            f" {type(content)}"
-        )
+            while True:
+                try:
+                    # 在线程池中执行 next()，避免 time.sleep 阻塞事件循环
+                    chunk = await loop.run_in_executor(None, next, iterator)
+                    yield chunk
+                except StopIteration:
+                    break
 
     def _is_model_response(self, obj: Any) -> bool:
-        """检查对象是否是 Model Service 的 ModelResponse
-
-        ModelResponse 特征:
-        - 有 choices 属性
-        - 有 usage 属性 (或 created, id 等)
-        - 不是 AgentResponse (AgentResponse 也有这些字段)
-
-        Args:
-            obj: 要检查的对象
-
-        Returns:
-            bool: 是否是 ModelResponse
-        """
-        # 排除已知类型
+        """检查对象是否是 Model Service 的 ModelResponse"""
         if isinstance(obj, (str, AgentResponse, AgentRunResult, dict)):
             return False
-
-        # 检查 ModelResponse 的特征属性
-        # litellm 的 ModelResponse 有 choices 和 model 属性
         return (
             hasattr(obj, "choices")
             and hasattr(obj, "model")
@@ -296,26 +639,13 @@ class OpenAIProtocolHandler(ProtocolHandler):
     def _format_model_response(
         self, response: Any, request: AgentRequest
     ) -> Dict[str, Any]:
-        """格式化 ModelResponse 为 OpenAI 格式
-
-        ModelResponse 本身已经是 OpenAI 格式,直接转换为字典即可。
-
-        Args:
-            response: litellm 的 ModelResponse 对象
-            request: 原始请求
-
-        Returns:
-            Dict: OpenAI 格式的响应字典
-        """
-        # 方式 1: 如果有 model_dump 方法 (Pydantic)
+        """格式化 ModelResponse 为 OpenAI 格式"""
         if hasattr(response, "model_dump"):
             return response.model_dump(exclude_none=True)
-
-        # 方式 2: 如果有 dict 方法
         if hasattr(response, "dict"):
             return response.dict(exclude_none=True)
 
-        # 方式 3: 手动转换 (litellm ModelResponse)
+        # 手动转换
         result = {
             "id": getattr(
                 response, "id", f"chatcmpl-{int(time.time() * 1000)}"
@@ -328,28 +658,22 @@ class OpenAIProtocolHandler(ProtocolHandler):
             "choices": [],
         }
 
-        # 转换 choices
         if hasattr(response, "choices"):
             for choice in response.choices:
                 choice_dict = {
                     "index": getattr(choice, "index", 0),
                     "finish_reason": getattr(choice, "finish_reason", None),
                 }
-
-                # 转换 message
                 if hasattr(choice, "message"):
                     msg = choice.message
                     choice_dict["message"] = {
                         "role": getattr(msg, "role", "assistant"),
                         "content": getattr(msg, "content", None),
                     }
-                    # 可选字段
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                         choice_dict["message"]["tool_calls"] = msg.tool_calls
-
                 result["choices"].append(choice_dict)
 
-        # 转换 usage
         if hasattr(response, "usage") and response.usage:
             usage = response.usage
             result["usage"] = {
@@ -360,439 +684,33 @@ class OpenAIProtocolHandler(ProtocolHandler):
 
         return result
 
-    def _is_iterator(self, obj: Any) -> bool:
-        """检查对象是否是迭代器
-
-        Args:
-            obj: 要检查的对象
-
-        Returns:
-            bool: 是否是迭代器
-        """
-        # 检查是否是迭代器或生成器
-        return (
-            hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes, dict))
-        ) or hasattr(obj, "__aiter__")
-
-    async def _format_stream_content(
-        self,
-        content: Union[Iterator[str], AsyncIterator[str]],
-        request: AgentRequest,
-    ) -> AsyncIterator[str]:
-        """格式化流式 content 为 OpenAI SSE 格式
-
-        将字符串迭代器转换为 OpenAI 流式响应格式。
-
-        Args:
-            content: 字符串迭代器 (同步或异步)
-            request: 原始请求
-
-        Yields:
-            SSE 格式的数据行
-        """
-        response_id = f"chatcmpl-{int(time.time() * 1000)}"
-        created = int(time.time())
-        model = request.model or "agentrun-model"
-
-        # 发送第一个 chunk (包含 role)
-        first_chunk = {
-            "id": response_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [{
-                "index": 0,
-                "delta": {"role": "assistant"},
-                "finish_reason": None,
-            }],
-        }
-        yield f"data: {json.dumps(first_chunk, ensure_ascii=False)}\n\n"
-
-        # 检查是否是异步迭代器
-        if hasattr(content, "__aiter__"):
-            async for chunk in content:  # type: ignore
-                if chunk:  # 跳过空字符串
-                    data = {
-                        "id": response_id,
-                        "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"content": chunk},
-                            "finish_reason": None,
-                        }],
-                    }
-                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-        else:
-            # 同步迭代器
-            for chunk in content:  # type: ignore
-                if chunk:
-                    data = {
-                        "id": response_id,
-                        "object": "chat.completion.chunk",
-                        "created": created,
-                        "model": model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"content": chunk},
-                            "finish_reason": None,
-                        }],
-                    }
-                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-        # 发送结束 chunk
-        final_chunk = {
-            "id": response_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [{
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop",
-            }],
-        }
-        yield f"data: {json.dumps(final_chunk, ensure_ascii=False)}\n\n"
-
-        # 发送结束标记
-        yield "data: [DONE]\n\n"
-
-    def _wrap_string_response(
-        self, content: str, request: AgentRequest
-    ) -> AgentResponse:
-        """将字符串包装成 AgentResponse
-
-        Args:
-            content: 响应内容字符串
-            request: 原始请求
-
-        Returns:
-            AgentResponse: 包装后的响应对象
-        """
-        return AgentResponse(content=content)
-
     def _ensure_openai_format(
-        self, response: AgentResponse, request: AgentRequest
+        self,
+        response: AgentResponse,
+        request: AgentRequest,
+        context: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """确保 AgentResponse 符合 OpenAI 格式
-
-        如果用户只填充了 content,自动补充 OpenAI 必需字段。
-        如果用户已填充完整字段,直接使用。
-
-        Args:
-            response: Agent 返回的响应对象
-            request: 原始请求
-
-        Returns:
-            Dict: OpenAI 格式的响应字典
-        """
-        # 如果用户只提供了 content,构造完整的 OpenAI 格式
+        """确保 AgentResponse 符合 OpenAI 格式"""
         if response.content and not response.choices:
-            return {
-                "id": response.id or f"chatcmpl-{int(time.time() * 1000)}",
-                "object": response.object or "chat.completion",
-                "created": response.created or int(time.time()),
-                "model": response.model or request.model or "agentrun-model",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": response.content,
-                    },
-                    "finish_reason": "stop",
-                }],
-                "usage": (
-                    json.loads(response.usage.model_dump_json())
-                    if response.usage
-                    else None
-                ),
-            }
+            return self._build_completion_response(response.content, context)
 
-        # 用户提供了完整字段,使用 JSON 序列化避免对象嵌套问题
         json_str = response.model_dump_json(exclude_none=True)
         result = json.loads(json_str)
 
-        # 确保必需字段存在
         if "id" not in result:
-            result["id"] = f"chatcmpl-{int(time.time() * 1000)}"
+            result["id"] = context.get(
+                "response_id", f"chatcmpl-{uuid.uuid4().hex[:12]}"
+            )
         if "object" not in result:
             result["object"] = "chat.completion"
         if "created" not in result:
-            result["created"] = int(time.time())
+            result["created"] = context.get("created", int(time.time()))
         if "model" not in result:
-            result["model"] = request.model or "agentrun-model"
+            result["model"] = context.get(
+                "model", request.model or "agentrun-model"
+            )
 
-        # 移除 content 和 extra (OpenAI 格式中不需要)
         result.pop("content", None)
         result.pop("extra", None)
 
         return result
-
-    def _is_custom_stream_wrapper(self, obj: Any) -> bool:
-        """检查是否是 Model Service 的 CustomStreamWrapper"""
-        # CustomStreamWrapper 的特征
-        return (
-            hasattr(obj, "__aiter__")
-            and type(obj).__name__ == "CustomStreamWrapper"
-        )
-
-    async def _format_model_stream(
-        self, stream_wrapper: Any, request: AgentRequest
-    ) -> AsyncIterator[str]:
-        """格式化 Model Service 的流式响应
-
-        CustomStreamWrapper 返回的 chunk 已经是完整的 OpenAI 格式对象。
-        """
-        async for chunk in stream_wrapper:
-            # chunk 是 litellm 的 ModelResponse 或字典
-            if isinstance(chunk, dict):
-                # 已经是字典,直接格式化为 SSE
-                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-            elif hasattr(chunk, "model_dump"):
-                # Pydantic 对象
-                chunk_dict = chunk.model_dump(exclude_none=True)
-                yield f"data: {json.dumps(chunk_dict, ensure_ascii=False)}\n\n"
-            elif hasattr(chunk, "dict"):
-                # 旧版 Pydantic
-                chunk_dict = chunk.dict(exclude_none=True)
-                yield f"data: {json.dumps(chunk_dict, ensure_ascii=False)}\n\n"
-            else:
-                # 手动转换对象为字典
-                chunk_dict = {
-                    "id": getattr(
-                        chunk, "id", f"chatcmpl-{int(time.time() * 1000)}"
-                    ),
-                    "object": getattr(chunk, "object", "chat.completion.chunk"),
-                    "created": getattr(chunk, "created", int(time.time())),
-                    "model": getattr(
-                        chunk, "model", request.model or "agentrun-model"
-                    ),
-                    "choices": [],
-                }
-
-                if hasattr(chunk, "choices"):
-                    for choice in chunk.choices:
-                        choice_dict = {
-                            "index": getattr(choice, "index", 0),
-                            "finish_reason": getattr(
-                                choice, "finish_reason", None
-                            ),
-                        }
-
-                        if hasattr(choice, "delta"):
-                            delta = choice.delta
-                            delta_dict = {}
-                            if hasattr(delta, "role") and delta.role:
-                                delta_dict["role"] = delta.role
-                            if hasattr(delta, "content") and delta.content:
-                                delta_dict["content"] = delta.content
-                            if (
-                                hasattr(delta, "tool_calls")
-                                and delta.tool_calls
-                            ):
-                                delta_dict["tool_calls"] = delta.tool_calls
-                            choice_dict["delta"] = delta_dict
-
-                        chunk_dict["choices"].append(choice_dict)
-
-                yield f"data: {json.dumps(chunk_dict, ensure_ascii=False)}\n\n"
-
-        # 发送结束标记
-        yield "data: [DONE]\n\n"
-
-    async def _format_stream_response(
-        self, result: AgentResult, request: AgentRequest
-    ) -> AsyncIterator[str]:
-        """格式化流式响应
-
-        Args:
-            result: 流式迭代器,支持:
-                - Iterator[str]/AsyncIterator[str]: 流式字符串
-                - Iterator[AgentStreamResponse]: 流式响应对象
-                - CustomStreamWrapper: Model Service 流式响应
-            request: 原始请求
-
-        Yields:
-            SSE 格式的数据行
-        """
-        # 检查是否是 CustomStreamWrapper (Model Service 流式响应)
-        if self._is_custom_stream_wrapper(result):
-            async for chunk in self._format_model_stream(result, request):
-                yield chunk
-            return
-
-        response_id = f"chatcmpl-{int(time.time() * 1000)}"
-        created = int(time.time())
-        model = request.model or "agentrun-model"
-
-        # 检查是否是异步迭代器
-        if hasattr(result, "__aiter__"):
-            first_chunk = True
-            async for chunk in result:  # type: ignore
-                # 如果是字符串,包装成 AgentStreamResponse
-                if isinstance(chunk, str):
-                    if first_chunk:
-                        # 第一个 chunk: 发送 role
-                        yield self._format_sse_chunk(
-                            AgentStreamResponse(
-                                id=response_id,
-                                created=created,
-                                model=model,
-                                choices=[
-                                    AgentStreamResponseChoice(
-                                        index=0,
-                                        delta=AgentStreamResponseDelta(
-                                            role=MessageRole.ASSISTANT,
-                                        ),
-                                        finish_reason=None,
-                                    )
-                                ],
-                            )
-                        )
-                        first_chunk = False
-
-                    # 发送内容 chunk
-                    if chunk:  # 跳过空字符串
-                        yield self._format_sse_chunk(
-                            AgentStreamResponse(
-                                id=response_id,
-                                created=created,
-                                model=model,
-                                choices=[
-                                    AgentStreamResponseChoice(
-                                        index=0,
-                                        delta=AgentStreamResponseDelta(
-                                            content=chunk
-                                        ),
-                                        finish_reason=None,
-                                    )
-                                ],
-                            )
-                        )
-
-                # 如果是 AgentStreamResponse,直接序列化
-                elif isinstance(chunk, AgentStreamResponse):
-                    yield self._format_sse_chunk(chunk)
-
-            # 发送结束 chunk
-            yield self._format_sse_chunk(
-                AgentStreamResponse(
-                    id=response_id,
-                    created=created,
-                    model=model,
-                    choices=[
-                        AgentStreamResponseChoice(
-                            index=0,
-                            delta=AgentStreamResponseDelta(),
-                            finish_reason="stop",
-                        )
-                    ],
-                )
-            )
-            # 发送结束标记
-            yield "data: [DONE]\n\n"
-
-        # 同步迭代器
-        elif hasattr(result, "__iter__"):
-            first_chunk = True
-            for chunk in result:  # type: ignore
-                # 如果是字符串,包装成 AgentStreamResponse
-                if isinstance(chunk, str):
-                    if first_chunk:
-                        yield self._format_sse_chunk(
-                            AgentStreamResponse(
-                                id=response_id,
-                                created=created,
-                                model=model,
-                                choices=[
-                                    AgentStreamResponseChoice(
-                                        index=0,
-                                        delta=AgentStreamResponseDelta(
-                                            role=MessageRole.ASSISTANT,
-                                        ),
-                                        finish_reason=None,
-                                    )
-                                ],
-                            )
-                        )
-                        first_chunk = False
-
-                    if chunk:
-                        yield self._format_sse_chunk(
-                            AgentStreamResponse(
-                                id=response_id,
-                                created=created,
-                                model=model,
-                                choices=[
-                                    AgentStreamResponseChoice(
-                                        index=0,
-                                        delta=AgentStreamResponseDelta(
-                                            content=chunk
-                                        ),
-                                        finish_reason=None,
-                                    )
-                                ],
-                            )
-                        )
-
-                elif isinstance(chunk, AgentStreamResponse):
-                    yield self._format_sse_chunk(chunk)
-
-            # 发送结束 chunk
-            yield self._format_sse_chunk(
-                AgentStreamResponse(
-                    id=response_id,
-                    created=created,
-                    model=model,
-                    choices=[
-                        AgentStreamResponseChoice(
-                            index=0,
-                            delta=AgentStreamResponseDelta(),
-                            finish_reason="stop",
-                        )
-                    ],
-                )
-            )
-            yield "data: [DONE]\n\n"
-
-        else:
-            raise TypeError(
-                "Expected Iterator or AsyncIterator for stream response, "
-                f"got {type(result)}"
-            )
-
-    def _format_sse_chunk(self, chunk: AgentStreamResponse) -> str:
-        """格式化单个 SSE chunk
-
-        Args:
-            chunk: AgentStreamResponse 对象
-
-        Returns:
-            SSE 格式的字符串
-        """
-        # 使用 Pydantic 的 JSON 序列化,自动处理所有嵌套对象
-        json_str = chunk.model_dump_json(exclude_none=True)
-        json_data = json.loads(json_str)
-
-        # 如果用户只提供了 content,转换为 OpenAI 格式
-        if "content" in json_data and "choices" not in json_data:
-            json_data = {
-                "id": json_data.get(
-                    "id", f"chatcmpl-{int(time.time() * 1000)}"
-                ),
-                "object": json_data.get("object", "chat.completion.chunk"),
-                "created": json_data.get("created", int(time.time())),
-                "model": json_data.get("model", "agentrun-model"),
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": json_data["content"]},
-                    "finish_reason": None,
-                }],
-            }
-        else:
-            # 移除不属于 OpenAI 格式的字段
-            json_data.pop("content", None)
-            json_data.pop("extra", None)
-
-        return f"data: {json.dumps(json_data, ensure_ascii=False)}\n\n"

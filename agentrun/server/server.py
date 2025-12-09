@@ -13,6 +13,7 @@ import uvicorn
 
 from agentrun.utils.log import logger
 
+from .agui_protocol import AGUIProtocolHandler
 from .invoker import AgentInvoker
 from .openai_protocol import OpenAIProtocolHandler
 from .protocol import InvokeAgentHandler, ProtocolHandler
@@ -26,13 +27,15 @@ class AgentRunServer:
     - Server 只负责组装和前缀管理 / Server only handles assembly and prefix management
     - 易于扩展新协议 / Easy to extend with new protocols
 
-    Example (默认 OpenAI 协议 / Default OpenAI protocol):
+    Example (默认协议 / Default protocols - OpenAI + AG-UI):
         >>> def invoke_agent(request: AgentRequest):
         ...     return "Hello, world!"
         >>>
         >>> server = AgentRunServer(invoke_agent=invoke_agent)
         >>> server.start(port=8000)
-        # 可访问 / Accessible: POST http://localhost:8000/v1/chat/completions
+        # 可访问 / Accessible:
+        #   POST http://localhost:8000/openai/v1/chat/completions (OpenAI)
+        #   POST http://localhost:8000/agui/v1/run (AG-UI)
 
     Example (自定义前缀 / Custom prefix):
         >>> server = AgentRunServer(
@@ -42,11 +45,19 @@ class AgentRunServer:
         >>> server.start(port=8000)
         # 可访问 / Accessible: POST http://localhost:8000/api/v1/chat/completions
 
+    Example (仅 OpenAI 协议 / OpenAI only):
+        >>> server = AgentRunServer(
+        ...     invoke_agent=invoke_agent,
+        ...     protocols=[OpenAIProtocolHandler()]
+        ... )
+        >>> server.start(port=8000)
+
     Example (多协议 / Multiple protocols):
         >>> server = AgentRunServer(
         ...     invoke_agent=invoke_agent,
         ...     protocols=[
         ...         OpenAIProtocolHandler(),
+        ...         AGUIProtocolHandler(),
         ...         CustomProtocolHandler(),
         ...     ]
         ... )
@@ -85,9 +96,9 @@ class AgentRunServer:
         self.app = FastAPI(title="AgentRun Server")
         self.agent_invoker = AgentInvoker(invoke_agent)
 
-        # 默认使用 OpenAI 协议
+        # 默认使用 OpenAI 和 AG-UI 协议
         if protocols is None:
-            protocols = [OpenAIProtocolHandler()]
+            protocols = [OpenAIProtocolHandler(), AGUIProtocolHandler()]
 
         self.prefix_overrides = prefix_overrides or {}
 
