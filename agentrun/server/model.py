@@ -1,11 +1,16 @@
-"""AgentRun Server 模型定义 / AgentRun Server 模型Defines
+"""AgentRun Server 模型定义 / AgentRun Server Model Definitions
 
-定义 invokeAgent callback 的参数结构和响应类型"""
+定义 invokeAgent callback 的参数结构、响应类型和生命周期钩子。
+Defines invokeAgent callback parameter structures, response types, and lifecycle hooks.
+"""
 
+from abc import ABC, abstractmethod
 from enum import Enum
 from typing import (
     Any,
     AsyncIterator,
+    Awaitable,
+    Callable,
     Dict,
     Iterator,
     List,
@@ -56,12 +61,245 @@ class Tool(BaseModel):
     function: Dict[str, Any]
 
 
+# ============================================================================
+# 生命周期钩子类型定义 / Lifecycle Hook Type Definitions
+# ============================================================================
+
+
+class AgentLifecycleHooks(ABC):
+    """Agent 生命周期钩子抽象基类
+
+    定义 Agent 执行过程中的所有生命周期事件。
+    不同协议（OpenAI、AG-UI 等）实现各自的钩子处理逻辑。
+
+    所有 on_* 方法直接返回一个 AgentEvent 对象，可以直接 yield。
+    对于不支持的事件，返回 None。
+
+    Example (同步):
+        >>> def invoke_agent(request: AgentRequest):
+        ...     hooks = request.hooks
+        ...     yield hooks.on_step_start("processing")
+        ...     yield "Hello, world!"
+        ...     yield hooks.on_step_finish("processing")
+
+    Example (异步):
+        >>> async def invoke_agent(request: AgentRequest):
+        ...     hooks = request.hooks
+        ...     yield hooks.on_step_start("processing")
+        ...     yield "Hello, world!"
+        ...     yield hooks.on_step_finish("processing")
+
+    Example (工具调用):
+        >>> def invoke_agent(request: AgentRequest):
+        ...     hooks = request.hooks
+        ...     yield hooks.on_tool_call_start(id="call_1", name="get_time")
+        ...     yield hooks.on_tool_call_args(id="call_1", args='{"tz": "UTC"}')
+        ...     result = get_time(tz="UTC")
+        ...     yield hooks.on_tool_call_result(id="call_1", result=result)
+        ...     yield hooks.on_tool_call_end(id="call_1")
+        ...     yield f"当前时间: {result}"
+    """
+
+    # =========================================================================
+    # 生命周期事件方法 (on_*) - 直接返回 AgentEvent，可以直接 yield
+    # =========================================================================
+
+    @abstractmethod
+    def on_run_start(self) -> Optional["AgentEvent"]:
+        """运行开始事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_run_finish(self) -> Optional["AgentEvent"]:
+        """运行结束事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_run_error(
+        self, error: str, code: Optional[str] = None
+    ) -> Optional["AgentEvent"]:
+        """运行错误事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_step_start(
+        self, step_name: Optional[str] = None
+    ) -> Optional["AgentEvent"]:
+        """步骤开始事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_step_finish(
+        self, step_name: Optional[str] = None
+    ) -> Optional["AgentEvent"]:
+        """步骤结束事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_text_message_start(
+        self, message_id: str, role: str = "assistant"
+    ) -> Optional["AgentEvent"]:
+        """文本消息开始事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_text_message_content(
+        self, message_id: str, delta: str
+    ) -> Optional["AgentEvent"]:
+        """文本消息内容事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_text_message_end(self, message_id: str) -> Optional["AgentEvent"]:
+        """文本消息结束事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_tool_call_start(
+        self,
+        id: str,
+        name: str,
+        parent_message_id: Optional[str] = None,
+    ) -> Optional["AgentEvent"]:
+        """工具调用开始事件
+
+        Args:
+            id: 工具调用 ID
+            name: 工具名称
+            parent_message_id: 父消息 ID（可选）
+        """
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_tool_call_args_delta(
+        self, id: str, delta: str
+    ) -> Optional["AgentEvent"]:
+        """工具调用参数增量事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_tool_call_args(
+        self, id: str, args: Union[str, Dict[str, Any]]
+    ) -> Optional["AgentEvent"]:
+        """工具调用参数完成事件
+
+        Args:
+            id: 工具调用 ID
+            args: 参数，可以是 JSON 字符串或字典
+        """
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_tool_call_result_delta(
+        self, id: str, delta: str
+    ) -> Optional["AgentEvent"]:
+        """工具调用结果增量事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_tool_call_result(
+        self, id: str, result: str
+    ) -> Optional["AgentEvent"]:
+        """工具调用结果完成事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_tool_call_end(self, id: str) -> Optional["AgentEvent"]:
+        """工具调用结束事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_state_snapshot(
+        self, snapshot: Dict[str, Any]
+    ) -> Optional["AgentEvent"]:
+        """状态快照事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_state_delta(
+        self, delta: List[Dict[str, Any]]
+    ) -> Optional["AgentEvent"]:
+        """状态增量事件"""
+        return None  # pragma: no cover
+
+    @abstractmethod
+    def on_custom_event(self, name: str, value: Any) -> Optional["AgentEvent"]:
+        """自定义事件"""
+        return None  # pragma: no cover
+
+
+class AgentEvent:
+    """Agent 事件
+
+    表示一个生命周期事件，可以被 yield 给框架处理。
+    框架会根据协议将其转换为相应的格式。
+
+    Attributes:
+        event_type: 事件类型
+        data: 事件数据
+        raw_sse: 原始 SSE 格式字符串（可选，用于直接输出）
+    """
+
+    def __init__(
+        self,
+        event_type: str,
+        data: Optional[Dict[str, Any]] = None,
+        raw_sse: Optional[str] = None,
+    ):
+        self.event_type = event_type
+        self.data = data or {}
+        self.raw_sse = raw_sse
+
+    def __repr__(self) -> str:
+        return f"AgentEvent(type={self.event_type}, data={self.data})"
+
+    def __bool__(self) -> bool:
+        """允许在 if 语句中检查事件是否有效"""
+        return self.raw_sse is not None or bool(self.data)
+
+
 class AgentRequest(BaseModel):
     """Agent 请求参数
 
-    invokeAgent callback 接收的参数结构
-    符合 OpenAI Completions API 格式
+    invokeAgent callback 接收的参数结构。
+    支持 OpenAI Completions API 格式，同时提供原始请求访问和生命周期钩子。
+
+    Attributes:
+        messages: 对话历史消息列表
+        model: 模型名称
+        stream: 是否使用流式输出
+        raw_headers: 原始 HTTP 请求头
+        raw_body: 原始 HTTP 请求体
+        hooks: 生命周期钩子，用于发送协议特定事件
+
+    Example (同步):
+        >>> def invoke_agent(request: AgentRequest):
+        ...     # 访问原始请求
+        ...     auth = request.raw_headers.get("Authorization")
+        ...
+        ...     # 使用钩子发送事件（直接 yield）
+        ...     yield request.hooks.on_step_start("processing")
+        ...     yield "Hello, world!"
+        ...     yield request.hooks.on_step_finish("processing")
+
+    Example (异步):
+        >>> async def invoke_agent(request: AgentRequest):
+        ...     yield request.hooks.on_step_start("processing")
+        ...     yield "Hello, world!"
+        ...     yield request.hooks.on_step_finish("processing")
+
+    Example (工具调用):
+        >>> def invoke_agent(request: AgentRequest):
+        ...     hooks = request.hooks
+        ...     yield hooks.on_tool_call_start(id="call_1", name="get_time")
+        ...     yield hooks.on_tool_call_args(id="call_1", args={"tz": "UTC"})
+        ...     result = get_time(tz="UTC")
+        ...     yield hooks.on_tool_call_result(id="call_1", result=result)
+        ...     yield hooks.on_tool_call_end(id="call_1")
+        ...     yield f"当前时间: {result}"
     """
+
+    model_config = {"arbitrary_types_allowed": True}
 
     # 必需参数
     messages: List[Message] = Field(..., description="对话历史消息列表")
@@ -83,6 +321,19 @@ class AgentRequest(BaseModel):
         None, description="工具选择策略"
     )
     user: Optional[str] = Field(None, description="用户标识")
+
+    # 原始请求信息 / Raw Request Info
+    raw_headers: Dict[str, str] = Field(
+        default_factory=dict, description="原始 HTTP 请求头"
+    )
+    raw_body: Dict[str, Any] = Field(
+        default_factory=dict, description="原始 HTTP 请求体"
+    )
+
+    # 生命周期钩子 / Lifecycle Hooks
+    hooks: Optional[AgentLifecycleHooks] = Field(
+        None, description="生命周期钩子，由协议层注入"
+    )
 
     # 扩展参数
     extra: Dict[str, Any] = Field(
@@ -211,11 +462,13 @@ else:
 # AgentResult - 支持多种返回形式
 # 用户可以返回:
 # 1. string 或 string 迭代器 - 自动转换为 AgentRunResult
-# 2. AgentRunResult - 核心数据结构
-# 3. AgentResponse - 完整响应对象
-# 4. ModelResponse - Model Service 响应
+# 2. AgentEvent - 生命周期事件
+# 3. AgentRunResult - 核心数据结构
+# 4. AgentResponse - 完整响应对象
+# 5. ModelResponse - Model Service 响应
 AgentResult = Union[
     str,  # 简化: 直接返回字符串
+    AgentEvent,  # 事件: 生命周期事件
     Iterator[str],  # 简化: 字符串流
     AsyncIterator[str],  # 简化: 异步字符串流
     AgentRunResult,  # 核心: AgentRunResult 对象
