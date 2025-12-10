@@ -69,11 +69,18 @@ def model(
     backend_type = kwargs.get("backend_type")
     model = kwargs.get("model")
 
+    if isinstance(input, str):
+        from agentrun.model.client import ModelClient
+
+        client = ModelClient(config=config)
+        input = client.get(name=input, backend_type=backend_type, config=config)
+
     if isinstance(input, ModelProxy):
         return CommonModel(
             model=model or "",
             model_obj=input,
             backend_type=BackendType.PROXY,
+            specific_model=model,
             config=config,
         )
     elif isinstance(input, ModelService):
@@ -81,17 +88,8 @@ def model(
             model=model or "",
             model_obj=input,
             backend_type=BackendType.SERVICE,
+            specific_model=model,
             config=config,
         )
-
-    from agentrun.model.client import ModelClient
-
-    client = ModelClient(config=config)
-    model_obj = client.get(name=input, backend_type=backend_type, config=config)
-
-    return CommonModel(
-        model=input,
-        model_obj=model_obj,
-        backend_type=backend_type,
-        config=config,
-    )
+    else:
+        raise TypeError("input must be str, ModelProxy or ModelService")

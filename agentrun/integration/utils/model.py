@@ -22,11 +22,13 @@ class CommonModel:
         model: Optional[str],
         model_obj: Union[ModelService, ModelProxy],
         backend_type: Optional[BackendType] = None,
+        specific_model: Optional[str] = None,
         config: Optional[Config] = None,
     ):
         self.model = model
         self.model_obj = model_obj
         self.backend_type = backend_type
+        self.specific_model = specific_model
         self.config = config or Config()
 
     def completions(self, *args, **kwargs):
@@ -40,7 +42,10 @@ class CommonModel:
     def get_model_info(self, config: Optional[Config] = None):
         """获取模型信息"""
         cfg = Config.with_configs(self.config, config)
-        return self.model_obj.model_info(config=cfg)
+        info = self.model_obj.model_info(config=cfg)
+        if self.specific_model:
+            info.model = self.specific_model
+        return info
 
     def __convert_model(self, adapter_name: str):
         try:
