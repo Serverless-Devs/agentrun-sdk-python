@@ -86,6 +86,7 @@ class MockLLMTransport:
         def build_response(request, route):
             payload = extract_payload(request)
             is_stream = payload.get("stream", False)
+            assert payload.get("model") == "mock-model-proxy"
             response_json = self._build_response(
                 payload.get("messages") or [], payload.get("tools")
             )
@@ -354,8 +355,6 @@ class TestIntegration:
             lambda *args, **kwargs: mock_model_proxy,
         )
         m = model("fake-llm-model")
-
-        assert m.model == "fake-llm-model"
 
         return m
 

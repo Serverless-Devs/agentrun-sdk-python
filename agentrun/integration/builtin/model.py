@@ -77,7 +77,6 @@ def model(
 
     if isinstance(input, ModelProxy):
         return CommonModel(
-            model=model or "",
             model_obj=input,
             backend_type=BackendType.PROXY,
             specific_model=model,
@@ -85,7 +84,6 @@ def model(
         )
     elif isinstance(input, ModelService):
         return CommonModel(
-            model=model or "",
             model_obj=input,
             backend_type=BackendType.SERVICE,
             specific_model=model,

@@ -19,13 +19,11 @@ class CommonModel:
 
     def __init__(
         self,
-        model: Optional[str],
         model_obj: Union[ModelService, ModelProxy],
         backend_type: Optional[BackendType] = None,
         specific_model: Optional[str] = None,
         config: Optional[Config] = None,
     ):
-        self.model = model
         self.model_obj = model_obj
         self.backend_type = backend_type
         self.specific_model = specific_model
