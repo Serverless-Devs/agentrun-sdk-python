@@ -6,9 +6,10 @@
 - 支持多协议同时运行 / Supports running multiple protocols simultaneously
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from agentrun.utils.log import logger
@@ -70,6 +71,16 @@ class AgentRunServer:
         >>> agent_server = AgentRunServer(invoke_agent=invoke_agent)
         >>> app.mount("/agent", agent_server.as_fastapi_app())
         # 可访问 / Accessible: POST http://localhost:8000/agent/v1/chat/completions
+
+    Example (配置 CORS / Configure CORS):
+        >>> # 允许所有源（默认）/ Allow all origins (default)
+        >>> server = AgentRunServer(invoke_agent=invoke_agent)
+        >>>
+        >>> # 指定允许的源 / Specify allowed origins
+        >>> server = AgentRunServer(
+        ...     invoke_agent=invoke_agent,
+        ...     cors_origins=["http://localhost:3000", "https://myapp.com"]
+        ... )
     """
 
     def __init__(
@@ -77,6 +88,7 @@ class AgentRunServer:
         invoke_agent: InvokeAgentHandler,
         protocols: Optional[List[ProtocolHandler]] = None,
         prefix_overrides: Optional[Dict[str, str]] = None,
+        cors_origins: Optional[Sequence[str]] = None,
     ):
         """初始化 AgentRun Server / Initialize AgentRun Server
 
@@ -92,9 +104,17 @@ class AgentRunServer:
             prefix_overrides: 协议前缀覆盖 / Protocol prefix overrides
                 - 格式 / Format: {协议类名 / protocol class name: 前缀 / prefix}
                 - 例如 / Example: {"OpenAIProtocolHandler": "/api/v1"}
+
+            cors_origins: CORS 允许的源列表 / List of allowed CORS origins
+                - 默认允许所有源 ["*"] / Default allows all origins ["*"]
+                - 可指定特定源 / Can specify specific origins
+                - 例如 / Example: ["http://localhost:3000", "https://example.com"]
         """
         self.app = FastAPI(title="AgentRun Server")
         self.agent_invoker = AgentInvoker(invoke_agent)
+
+        # 配置 CORS / Configure CORS
+        self._setup_cors(cors_origins)
 
         # 默认使用 OpenAI 和 AG-UI 协议
         if protocols is None:
@@ -104,6 +124,25 @@ class AgentRunServer:
 
         # 挂载所有协议的 Router
         self._mount_protocols(protocols)
+
+    def _setup_cors(self, cors_origins: Optional[Sequence[str]] = None):
+        """配置 CORS 中间件 / Configure CORS middleware
+
+        Args:
+            cors_origins: 允许的源列表，默认为 ["*"] 允许所有源
+        """
+        origins = list(cors_origins) if cors_origins else ["*"]
+
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["*"],
+        )
+
+        logger.info(f"✅ CORS 已启用，允许的源: {origins}")
 
     def _mount_protocols(self, protocols: List[ProtocolHandler]):
         """挂载所有协议的路由

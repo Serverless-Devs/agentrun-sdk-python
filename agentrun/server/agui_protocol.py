@@ -14,6 +14,7 @@ AG-UI 是一种开源、轻量级、基于事件的协议，用于标准化 AI A
 """
 
 from enum import Enum
+import inspect
 import json
 import time
 from typing import (
@@ -536,6 +537,9 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 event_stream = self.format_response(
                     agent_result, agent_request, context
                 )
+                # 支持 format_response 返回 coroutine 或者 async iterator
+                if inspect.isawaitable(event_stream):
+                    event_stream = await event_stream
 
                 # 4. 返回 SSE 流
                 return StreamingResponse(
@@ -779,13 +783,20 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             loop = asyncio.get_event_loop()
             iterator = iter(content)  # type: ignore
 
-            while True:
+            # 使用哨兵值来检测迭代结束，避免 StopIteration 传播到 Future
+            _STOP = object()
+
+            def _safe_next():
                 try:
-                    # 在线程池中执行 next()，避免 time.sleep 阻塞事件循环
-                    chunk = await loop.run_in_executor(None, next, iterator)
-                    yield chunk
+                    return next(iterator)
                 except StopIteration:
+                    return _STOP
+
+            while True:
+                chunk = await loop.run_in_executor(None, _safe_next)
+                if chunk is _STOP:
                     break
+                yield chunk
 
 
 # ============================================================================

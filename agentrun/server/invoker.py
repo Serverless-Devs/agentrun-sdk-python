@@ -6,9 +6,9 @@ Handles common logic for agent invocations.
 
 import asyncio
 import inspect
-from typing import cast
+from typing import AsyncGenerator, Awaitable, cast, Union
 
-from .model import AgentRequest, AgentResult, AgentRunResult
+from .model import AgentEvent, AgentRequest, AgentResult, AgentRunResult
 from .protocol import (
     AsyncInvokeAgentHandler,
     InvokeAgentHandler,
@@ -41,7 +41,10 @@ class AgentInvoker:
             invoke_agent: Agent 处理函数,可以是同步或异步
         """
         self.invoke_agent = invoke_agent
-        self.is_async = inspect.iscoroutinefunction(invoke_agent)
+        # Consider both coroutine and async generator functions as "async"
+        self.is_async = inspect.iscoroutinefunction(
+            invoke_agent
+        ) or inspect.isasyncgenfunction(invoke_agent)
 
     async def invoke(self, request: AgentRequest) -> AgentResult:
         """调用 Agent 并返回结果
@@ -61,9 +64,23 @@ class AgentInvoker:
             Exception: Agent 执行中的任何异常
         """
         if self.is_async:
-            # 异步 handler
+            # 异步 handler: 可能是协程或异步生成器
             async_handler = cast(AsyncInvokeAgentHandler, self.invoke_agent)
-            result = await async_handler(request)
+            raw_result = async_handler(request)
+
+            # typing: raw_result can be Awaitable[AgentResult] or AsyncGenerator[...]
+            # 如果是 awaitable 的协程结果, await 它
+            if inspect.isawaitable(raw_result):
+                result = await cast(Awaitable[AgentResult], raw_result)
+            # 如果是异步生成器, 直接使用生成器对象 (不 await)
+            elif inspect.isasyncgen(raw_result):
+                result = cast(
+                    AsyncGenerator[Union[str, "AgentEvent", None], None],
+                    raw_result,
+                )
+            else:
+                # 兜底: 直接返回原始结果
+                result = raw_result  # type: ignore[assignment]
         else:
             # 同步 handler: 在线程池中运行,避免阻塞事件循环
             sync_handler = cast(SyncInvokeAgentHandler, self.invoke_agent)

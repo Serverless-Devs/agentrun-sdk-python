@@ -8,10 +8,10 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import (
     Any,
+    AsyncGenerator,
     AsyncIterator,
-    Awaitable,
-    Callable,
     Dict,
+    Generator,
     Iterator,
     List,
     Optional,
@@ -259,34 +259,40 @@ class AgentEvent:
 
 
 class AgentRequest(BaseModel):
-    """Agent 请求参数
+    """Agent 请求参数（协议无关）
 
     invokeAgent callback 接收的参数结构。
-    支持 OpenAI Completions API 格式，同时提供原始请求访问和生命周期钩子。
+    只包含协议无关的核心字段，协议特定参数（如 OpenAI 的 temperature、top_p 等）
+    可通过 raw_body 访问。
 
     Attributes:
         messages: 对话历史消息列表
-        model: 模型名称
         stream: 是否使用流式输出
+        tools: 可用的工具列表
         raw_headers: 原始 HTTP 请求头
-        raw_body: 原始 HTTP 请求体
+        raw_body: 原始 HTTP 请求体（包含协议特定参数）
         hooks: 生命周期钩子，用于发送协议特定事件
 
-    Example (同步):
+    Example (基本使用):
         >>> def invoke_agent(request: AgentRequest):
-        ...     # 访问原始请求
-        ...     auth = request.raw_headers.get("Authorization")
-        ...
-        ...     # 使用钩子发送事件（直接 yield）
-        ...     yield request.hooks.on_step_start("processing")
-        ...     yield "Hello, world!"
-        ...     yield request.hooks.on_step_finish("processing")
+        ...     # 获取用户消息
+        ...     user_msg = request.messages[-1].content
+        ...     return f"你说的是: {user_msg}"
 
-    Example (异步):
-        >>> async def invoke_agent(request: AgentRequest):
-        ...     yield request.hooks.on_step_start("processing")
+    Example (访问协议特定参数):
+        >>> def invoke_agent(request: AgentRequest):
+        ...     # OpenAI 特定参数从 raw_body 获取
+        ...     temperature = request.raw_body.get("temperature", 0.7)
+        ...     top_p = request.raw_body.get("top_p")
+        ...     max_tokens = request.raw_body.get("max_tokens")
+        ...     return "Hello, world!"
+
+    Example (使用生命周期钩子):
+        >>> def invoke_agent(request: AgentRequest):
+        ...     hooks = request.hooks
+        ...     yield hooks.on_step_start("processing")
         ...     yield "Hello, world!"
-        ...     yield request.hooks.on_step_finish("processing")
+        ...     yield hooks.on_step_finish("processing")
 
     Example (工具调用):
         >>> def invoke_agent(request: AgentRequest):
@@ -301,43 +307,28 @@ class AgentRequest(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    # 必需参数
+    # 核心参数（协议无关）
     messages: List[Message] = Field(..., description="对话历史消息列表")
-
-    # 可选参数
-    model: Optional[str] = Field(None, description="模型名称")
     stream: bool = Field(False, description="是否使用流式输出")
-    temperature: Optional[float] = Field(
-        None, description="采样温度", ge=0.0, le=2.0
-    )
-    top_p: Optional[float] = Field(
-        None, description="核采样参数", ge=0.0, le=1.0
-    )
-    max_tokens: Optional[int] = Field(
-        None, description="最大生成 token 数", gt=0
-    )
     tools: Optional[List[Tool]] = Field(None, description="可用的工具列表")
-    tool_choice: Optional[Union[str, Dict[str, Any]]] = Field(
-        None, description="工具选择策略"
-    )
-    user: Optional[str] = Field(None, description="用户标识")
 
-    # 原始请求信息 / Raw Request Info
+    # 原始请求信息（包含协议特定参数）
     raw_headers: Dict[str, str] = Field(
         default_factory=dict, description="原始 HTTP 请求头"
     )
     raw_body: Dict[str, Any] = Field(
-        default_factory=dict, description="原始 HTTP 请求体"
+        default_factory=dict,
+        description="原始 HTTP 请求体，包含协议特定参数如 temperature、top_p 等",
     )
 
-    # 生命周期钩子 / Lifecycle Hooks
+    # 生命周期钩子
     hooks: Optional[AgentLifecycleHooks] = Field(
         None, description="生命周期钩子，由协议层注入"
     )
 
-    # 扩展参数
+    # 扩展参数（协议层解析后的额外信息）
     extra: Dict[str, Any] = Field(
-        default_factory=dict, description="其他自定义参数"
+        default_factory=dict, description="协议层解析后的额外信息"
     )
 
 
@@ -466,11 +457,18 @@ else:
 # 3. AgentRunResult - 核心数据结构
 # 4. AgentResponse - 完整响应对象
 # 5. ModelResponse - Model Service 响应
+# 6. 混合迭代器/生成器 - 可以 yield AgentEvent、str 或 None
 AgentResult = Union[
     str,  # 简化: 直接返回字符串
     AgentEvent,  # 事件: 生命周期事件
     Iterator[str],  # 简化: 字符串流
     AsyncIterator[str],  # 简化: 异步字符串流
+    Generator[str, None, None],  # 生成器: 字符串流
+    AsyncGenerator[str, None],  # 异步生成器: 字符串流
+    Iterator[Union[AgentEvent, str, None]],  # 混合流: AgentEvent、str 或 None
+    AsyncIterator[Union[AgentEvent, str, None]],  # 异步混合流
+    Generator[Union[AgentEvent, str, None], None, None],  # 混合生成器
+    AsyncGenerator[Union[AgentEvent, str, None], None],  # 异步混合生成器
     AgentRunResult,  # 核心: AgentRunResult 对象
     AgentResponse,  # 完整: AgentResponse 对象
     AgentStreamIterator,  # 流式: AgentResponse 流

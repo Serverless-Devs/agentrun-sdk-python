@@ -1,46 +1,54 @@
 """AgentRun Server 模块 / AgentRun Server Module
 
-提供 HTTP Server 集成能力,支持符合 AgentRun 规范的 Agent 调用接口。
+提供 HTTP Server 集成能力，支持符合 AgentRun 规范的 Agent 调用接口。
 支持 OpenAI Chat Completions 和 AG-UI 两种协议。
 
-Example (基本使用 - 同步):
+Example (基本使用 - 返回字符串):
 >>> from agentrun.server import AgentRunServer, AgentRequest
 >>>
 >>> def invoke_agent(request: AgentRequest):
-...     # 实现你的 Agent 逻辑
 ...     return "Hello, world!"
 >>>
 >>> server = AgentRunServer(invoke_agent=invoke_agent)
->>> server.start(host="0.0.0.0", port=8080)
+>>> server.start(port=9000)
 
-Example (使用生命周期钩子 - 同步，推荐):
+Example (流式输出):
+>>> def invoke_agent(request: AgentRequest):
+...     for word in ["Hello", ", ", "world", "!"]:
+...         yield word
+>>>
+>>> AgentRunServer(invoke_agent=invoke_agent).start()
+
+Example (使用生命周期钩子):
 >>> def invoke_agent(request: AgentRequest):
 ...     hooks = request.hooks
 ...
-...     # 发送步骤开始事件 (使用 emit_* 同步方法)
-...     yield hooks.emit_step_start("processing")
+...     # 发送步骤开始事件
+...     yield hooks.on_step_start("processing")
 ...
-...     # 处理逻辑...
+...     # 流式输出内容
 ...     yield "Hello, "
 ...     yield "world!"
 ...
 ...     # 发送步骤结束事件
-...     yield hooks.emit_step_finish("processing")
+...     yield hooks.on_step_finish("processing")
 
-Example (使用生命周期钩子 - 异步):
->>> async def invoke_agent(request: AgentRequest):
+Example (工具调用事件):
+>>> def invoke_agent(request: AgentRequest):
 ...     hooks = request.hooks
 ...
-...     # 发送步骤开始事件 (使用 on_* 异步方法)
-...     async for event in hooks.on_step_start("processing"):
-...         yield event
+...     # 工具调用开始
+...     yield hooks.on_tool_call_start(id="call_1", name="get_time")
+...     yield hooks.on_tool_call_args(id="call_1", args={"timezone": "UTC"})
 ...
-...     # 处理逻辑...
-...     yield "Hello, world!"
+...     # 执行工具
+...     result = "2024-01-01 12:00:00"
 ...
-...     # 发送步骤结束事件
-...     async for event in hooks.on_step_finish("processing"):
-...         yield event
+...     # 工具调用结果
+...     yield hooks.on_tool_call_result(id="call_1", result=result)
+...     yield hooks.on_tool_call_end(id="call_1")
+...
+...     yield f"当前时间: {result}"
 
 Example (访问原始请求):
 >>> def invoke_agent(request: AgentRequest):

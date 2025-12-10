@@ -17,15 +17,17 @@ Defines protocol interfaces, supporting future expansion of various protocol for
 from abc import ABC, abstractmethod
 from typing import (
     Any,
+    AsyncGenerator,
     AsyncIterator,
     Awaitable,
     Callable,
     Dict,
+    Generator,
     TYPE_CHECKING,
     Union,
 )
 
-from .model import AgentLifecycleHooks, AgentRequest, AgentResult
+from .model import AgentEvent, AgentLifecycleHooks, AgentRequest, AgentResult
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, Request
@@ -153,12 +155,12 @@ class BaseProtocolHandler(ProtocolHandler):
         # 子类需要实现具体的解析逻辑
         raise NotImplementedError("Subclass must implement parse_request")
 
-    async def format_response(
+    def format_response(
         self,
         result: AgentResult,
         request: AgentRequest,
         context: Dict[str, Any],
-    ) -> AsyncIterator[str]:
+    ) -> Union[AsyncIterator[str], Awaitable[AsyncIterator[str]]]:
         """格式化 Agent 结果为协议特定的响应
 
         Args:
@@ -186,11 +188,21 @@ class BaseProtocolHandler(ProtocolHandler):
 
 
 # Handler 类型定义
-# 同步 handler: 普通函数,直接返回 AgentResult
-SyncInvokeAgentHandler = Callable[[AgentRequest], AgentResult]
+# 同步 handler: 可以是普通函数或生成器函数
+SyncInvokeAgentHandler = Union[
+    Callable[[AgentRequest], AgentResult],  # 普通函数
+    Callable[
+        [AgentRequest], Generator[Union[AgentEvent, str, None], None, None]
+    ],  # 生成器函数
+]
 
-# 异步 handler: 协程函数,返回 Awaitable[AgentResult]
-AsyncInvokeAgentHandler = Callable[[AgentRequest], Awaitable[AgentResult]]
+# 异步 handler: 可以是协程函数或异步生成器函数
+AsyncInvokeAgentHandler = Union[
+    Callable[[AgentRequest], Awaitable[AgentResult]],  # 普通异步函数
+    Callable[
+        [AgentRequest], AsyncGenerator[Union[AgentEvent, str, None], None]
+    ],  # 异步生成器函数
+]
 
 # 通用 handler: 可以是同步或异步
 InvokeAgentHandler = Union[
