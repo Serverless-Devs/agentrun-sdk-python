@@ -32,6 +32,7 @@ def convert(
     Yields:
         str (文本内容) 或 AgentEvent (工具调用事件)
     """
+
     event_type = event.get("event", "")
     data = event.get("data", {})
 
@@ -87,17 +88,17 @@ def convert(
                                 )
 
     # 3. 工具开始 (LangGraph)
-    elif event_type == "on_tool_start" and hooks:
-        run_id = event.get("run_id", "")
-        tool_name = event.get("name", "")
-        tool_input = data.get("input", {})
+    # elif event_type == "on_tool_start" and hooks:
+    #     run_id = event.get("run_id", "")
+    #     tool_name = event.get("name", "")
+    #     tool_input = data.get("input", {})
 
-        if run_id:
-            yield hooks.on_tool_call_start(id=run_id, name=tool_name)
-            if tool_input:
-                yield hooks.on_tool_call_args(
-                    id=run_id, args=_to_json(tool_input)
-                )
+    #     if run_id:
+    #         yield hooks.on_tool_call_start(id=run_id, name=tool_name)
+    #         if tool_input:
+    #             yield hooks.on_tool_call_args(
+    #                 id=run_id, args=_to_json(tool_input)
+    #             )
 
     # 4. 工具结束 (LangGraph)
     elif event_type == "on_tool_end" and hooks:
