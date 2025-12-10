@@ -1,9 +1,14 @@
-from typing import Any
+"""AgentRun Server 快速开始示例
+
+curl http://127.0.0.1:9000/openai/v1/chat/completions -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"messages": [{"role": "user", "content": "写一段代码,查询现在是几点?"}], "stream": true}'
+"""
 
 from langchain.agents import create_agent
 import pydash
 
-from agentrun.integration.langchain import model, sandbox_toolset
+from agentrun.integration.langchain import convert, model, sandbox_toolset
 from agentrun.sandbox import TemplateType
 from agentrun.server import AgentRequest, AgentRunServer
 from agentrun.utils.log import logger
@@ -25,26 +30,39 @@ if SANDBOX_NAME and not SANDBOX_NAME.startswith("<"):
 else:
     logger.warning("SANDBOX_NAME 未设置或未替换，跳过加载沙箱工具。")
 
+
+def get_weather_tool():
+    """
+    获取天气工具"""
+    import time
+
+    logger.debug("调用获取天气工具")
+    time.sleep(5)
+    return {"weather": "晴天，25度"}
+
+
 agent = create_agent(
     model=model(MODEL_NAME),
     tools=[
         *code_interpreter_tools,
+        get_weather_tool,
     ],
     system_prompt="你是一个 AgentRun 的 AI 专家，可以通过沙箱运行代码来回答用户的问题。",
 )
 
 
-def invoke_agent(request: AgentRequest):
+async def invoke_agent(request: AgentRequest):
     content = request.messages[0].content
-    input: Any = {"messages": [{"role": "user", "content": content}]}
+    input = {"messages": [{"role": "user", "content": content}]}
 
     try:
         if request.stream:
 
-            def stream_generator():
-                result = agent.stream(input, stream_mode="messages")
-                for chunk in result:
-                    yield pydash.get(chunk, "[0].content")
+            async def stream_generator():
+                result = agent.astream_events(input, stream_mode="messages")
+                async for event in result:
+                    for item in convert(event, request.hooks):
+                        yield item
 
             return stream_generator()
         else:
@@ -59,11 +77,3 @@ def invoke_agent(request: AgentRequest):
 
 
 AgentRunServer(invoke_agent=invoke_agent).start()
-"""
-curl 127.0.0.1:9000/openai/v1/chat/completions -XPOST \
-    -H "content-type: application/json" \
-    -d '{
-        "messages": [{"role": "user", "content": "写一段代码,查询现在是几点?"}], 
-        "stream":true
-    }'
-"""

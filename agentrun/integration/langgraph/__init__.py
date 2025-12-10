@@ -1,12 +1,23 @@
-"""LangGraph 集成模块。 / LangGraph 集成 Module
+"""LangGraph 集成模块
 
-提供 AgentRun 模型与沙箱工具的 LangGraph 适配入口。 / 提供 AgentRun 模型with沙箱工具的 LangGraph 适配入口。
-LangGraph 与 LangChain 兼容，因此直接复用 LangChain 的转换逻辑。 / LangGraph with LangChain 兼容，因此直接复用 LangChain 的转换逻辑。
+Example:
+    >>> from langgraph.prebuilt import create_react_agent
+    >>> from agentrun.integration.langgraph import convert
+    >>>
+    >>> agent = create_react_agent(llm, tools)
+    >>>
+    >>> async def invoke_agent(request: AgentRequest):
+    ...     input_data = {"messages": [...]}
+    ...     async for event in agent.astream_events(input_data, version="v2"):
+    ...         for item in convert(event, request.hooks):
+    ...             yield item
 """
 
+from .agent_converter import convert
 from .builtin import model, sandbox_toolset, toolset
 
 __all__ = [
+    "convert",
     "model",
     "toolset",
     "sandbox_toolset",

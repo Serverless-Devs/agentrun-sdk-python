@@ -10,6 +10,7 @@
 - 不支持的钩子返回空迭代器
 """
 
+import inspect
 import json
 import time
 from typing import (
@@ -301,6 +302,8 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
                     response_stream = self.format_response(
                         agent_result, agent_request, context
                     )
+                    if inspect.isawaitable(response_stream):
+                        response_stream = await response_stream
                     return StreamingResponse(
                         response_stream,
                         media_type="text/event-stream",
@@ -404,37 +407,16 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
         # 提取原始请求头
         raw_headers = dict(request.headers)
 
-        # 构建 AgentRequest
+        # 构建 AgentRequest（只包含协议无关的核心字段）
+        # OpenAI 特定参数（temperature、top_p、max_tokens 等）保留在 raw_body 中
         agent_request = AgentRequest(
             messages=messages,
-            model=request_data.get("model"),
             stream=request_data.get("stream", False),
-            temperature=request_data.get("temperature"),
-            top_p=request_data.get("top_p"),
-            max_tokens=request_data.get("max_tokens"),
             tools=request_data.get("tools"),
-            tool_choice=request_data.get("tool_choice"),
-            user=request_data.get("user"),
             raw_headers=raw_headers,
             raw_body=request_data,
             hooks=hooks,
         )
-
-        # 保存其他额外参数
-        standard_fields = {
-            "messages",
-            "model",
-            "stream",
-            "temperature",
-            "top_p",
-            "max_tokens",
-            "tools",
-            "tool_choice",
-            "user",
-        }
-        agent_request.extra = {
-            k: v for k, v in request_data.items() if k not in standard_fields
-        }
 
         return agent_request, context
 
@@ -618,13 +600,20 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
             loop = asyncio.get_event_loop()
             iterator = iter(content)  # type: ignore
 
-            while True:
+            # 使用哨兵值来检测迭代结束，避免 StopIteration 传播到 Future
+            _STOP = object()
+
+            def _safe_next():
                 try:
-                    # 在线程池中执行 next()，避免 time.sleep 阻塞事件循环
-                    chunk = await loop.run_in_executor(None, next, iterator)
-                    yield chunk
+                    return next(iterator)
                 except StopIteration:
+                    return _STOP
+
+            while True:
+                chunk = await loop.run_in_executor(None, _safe_next)
+                if chunk is _STOP:
                     break
+                yield chunk
 
     def _is_model_response(self, obj: Any) -> bool:
         """检查对象是否是 Model Service 的 ModelResponse"""
