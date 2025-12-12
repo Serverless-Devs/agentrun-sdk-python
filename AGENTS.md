@@ -380,7 +380,33 @@ async def deploy_multiple_agents():
 
 # 运行
 agents = asyncio.run(deploy_multiple_agents())
+
+### 8. 变更后的类型检查要求
+
+所有由 AI（或自动化 agent）提交或修改的代码变更，必须在提交/合并前后执行静态类型检查，并在变更记录中包含检查结果摘要：
+
+- **运行命令**：使用项目根目录的 mypy 配置运行：
+
+    ```bash
+    mypy --config-file mypy.ini .
+    ```
+
+- **必需项**：AI 在每次修改代码并准备提交时，必须：
+    - 运行上述类型检查命令并等待完成；
+    - 若检查通过，在提交消息或 PR 描述中写入简短摘要（例如："类型检查通过，检查文件数 N"）；
+    - 若检查失败，AI 应在 PR 描述中列出前 30 条错误（或最关键的若干条），并给出优先修复建议或自动修复方案。
+
+- **CI 行为**：项目 CI 可根据仓库策略决定是否将类型检查失败作为阻断条件；AI 应遵从仓库当前 CI 策略并在 PR 中说明检查结果。
+
+此要求旨在保证类型安全随代码变更持续得到验证，减少回归并提高编辑器与 Copilot 的诊断可靠性。
 ```
+
+### 9. 运行命令约定
+
+请使用 `uv run ...` 执行所有 Python 相关命令，避免直接调用系统的 `python`。例如：
+
+- `uv run mypy --config-file mypy.ini .`
+- `uv run python examples/quick_start.py`
 
 ## 常见问题
 
