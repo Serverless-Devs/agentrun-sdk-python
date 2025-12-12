@@ -23,7 +23,6 @@ class LangChainModelAdapter(ModelAdapter):
 
     def wrap_model(self, common_model: Any) -> Any:
         """包装 CommonModel 为 LangChain BaseChatModel / LangChain Model Adapter"""
-        from httpx import AsyncClient
         from langchain_openai import ChatOpenAI
 
         info = common_model.get_model_info()  # 确保模型可用
@@ -32,6 +31,7 @@ class LangChainModelAdapter(ModelAdapter):
             api_key=info.api_key,
             model=info.model,
             base_url=info.base_url,
-            async_client=AsyncClient(headers=info.headers),
+            default_headers=info.headers,
             stream_usage=True,
+            streaming=True,  # 启用流式输出以支持 token by token
         )

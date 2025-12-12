@@ -1,19 +1,21 @@
 """AgentRun HTTP Server / AgentRun HTTP 服务器
 
-基于 Router 的设计 / Router-based design:
-- 每个协议提供自己的 Router / Each protocol provides its own Router
-- Server 负责挂载 Router 并管理路由前缀 / Server mounts Routers and manages route prefixes
-- 支持多协议同时运行 / Supports running multiple protocols simultaneously
+基于 Router 的设计:
+- 每个协议提供自己的 Router
+- Server 负责挂载 Router 并管理路由前缀
+- 支持多协议同时运行（OpenAI + AG-UI）
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import FastAPI
 import uvicorn
 
 from agentrun.utils.log import logger
 
+from .agui_protocol import AGUIProtocolHandler
 from .invoker import AgentInvoker
+from .model import ServerConfig
 from .openai_protocol import OpenAIProtocolHandler
 from .protocol import InvokeAgentHandler, ProtocolHandler
 
@@ -21,78 +23,127 @@ from .protocol import InvokeAgentHandler, ProtocolHandler
 class AgentRunServer:
     """AgentRun HTTP Server / AgentRun HTTP 服务器
 
-    基于 Router 的架构 / Router-based architecture:
-    - 每个协议提供完整的 FastAPI Router / Each protocol provides a complete FastAPI Router
-    - Server 只负责组装和前缀管理 / Server only handles assembly and prefix management
-    - 易于扩展新协议 / Easy to extend with new protocols
+    基于 Router 的架构:
+    - 每个协议提供完整的 FastAPI Router
+    - Server 只负责组装和前缀管理
+    - 易于扩展新协议
 
-    Example (默认 OpenAI 协议 / Default OpenAI protocol):
+    Example (最简单用法):
         >>> def invoke_agent(request: AgentRequest):
         ...     return "Hello, world!"
         >>>
         >>> server = AgentRunServer(invoke_agent=invoke_agent)
         >>> server.start(port=8000)
-        # 可访问 / Accessible: POST http://localhost:8000/v1/chat/completions
+        # 可访问:
+        #   POST http://localhost:8000/openai/v1/chat/completions (OpenAI)
+        #   POST http://localhost:8000/agui/v1/run (AG-UI)
 
-    Example (自定义前缀 / Custom prefix):
-        >>> server = AgentRunServer(
-        ...     invoke_agent=invoke_agent,
-        ...     prefix_overrides={"OpenAIProtocolHandler": "/api/v1"}
-        ... )
-        >>> server.start(port=8000)
-        # 可访问 / Accessible: POST http://localhost:8000/api/v1/chat/completions
-
-    Example (多协议 / Multiple protocols):
-        >>> server = AgentRunServer(
-        ...     invoke_agent=invoke_agent,
-        ...     protocols=[
-        ...         OpenAIProtocolHandler(),
-        ...         CustomProtocolHandler(),
-        ...     ]
-        ... )
+    Example (流式输出):
+        >>> async def invoke_agent(request: AgentRequest):
+        ...     yield "Hello, "
+        ...     yield "world!"
+        >>>
+        >>> server = AgentRunServer(invoke_agent=invoke_agent)
         >>> server.start(port=8000)
 
-    Example (集成到现有 FastAPI 应用 / Integrate with existing FastAPI app):
+    Example (使用事件):
+        >>> from agentrun.server import AgentResult, EventType
+        >>>
+        >>> async def invoke_agent(request: AgentRequest):
+        ...     yield AgentResult(
+        ...         event=EventType.STEP_STARTED,
+        ...         data={"step_name": "thinking"}
+        ...     )
+        ...     yield "I'm thinking..."
+        ...     yield AgentResult(
+        ...         event=EventType.STEP_FINISHED,
+        ...         data={"step_name": "thinking"}
+        ...     )
+        >>>
+        >>> server = AgentRunServer(invoke_agent=invoke_agent)
+        >>> server.start(port=8000)
+
+    Example (仅 OpenAI 协议):
+        >>> server = AgentRunServer(
+        ...     invoke_agent=invoke_agent,
+        ...     protocols=[OpenAIProtocolHandler()]
+        ... )
+        >>> server.start(port=8000)
+
+    Example (集成到现有 FastAPI 应用):
         >>> from fastapi import FastAPI
         >>>
         >>> app = FastAPI()
         >>> agent_server = AgentRunServer(invoke_agent=invoke_agent)
         >>> app.mount("/agent", agent_server.as_fastapi_app())
-        # 可访问 / Accessible: POST http://localhost:8000/agent/v1/chat/completions
+        # 可访问: POST http://localhost:8000/agent/openai/v1/chat/completions
+
+    Example (配置 CORS):
+        >>> server = AgentRunServer(
+        ...     invoke_agent=invoke_agent,
+        ...     config=ServerConfig(cors_origins=["http://localhost:3000"])
+        ... )
     """
 
     def __init__(
         self,
         invoke_agent: InvokeAgentHandler,
         protocols: Optional[List[ProtocolHandler]] = None,
-        prefix_overrides: Optional[Dict[str, str]] = None,
+        config: Optional[ServerConfig] = None,
     ):
-        """初始化 AgentRun Server / Initialize AgentRun Server
+        """初始化 AgentRun Server
 
         Args:
-            invoke_agent: Agent 调用回调函数 / Agent invocation callback function
-                - 可以是同步或异步函数 / Can be synchronous or asynchronous function
-                - 支持返回字符串、AgentResponse 或生成器 / Supports returning string, AgentResponse or generator
+            invoke_agent: Agent 调用回调函数
+                - 可以是同步或异步函数
+                - 支持返回字符串或 AgentResult
+                - 支持使用 yield 进行流式输出
 
-            protocols: 协议处理器列表 / List of protocol handlers
-                - 默认使用 OpenAI 协议 / Default uses OpenAI protocol
-                - 可以添加自定义协议 / Can add custom protocols
+            protocols: 协议处理器列表
+                - 默认使用 OpenAI + AG-UI 协议
+                - 可以添加自定义协议
 
-            prefix_overrides: 协议前缀覆盖 / Protocol prefix overrides
-                - 格式 / Format: {协议类名 / protocol class name: 前缀 / prefix}
-                - 例如 / Example: {"OpenAIProtocolHandler": "/api/v1"}
+            config: 服务器配置
+                - cors_origins: CORS 允许的源列表
+                - openai: OpenAI 协议配置
+                - agui: AG-UI 协议配置
         """
         self.app = FastAPI(title="AgentRun Server")
         self.agent_invoker = AgentInvoker(invoke_agent)
 
-        # 默认使用 OpenAI 协议
-        if protocols is None:
-            protocols = [OpenAIProtocolHandler()]
+        # 配置 CORS
+        self._setup_cors(config.cors_origins if config else None)
 
-        self.prefix_overrides = prefix_overrides or {}
+        # 默认使用 OpenAI 和 AG-UI 协议
+        if protocols is None:
+            protocols = [OpenAIProtocolHandler(config), AGUIProtocolHandler()]
 
         # 挂载所有协议的 Router
         self._mount_protocols(protocols)
+
+    def _setup_cors(self, cors_origins: Optional[Sequence[str]] = None):
+        """配置 CORS 中间件
+
+        Args:
+            cors_origins: 允许的源列表，默认为 ["*"] 允许所有源
+        """
+        if not cors_origins:
+            return
+
+        from fastapi.middleware.cors import CORSMiddleware
+
+        origins = list(cors_origins) if cors_origins else ["*"]
+
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["*"],
+        )
+
+        logger.debug(f"CORS 已启用，允许的源: {origins}")
 
     def _mount_protocols(self, protocols: List[ProtocolHandler]):
         """挂载所有协议的路由
@@ -110,8 +161,8 @@ class AgentRunServer:
             # 挂载到主应用
             self.app.include_router(router, prefix=prefix)
 
-            logger.info(
-                f"✅ 已挂载协议: {protocol.__class__.__name__} ->"
+            logger.debug(
+                f"已挂载协议: {protocol.__class__.__name__} ->"
                 f" {prefix or '(无前缀)'}"
             )
 
@@ -119,9 +170,8 @@ class AgentRunServer:
         """获取协议的路由前缀
 
         优先级:
-        1. 用户指定的覆盖前缀
-        2. 协议自己的建议前缀
-        3. 基于协议类名的默认前缀
+        1. 协议自己的建议前缀
+        2. 基于协议类名的默认前缀
 
         Args:
             protocol: 协议处理器
@@ -129,19 +179,11 @@ class AgentRunServer:
         Returns:
             str: 路由前缀
         """
-        protocol_name = protocol.__class__.__name__
-
-        # 1. 检查用户覆盖
-        if protocol_name in self.prefix_overrides:
-            return self.prefix_overrides[protocol_name]
-
-        # 2. 使用协议建议
         suggested_prefix = protocol.get_prefix()
         if suggested_prefix:
             return suggested_prefix
 
-        # 3. 默认前缀(基于类名)
-        # OpenAIProtocolHandler -> /openai
+        protocol_name = protocol.__class__.__name__
         name_without_handler = protocol_name.replace(
             "ProtocolHandler", ""
         ).replace("Handler", "")
@@ -157,18 +199,12 @@ class AgentRunServer:
         """启动 HTTP 服务器
 
         Args:
-            host: 监听地址,默认 0.0.0.0
-            port: 监听端口,默认 9000
-            log_level: 日志级别,默认 info
+            host: 监听地址，默认 0.0.0.0
+            port: 监听端口，默认 9000
+            log_level: 日志级别，默认 info
             **kwargs: 传递给 uvicorn.run 的其他参数
         """
-        logger.info(f"🚀 启动 AgentRun Server: http://{host}:{port}")
-
-        # 打印路由信息
-        # for route in self.app.routes:
-        #     if hasattr(route, "methods") and hasattr(route, "path"):
-        #         methods = ", ".join(route.methods)  # type: ignore
-        # logger.info(f"   {methods:10} {route.path}")  # type: ignore
+        logger.info(f"启动 AgentRun Server: http://{host}:{port}")
 
         uvicorn.run(
             self.app, host=host, port=port, log_level=log_level, **kwargs
