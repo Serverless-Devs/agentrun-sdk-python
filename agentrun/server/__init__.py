@@ -19,95 +19,83 @@ Example (流式输出):
 >>>
 >>> AgentRunServer(invoke_agent=invoke_agent).start()
 
-Example (使用生命周期钩子):
->>> def invoke_agent(request: AgentRequest):
-...     hooks = request.hooks
-...
+Example (使用事件):
+>>> from agentrun.server import AgentResult, EventType
+>>>
+>>> async def invoke_agent(request: AgentRequest):
 ...     # 发送步骤开始事件
-...     yield hooks.on_step_start("processing")
+...     yield AgentResult(
+...         event=EventType.STEP_STARTED,
+...         data={"step_name": "processing"}
+...     )
 ...
 ...     # 流式输出内容
 ...     yield "Hello, "
 ...     yield "world!"
 ...
 ...     # 发送步骤结束事件
-...     yield hooks.on_step_finish("processing")
+...     yield AgentResult(
+...         event=EventType.STEP_FINISHED,
+...         data={"step_name": "processing"}
+...     )
 
 Example (工具调用事件):
->>> def invoke_agent(request: AgentRequest):
-...     hooks = request.hooks
-...
+>>> async def invoke_agent(request: AgentRequest):
 ...     # 工具调用开始
-...     yield hooks.on_tool_call_start(id="call_1", name="get_time")
-...     yield hooks.on_tool_call_args(id="call_1", args={"timezone": "UTC"})
+...     yield AgentResult(
+...         event=EventType.TOOL_CALL_START,
+...         data={"tool_call_id": "call_1", "tool_call_name": "get_time"}
+...     )
+...     yield AgentResult(
+...         event=EventType.TOOL_CALL_ARGS,
+...         data={"tool_call_id": "call_1", "delta": '{"timezone": "UTC"}'}
+...     )
 ...
 ...     # 执行工具
 ...     result = "2024-01-01 12:00:00"
 ...
 ...     # 工具调用结果
-...     yield hooks.on_tool_call_result(id="call_1", result=result)
-...     yield hooks.on_tool_call_end(id="call_1")
+...     yield AgentResult(
+...         event=EventType.TOOL_CALL_RESULT,
+...         data={"tool_call_id": "call_1", "result": result}
+...     )
+...     yield AgentResult(
+...         event=EventType.TOOL_CALL_END,
+...         data={"tool_call_id": "call_1"}
+...     )
 ...
 ...     yield f"当前时间: {result}"
 
 Example (访问原始请求):
 >>> def invoke_agent(request: AgentRequest):
 ...     # 访问原始请求头
-...     auth = request.raw_headers.get("Authorization")
+...     auth = request.headers.get("Authorization")
 ...
 ...     # 访问原始请求体
-...     custom_field = request.raw_body.get("custom_field")
+...     custom_field = request.body.get("custom_field")
 ...
 ...     return "Hello, world!"
 """
 
-from .agui_protocol import (
-    AGUIBaseEvent,
-    AGUICustomEvent,
-    AGUIEvent,
-    AGUIEventType,
-    AGUILifecycleHooks,
-    AGUIMessage,
-    AGUIMessagesSnapshotEvent,
-    AGUIProtocolHandler,
-    AGUIRawEvent,
-    AGUIRole,
-    AGUIRunAgentInput,
-    AGUIRunErrorEvent,
-    AGUIRunFinishedEvent,
-    AGUIRunStartedEvent,
-    AGUIStateDeltaEvent,
-    AGUIStateSnapshotEvent,
-    AGUIStepFinishedEvent,
-    AGUIStepStartedEvent,
-    AGUITextMessageContentEvent,
-    AGUITextMessageEndEvent,
-    AGUITextMessageStartEvent,
-    AGUIToolCallArgsEvent,
-    AGUIToolCallEndEvent,
-    AGUIToolCallResultEvent,
-    AGUIToolCallStartEvent,
-    create_agui_event,
-)
+from .agui_protocol import AGUIProtocolHandler
 from .model import (
-    AgentEvent,
-    AgentLifecycleHooks,
+    AdditionMode,
     AgentRequest,
-    AgentResponse,
-    AgentResponseChoice,
-    AgentResponseUsage,
     AgentResult,
-    AgentRunResult,
-    AgentStreamIterator,
-    AgentStreamResponse,
-    AgentStreamResponseChoice,
-    AgentStreamResponseDelta,
+    AgentResultItem,
+    AgentReturnType,
+    AsyncAgentResultGenerator,
+    EventType,
     Message,
     MessageRole,
+    OpenAIProtocolConfig,
+    ProtocolConfig,
+    ServerConfig,
+    SyncAgentResultGenerator,
     Tool,
     ToolCall,
 )
-from .openai_protocol import OpenAILifecycleHooks, OpenAIProtocolHandler
+from .openai_protocol import OpenAIProtocolHandler
 from .protocol import (
     AsyncInvokeAgentHandler,
     BaseProtocolHandler,
@@ -120,59 +108,33 @@ from .server import AgentRunServer
 __all__ = [
     # Server
     "AgentRunServer",
+    # Config
+    "ServerConfig",
+    "ProtocolConfig",
+    "OpenAIProtocolConfig",
     # Request/Response Models
     "AgentRequest",
-    "AgentResponse",
-    "AgentResponseChoice",
-    "AgentResponseUsage",
-    "AgentRunResult",
-    "AgentStreamResponse",
-    "AgentStreamResponseChoice",
-    "AgentStreamResponseDelta",
+    "AgentResult",
     "Message",
     "MessageRole",
     "Tool",
     "ToolCall",
+    # Event Types
+    "EventType",
+    "AdditionMode",
     # Type Aliases
-    "AgentResult",
-    "AgentStreamIterator",
+    "AgentResultItem",
+    "AgentReturnType",
+    "SyncAgentResultGenerator",
+    "AsyncAgentResultGenerator",
     "InvokeAgentHandler",
     "AsyncInvokeAgentHandler",
     "SyncInvokeAgentHandler",
-    # Lifecycle Hooks & Events
-    "AgentLifecycleHooks",
-    "AgentEvent",
     # Protocol Base
     "ProtocolHandler",
     "BaseProtocolHandler",
     # Protocol - OpenAI
     "OpenAIProtocolHandler",
-    "OpenAILifecycleHooks",
     # Protocol - AG-UI
     "AGUIProtocolHandler",
-    "AGUILifecycleHooks",
-    "AGUIEventType",
-    "AGUIRole",
-    "AGUIBaseEvent",
-    "AGUIEvent",
-    "AGUIRunStartedEvent",
-    "AGUIRunFinishedEvent",
-    "AGUIRunErrorEvent",
-    "AGUIStepStartedEvent",
-    "AGUIStepFinishedEvent",
-    "AGUITextMessageStartEvent",
-    "AGUITextMessageContentEvent",
-    "AGUITextMessageEndEvent",
-    "AGUIToolCallStartEvent",
-    "AGUIToolCallArgsEvent",
-    "AGUIToolCallEndEvent",
-    "AGUIToolCallResultEvent",
-    "AGUIStateSnapshotEvent",
-    "AGUIStateDeltaEvent",
-    "AGUIMessagesSnapshotEvent",
-    "AGUIRawEvent",
-    "AGUICustomEvent",
-    "AGUIMessage",
-    "AGUIRunAgentInput",
-    "create_agui_event",
 ]

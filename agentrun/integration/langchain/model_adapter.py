@@ -33,4 +33,5 @@ class LangChainModelAdapter(ModelAdapter):
             base_url=info.base_url,
             default_headers=info.headers,
             stream_usage=True,
+            streaming=True,  # 启用流式输出以支持 token by token
         )
