@@ -63,6 +63,57 @@ def _format_tool_output(output: Any) -> str:
         return ""
 
 
+def _safe_json_dumps(obj: Any) -> str:
+    """JSON 序列化兜底，无法序列化则回退到 str。"""
+    try:
+        return json.dumps(obj, ensure_ascii=False, default=str)
+    except Exception:
+        try:
+            return str(obj)
+        except Exception:
+            return ""
+
+
+# 需要从工具输入中过滤掉的内部字段（LangGraph/MCP 注入的运行时对象）
+_TOOL_INPUT_INTERNAL_KEYS = frozenset({
+    "runtime",  # MCP ToolRuntime 对象
+    "__pregel_runtime",
+    "__pregel_task_id",
+    "__pregel_send",
+    "__pregel_read",
+    "__pregel_checkpointer",
+    "__pregel_scratchpad",
+    "__pregel_call",
+    "config",  # LangGraph config 对象，包含内部状态
+    "configurable",
+})
+
+
+def _filter_tool_input(tool_input: Any) -> Any:
+    """过滤工具输入中的内部字段，只保留用户传入的实际参数。
+
+    Args:
+        tool_input: 工具输入（可能是 dict 或其他类型）
+
+    Returns:
+        过滤后的工具输入
+    """
+    if not isinstance(tool_input, dict):
+        return tool_input
+
+    filtered = {}
+    for key, value in tool_input.items():
+        # 跳过内部字段
+        if key in _TOOL_INPUT_INTERNAL_KEYS:
+            continue
+        # 跳过以 __ 开头的字段（Python 内部属性）
+        if key.startswith("__"):
+            continue
+        filtered[key] = value
+
+    return filtered
+
+
 def _extract_content(chunk: Any) -> Optional[str]:
     """从 chunk 中提取文本内容"""
     if chunk is None:
@@ -318,7 +369,7 @@ def _convert_stream_updates_event(
                         )
                         if tc_args:
                             args_str = (
-                                json.dumps(tc_args, ensure_ascii=False)
+                                _safe_json_dumps(tc_args)
                                 if isinstance(tc_args, dict)
                                 else str(tc_args)
                             )
@@ -394,7 +445,7 @@ def _convert_stream_values_event(
                 )
                 if tc_args:
                     args_str = (
-                        json.dumps(tc_args, ensure_ascii=False)
+                        _safe_json_dumps(tc_args)
                         if isinstance(tc_args, dict)
                         else str(tc_args)
                     )
@@ -449,6 +500,8 @@ def _convert_astream_events_event(
                 tc_args = tc.get("args", "")
 
                 if tc_args and tc_id:
+                    if isinstance(tc_args, (dict, list)):
+                        tc_args = _safe_json_dumps(tc_args)
                     yield AgentResult(
                         event=EventType.TOOL_CALL_ARGS,
                         data={"tool_call_id": tc_id, "delta": tc_args},
@@ -471,7 +524,7 @@ def _convert_astream_events_event(
 
                     if tc_id and tc_args:
                         args_str = (
-                            json.dumps(tc_args, ensure_ascii=False)
+                            _safe_json_dumps(tc_args)
                             if isinstance(tc_args, dict)
                             else str(tc_args)
                         )
@@ -484,7 +537,9 @@ def _convert_astream_events_event(
     elif event_type == "on_tool_start":
         run_id = event_dict.get("run_id", "")
         tool_name = event_dict.get("name", "")
-        tool_input = data.get("input", {})
+        tool_input_raw = data.get("input", {})
+        # 过滤掉内部字段（如 MCP 注入的 runtime）
+        tool_input = _filter_tool_input(tool_input_raw)
 
         if run_id:
             yield AgentResult(
@@ -493,7 +548,7 @@ def _convert_astream_events_event(
             )
             if tool_input:
                 args_str = (
-                    json.dumps(tool_input, ensure_ascii=False)
+                    _safe_json_dumps(tool_input)
                     if isinstance(tool_input, dict)
                     else str(tool_input)
                 )
