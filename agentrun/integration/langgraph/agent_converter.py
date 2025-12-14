@@ -114,6 +114,31 @@ def _filter_tool_input(tool_input: Any) -> Any:
     return filtered
 
 
+def _extract_tool_call_id(tool_input: Any) -> Optional[str]:
+    """从工具输入中提取原始的 tool_call_id。
+
+    MCP 工具会在 input 中注入 runtime 对象，其中包含 LLM 返回的原始 tool_call_id。
+    使用这个 ID 可以保证工具调用事件的 ID 一致性。
+
+    Args:
+        tool_input: 工具输入（可能是 dict 或其他类型）
+
+    Returns:
+        tool_call_id 或 None
+    """
+    if not isinstance(tool_input, dict):
+        return None
+
+    # 尝试从 runtime 对象中提取 tool_call_id
+    runtime = tool_input.get("runtime")
+    if runtime is not None and hasattr(runtime, "tool_call_id"):
+        tc_id = runtime.tool_call_id
+        if isinstance(tc_id, str) and tc_id:
+            return tc_id
+
+    return None
+
+
 def _extract_content(chunk: Any) -> Optional[str]:
     """从 chunk 中提取文本内容"""
     if chunk is None:
@@ -538,13 +563,18 @@ def _convert_astream_events_event(
         run_id = event_dict.get("run_id", "")
         tool_name = event_dict.get("name", "")
         tool_input_raw = data.get("input", {})
+        # 优先使用 runtime 中的原始 tool_call_id，保证 ID 一致性
+        tool_call_id = _extract_tool_call_id(tool_input_raw) or run_id
         # 过滤掉内部字段（如 MCP 注入的 runtime）
         tool_input = _filter_tool_input(tool_input_raw)
 
-        if run_id:
+        if tool_call_id:
             yield AgentResult(
                 event=EventType.TOOL_CALL_START,
-                data={"tool_call_id": run_id, "tool_call_name": tool_name},
+                data={
+                    "tool_call_id": tool_call_id,
+                    "tool_call_name": tool_name,
+                },
             )
             if tool_input:
                 args_str = (
@@ -554,25 +584,28 @@ def _convert_astream_events_event(
                 )
                 yield AgentResult(
                     event=EventType.TOOL_CALL_ARGS,
-                    data={"tool_call_id": run_id, "delta": args_str},
+                    data={"tool_call_id": tool_call_id, "delta": args_str},
                 )
 
     # 4. 工具结束
     elif event_type == "on_tool_end":
         run_id = event_dict.get("run_id", "")
         output = data.get("output", "")
+        tool_input_raw = data.get("input", {})
+        # 优先使用 runtime 中的原始 tool_call_id，保证 ID 一致性
+        tool_call_id = _extract_tool_call_id(tool_input_raw) or run_id
 
-        if run_id:
+        if tool_call_id:
             yield AgentResult(
                 event=EventType.TOOL_CALL_RESULT,
                 data={
-                    "tool_call_id": run_id,
+                    "tool_call_id": tool_call_id,
                     "result": _format_tool_output(output),
                 },
             )
             yield AgentResult(
                 event=EventType.TOOL_CALL_END,
-                data={"tool_call_id": run_id},
+                data={"tool_call_id": tool_call_id},
             )
 
     # 5. LLM 结束

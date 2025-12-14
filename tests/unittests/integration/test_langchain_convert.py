@@ -307,6 +307,100 @@ class TestConvertAstreamEventsFormat:
         assert "internal" not in delta
         assert "__pregel" not in delta
 
+    def test_on_tool_start_uses_runtime_tool_call_id(self):
+        """测试 on_tool_start 使用 runtime 中的原始 tool_call_id 而非 run_id
+
+        MCP 工具会在 input.runtime 中注入 tool_call_id，这是 LLM 返回的原始 ID。
+        应该优先使用这个 ID，以保证工具调用事件的 ID 一致性。
+        """
+
+        class FakeToolRuntime:
+            """模拟 MCP 的 ToolRuntime 对象"""
+
+            def __init__(self, tool_call_id: str):
+                self.tool_call_id = tool_call_id
+
+        original_tool_call_id = "call_original_from_llm_12345"
+
+        event = {
+            "event": "on_tool_start",
+            "name": "get_weather",
+            "run_id": (
+                "run_id_different_from_tool_call_id"
+            ),  # run_id 与 tool_call_id 不同
+            "data": {
+                "input": {
+                    "city": "北京",
+                    "runtime": FakeToolRuntime(original_tool_call_id),
+                }
+            },
+        }
+
+        results = list(convert(event))
+
+        # TOOL_CALL_START + TOOL_CALL_ARGS
+        assert len(results) == 2
+
+        # 应该使用 runtime 中的原始 tool_call_id，而不是 run_id
+        assert results[0].event == EventType.TOOL_CALL_START
+        assert results[0].data["tool_call_id"] == original_tool_call_id
+        assert results[0].data["tool_call_name"] == "get_weather"
+
+        assert results[1].event == EventType.TOOL_CALL_ARGS
+        assert results[1].data["tool_call_id"] == original_tool_call_id
+
+    def test_on_tool_end_uses_runtime_tool_call_id(self):
+        """测试 on_tool_end 使用 runtime 中的原始 tool_call_id 而非 run_id"""
+
+        class FakeToolRuntime:
+            """模拟 MCP 的 ToolRuntime 对象"""
+
+            def __init__(self, tool_call_id: str):
+                self.tool_call_id = tool_call_id
+
+        original_tool_call_id = "call_original_from_llm_67890"
+
+        event = {
+            "event": "on_tool_end",
+            "run_id": "run_id_different_from_tool_call_id",
+            "data": {
+                "output": {"weather": "晴天", "temp": 25},
+                "input": {
+                    "city": "北京",
+                    "runtime": FakeToolRuntime(original_tool_call_id),
+                },
+            },
+        }
+
+        results = list(convert(event))
+
+        # TOOL_CALL_RESULT + TOOL_CALL_END
+        assert len(results) == 2
+
+        # 应该使用 runtime 中的原始 tool_call_id
+        assert results[0].event == EventType.TOOL_CALL_RESULT
+        assert results[0].data["tool_call_id"] == original_tool_call_id
+
+        assert results[1].event == EventType.TOOL_CALL_END
+        assert results[1].data["tool_call_id"] == original_tool_call_id
+
+    def test_on_tool_start_fallback_to_run_id(self):
+        """测试当 runtime 中没有 tool_call_id 时，回退使用 run_id"""
+        event = {
+            "event": "on_tool_start",
+            "name": "get_time",
+            "run_id": "run_789",
+            "data": {"input": {"timezone": "Asia/Shanghai"}},  # 没有 runtime
+        }
+
+        results = list(convert(event))
+
+        assert len(results) == 2
+        assert results[0].event == EventType.TOOL_CALL_START
+        # 应该回退使用 run_id
+        assert results[0].data["tool_call_id"] == "run_789"
+        assert results[1].data["tool_call_id"] == "run_789"
+
     def test_on_chain_stream_model_node(self):
         """测试 on_chain_stream 事件（model 节点）"""
         msg = create_mock_ai_message("你好！有什么可以帮你的吗？")
