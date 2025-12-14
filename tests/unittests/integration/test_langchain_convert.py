@@ -243,6 +243,70 @@ class TestConvertAstreamEventsFormat:
         assert results[0].event == EventType.TOOL_CALL_RESULT
         assert results[0].data["result"] == "晴天，25度"
 
+    def test_on_tool_start_with_non_jsonable_args(self):
+        """工具输入包含不可 JSON 序列化对象时也能正常转换"""
+
+        class Dummy:
+
+            def __str__(self):
+                return "dummy_obj"
+
+        event = {
+            "event": "on_tool_start",
+            "name": "get_weather",
+            "run_id": "run_non_json",
+            "data": {"input": {"obj": Dummy()}},
+        }
+
+        results = list(convert(event))
+
+        # TOOL_CALL_START + TOOL_CALL_ARGS
+        assert len(results) == 2
+        assert results[0].event == EventType.TOOL_CALL_START
+        assert results[0].data["tool_call_id"] == "run_non_json"
+        assert results[1].event == EventType.TOOL_CALL_ARGS
+        assert results[1].data["tool_call_id"] == "run_non_json"
+        assert "dummy_obj" in results[1].data["delta"]
+
+    def test_on_tool_start_filters_internal_runtime_field(self):
+        """测试 on_tool_start 过滤 MCP 注入的 runtime 等内部字段"""
+
+        class FakeToolRuntime:
+            """模拟 MCP 的 ToolRuntime 对象"""
+
+            def __str__(self):
+                return "ToolRuntime(...huge internal state...)"
+
+        event = {
+            "event": "on_tool_start",
+            "name": "maps_weather",
+            "run_id": "run_mcp_tool",
+            "data": {
+                "input": {
+                    "city": "北京",  # 用户实际参数
+                    "runtime": FakeToolRuntime(),  # MCP 注入的内部字段
+                    "config": {"internal": "state"},  # 另一个内部字段
+                    "__pregel_runtime": "internal",  # LangGraph 内部字段
+                }
+            },
+        }
+
+        results = list(convert(event))
+
+        # TOOL_CALL_START + TOOL_CALL_ARGS
+        assert len(results) == 2
+        assert results[0].event == EventType.TOOL_CALL_START
+        assert results[0].data["tool_call_name"] == "maps_weather"
+
+        assert results[1].event == EventType.TOOL_CALL_ARGS
+        delta = results[1].data["delta"]
+        # 应该只包含用户参数 city
+        assert "北京" in delta
+        # 不应该包含内部字段
+        assert "runtime" not in delta.lower() or "ToolRuntime" not in delta
+        assert "internal" not in delta
+        assert "__pregel" not in delta
+
     def test_on_chain_stream_model_node(self):
         """测试 on_chain_stream 事件（model 节点）"""
         msg = create_mock_ai_message("你好！有什么可以帮你的吗？")
@@ -683,3 +747,31 @@ class TestConvertEdgeCases:
         assert len(results) == 2
         assert results[0].event == EventType.TOOL_CALL_RESULT
         assert results[0].data["result"] == "工具输出内容"
+
+    def test_unsupported_stream_mode_messages_format(self):
+        """测试不支持的 stream_mode='messages' 格式（元组形式）
+
+        stream_mode='messages' 返回 (AIMessageChunk, metadata) 元组，
+        不是 dict 格式，to_agui_events 不支持此格式，应该不产生输出。
+        """
+        # 模拟 stream_mode="messages" 返回的元组格式
+        chunk = create_mock_ai_message_chunk("测试内容")
+        metadata = {"langgraph_node": "model"}
+        event = (chunk, metadata)  # 元组格式
+
+        # 元组格式会被 _event_to_dict 转换为空字典，因此不产生输出
+        results = list(convert(event))
+        assert len(results) == 0
+
+    def test_unsupported_random_dict_format(self):
+        """测试不支持的随机字典格式
+
+        如果传入的 dict 不匹配任何已知格式，应该不产生输出。
+        """
+        event = {
+            "random_key": "random_value",
+            "another_key": {"nested": "data"},
+        }
+
+        results = list(convert(event))
+        assert len(results) == 0
