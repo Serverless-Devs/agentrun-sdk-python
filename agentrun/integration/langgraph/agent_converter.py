@@ -499,6 +499,7 @@ def _convert_stream_values_event(
 def _convert_astream_events_event(
     event_dict: Dict[str, Any],
     tool_call_id_map: Optional[Dict[int, str]] = None,
+    tool_call_started_set: Optional[set] = None,
 ) -> Iterator[Union[AgentResult, str]]:
     """转换 astream_events 格式的单个事件
 
@@ -507,6 +508,8 @@ def _convert_astream_events_event(
         tool_call_id_map: 可选的 index -> tool_call_id 映射字典。
                           在流式工具调用中，第一个 chunk 有 id，后续只有 index。
                           此映射用于确保所有 chunk 使用一致的 tool_call_id。
+        tool_call_started_set: 可选的已发送 TOOL_CALL_START 的 tool_call_id 集合。
+                               用于确保每个工具调用只发送一次 TOOL_CALL_START。
 
     Yields:
         str (文本内容) 或 AgentResult (事件)
@@ -527,6 +530,7 @@ def _convert_astream_events_event(
             for tc in _extract_tool_call_chunks(chunk):
                 tc_index = tc.get("index")
                 tc_raw_id = tc.get("id")
+                tc_name = tc.get("name", "")
                 tc_args = tc.get("args", "")
 
                 # 解析 tool_call_id：
@@ -552,8 +556,28 @@ def _convert_astream_events_event(
                 else:
                     tc_id = ""
 
+                if not tc_id:
+                    continue
+
+                # AG-UI 协议要求：先发送 TOOL_CALL_START，再发送 TOOL_CALL_ARGS
+                # 第一次遇到某个工具调用时（有 id 和 name），先发送 TOOL_CALL_START
+                if tc_raw_id and tc_name:
+                    if (
+                        tool_call_started_set is None
+                        or tc_id not in tool_call_started_set
+                    ):
+                        yield AgentResult(
+                            event=EventType.TOOL_CALL_START,
+                            data={
+                                "tool_call_id": tc_id,
+                                "tool_call_name": tc_name,
+                            },
+                        )
+                        if tool_call_started_set is not None:
+                            tool_call_started_set.add(tc_id)
+
                 # 只有有 args 时才生成 TOOL_CALL_ARGS 事件
-                if tc_args and tc_id:
+                if tc_args:
                     if isinstance(tc_args, (dict, list)):
                         tc_args = _safe_json_dumps(tc_args)
                     yield AgentResult(
@@ -598,23 +622,41 @@ def _convert_astream_events_event(
         tool_input = _filter_tool_input(tool_input_raw)
 
         if tool_call_id:
-            yield AgentResult(
-                event=EventType.TOOL_CALL_START,
-                data={
-                    "tool_call_id": tool_call_id,
-                    "tool_call_name": tool_name,
-                },
+            # 检查是否已在 on_chat_model_stream 中发送过 TOOL_CALL_START
+            already_started = (
+                tool_call_started_set is not None
+                and tool_call_id in tool_call_started_set
             )
-            if tool_input:
-                args_str = (
-                    _safe_json_dumps(tool_input)
-                    if isinstance(tool_input, dict)
-                    else str(tool_input)
-                )
+
+            if not already_started:
+                # 非流式场景或未收到流式事件，需要发送 TOOL_CALL_START
                 yield AgentResult(
-                    event=EventType.TOOL_CALL_ARGS,
-                    data={"tool_call_id": tool_call_id, "delta": args_str},
+                    event=EventType.TOOL_CALL_START,
+                    data={
+                        "tool_call_id": tool_call_id,
+                        "tool_call_name": tool_name,
+                    },
                 )
+                if tool_call_started_set is not None:
+                    tool_call_started_set.add(tool_call_id)
+
+                # 非流式场景下，在 START 后发送完整参数
+                if tool_input:
+                    args_str = (
+                        _safe_json_dumps(tool_input)
+                        if isinstance(tool_input, dict)
+                        else str(tool_input)
+                    )
+                    yield AgentResult(
+                        event=EventType.TOOL_CALL_ARGS,
+                        data={"tool_call_id": tool_call_id, "delta": args_str},
+                    )
+
+            # AG-UI 协议：TOOL_CALL_END 表示参数传输完成，在工具执行前发送
+            yield AgentResult(
+                event=EventType.TOOL_CALL_END,
+                data={"tool_call_id": tool_call_id},
+            )
 
     # 4. 工具结束
     elif event_type == "on_tool_end":
@@ -625,16 +667,14 @@ def _convert_astream_events_event(
         tool_call_id = _extract_tool_call_id(tool_input_raw) or run_id
 
         if tool_call_id:
+            # AG-UI 协议：TOOL_CALL_RESULT 在工具执行完成后发送
+            # 注意：TOOL_CALL_END 已在 on_tool_start 中发送（表示参数传输完成）
             yield AgentResult(
                 event=EventType.TOOL_CALL_RESULT,
                 data={
                     "tool_call_id": tool_call_id,
                     "result": _format_tool_output(output),
                 },
-            )
-            yield AgentResult(
-                event=EventType.TOOL_CALL_END,
-                data={"tool_call_id": tool_call_id},
             )
 
     # 5. LLM 结束
@@ -652,6 +692,7 @@ def to_agui_events(
     event: Union[Dict[str, Any], Any],
     messages_key: str = "messages",
     tool_call_id_map: Optional[Dict[int, str]] = None,
+    tool_call_started_set: Optional[set] = None,
 ) -> Iterator[Union[AgentResult, str]]:
     """将 LangGraph/LangChain 流式事件转换为 AG-UI 协议事件
 
@@ -667,12 +708,15 @@ def to_agui_events(
         messages_key: state 中消息列表的 key，默认 "messages"
         tool_call_id_map: 可选的 index -> tool_call_id 映射字典，用于流式工具调用
                           的 ID 一致性。如果提供，函数会自动更新此映射。
+        tool_call_started_set: 可选的已发送 TOOL_CALL_START 的 tool_call_id 集合。
+                               用于确保每个工具调用只发送一次 TOOL_CALL_START，
+                               并在正确的时机发送 TOOL_CALL_END。
 
     Yields:
         str (文本内容) 或 AgentResult (AG-UI 事件)
 
     Example:
-        >>> # 使用 astream_events（推荐使用 AguiEventConverter 类）
+        >>> # 使用 astream_events（推荐使用 AgentRunConverter 类）
         >>> async for event in agent.astream_events(input, version="v2"):
         ...     for item in to_agui_events(event):
         ...         yield item
@@ -692,7 +736,9 @@ def to_agui_events(
     # 根据事件格式选择对应的转换器
     if _is_astream_events_format(event_dict):
         # astream_events 格式：{"event": "on_xxx", "data": {...}}
-        yield from _convert_astream_events_event(event_dict, tool_call_id_map)
+        yield from _convert_astream_events_event(
+            event_dict, tool_call_id_map, tool_call_started_set
+        )
 
     elif _is_stream_updates_format(event_dict):
         # stream/astream(stream_mode="updates") 格式：{node_name: state_update}
@@ -707,10 +753,16 @@ class AgentRunConverter:
     """AgentRun 事件转换器
 
     将 LangGraph/LangChain 流式事件转换为 AG-UI 协议事件。
-    此类维护必要的状态以确保流式工具调用的 tool_call_id 一致性。
+    此类维护必要的状态以确保：
+    1. 流式工具调用的 tool_call_id 一致性
+    2. AG-UI 协议要求的事件顺序（TOOL_CALL_START → TOOL_CALL_ARGS → TOOL_CALL_END）
 
-    在流式工具调用中，第一个 chunk 包含 id，后续 chunk 只有 index。
+    在流式工具调用中，第一个 chunk 包含 id 和 name，后续 chunk 只有 index 和 args。
     此类维护 index -> id 的映射，确保所有相关事件使用相同的 tool_call_id。
+
+    同时，此类跟踪已发送 TOOL_CALL_START 的工具调用，确保：
+    - 在流式场景中，TOOL_CALL_START 在第一个参数 chunk 前发送
+    - 避免在 on_tool_start 中重复发送 TOOL_CALL_START
 
     Example:
         >>> from agentrun.integration.langchain import AgentRunConverter
@@ -724,6 +776,7 @@ class AgentRunConverter:
 
     def __init__(self):
         self._tool_call_id_map: Dict[int, str] = {}
+        self._tool_call_started_set: set = set()
 
     def convert(
         self,
@@ -739,15 +792,21 @@ class AgentRunConverter:
         Yields:
             str (文本内容) 或 AgentResult (AG-UI 事件)
         """
-        yield from to_agui_events(event, messages_key, self._tool_call_id_map)
+        yield from to_agui_events(
+            event,
+            messages_key,
+            self._tool_call_id_map,
+            self._tool_call_started_set,
+        )
 
     def reset(self):
-        """重置状态，清空 tool_call_id 映射
+        """重置状态，清空 tool_call_id 映射和已发送状态
 
         在处理新的请求时，建议创建新的 AgentRunConverter 实例，
         而不是复用旧实例并调用 reset。
         """
         self._tool_call_id_map.clear()
+        self._tool_call_started_set.clear()
 
 
 # 保留向后兼容的别名

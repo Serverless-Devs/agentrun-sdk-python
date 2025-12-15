@@ -16,6 +16,7 @@ from agentrun.integration.langgraph.agent_converter import (
     _is_astream_events_format,
     _is_stream_updates_format,
     _is_stream_values_format,
+    AgentRunConverter,
     convert,
 )
 from agentrun.server.model import AgentResult, EventType
@@ -161,11 +162,17 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 1
+        # 当第一个 chunk 有 id 和 name 时，先发送 TOOL_CALL_START
+        assert len(results) == 2
         assert isinstance(results[0], AgentResult)
-        assert results[0].event == EventType.TOOL_CALL_ARGS
+        assert results[0].event == EventType.TOOL_CALL_START
         assert results[0].data["tool_call_id"] == "call_123"
-        assert results[0].data["delta"] == '{"city": "北京"}'
+        assert results[0].data["tool_call_name"] == "get_weather"
+
+        assert isinstance(results[1], AgentResult)
+        assert results[1].event == EventType.TOOL_CALL_ARGS
+        assert results[1].data["tool_call_id"] == "call_123"
+        assert results[1].data["delta"] == '{"city": "北京"}'
 
     def test_on_tool_start(self):
         """测试 on_tool_start 事件"""
@@ -178,7 +185,8 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 2
+        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
+        assert len(results) == 3
 
         # TOOL_CALL_START
         assert isinstance(results[0], AgentResult)
@@ -192,6 +200,11 @@ class TestConvertAstreamEventsFormat:
         assert results[1].data["tool_call_id"] == "run_456"
         assert "city" in results[1].data["delta"]
 
+        # TOOL_CALL_END
+        assert isinstance(results[2], AgentResult)
+        assert results[2].event == EventType.TOOL_CALL_END
+        assert results[2].data["tool_call_id"] == "run_456"
+
     def test_on_tool_start_without_input(self):
         """测试 on_tool_start 事件（无输入参数）"""
         event = {
@@ -203,13 +216,20 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 1
+        # TOOL_CALL_START + TOOL_CALL_END (无 ARGS，因为没有输入)
+        assert len(results) == 2
         assert results[0].event == EventType.TOOL_CALL_START
         assert results[0].data["tool_call_id"] == "run_789"
         assert results[0].data["tool_call_name"] == "get_time"
+        assert results[1].event == EventType.TOOL_CALL_END
+        assert results[1].data["tool_call_id"] == "run_789"
 
     def test_on_tool_end(self):
-        """测试 on_tool_end 事件"""
+        """测试 on_tool_end 事件
+
+        AG-UI 协议：TOOL_CALL_END 在 on_tool_start 中发送（参数传输完成时），
+        TOOL_CALL_RESULT 在 on_tool_end 中发送（工具执行完成时）。
+        """
         event = {
             "event": "on_tool_end",
             "run_id": "run_456",
@@ -218,16 +238,13 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 2
+        # on_tool_end 只发送 TOOL_CALL_RESULT
+        assert len(results) == 1
 
         # TOOL_CALL_RESULT
         assert results[0].event == EventType.TOOL_CALL_RESULT
         assert results[0].data["tool_call_id"] == "run_456"
         assert "晴天" in results[0].data["result"]
-
-        # TOOL_CALL_END
-        assert results[1].event == EventType.TOOL_CALL_END
-        assert results[1].data["tool_call_id"] == "run_456"
 
     def test_on_tool_end_with_string_output(self):
         """测试 on_tool_end 事件（字符串输出）"""
@@ -239,7 +256,8 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 2
+        # on_tool_end 只发送 TOOL_CALL_RESULT
+        assert len(results) == 1
         assert results[0].event == EventType.TOOL_CALL_RESULT
         assert results[0].data["result"] == "晴天，25度"
 
@@ -260,13 +278,15 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_ARGS
-        assert len(results) == 2
+        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
+        assert len(results) == 3
         assert results[0].event == EventType.TOOL_CALL_START
         assert results[0].data["tool_call_id"] == "run_non_json"
         assert results[1].event == EventType.TOOL_CALL_ARGS
         assert results[1].data["tool_call_id"] == "run_non_json"
         assert "dummy_obj" in results[1].data["delta"]
+        assert results[2].event == EventType.TOOL_CALL_END
+        assert results[2].data["tool_call_id"] == "run_non_json"
 
     def test_on_tool_start_filters_internal_runtime_field(self):
         """测试 on_tool_start 过滤 MCP 注入的 runtime 等内部字段"""
@@ -293,8 +313,8 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_ARGS
-        assert len(results) == 2
+        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
+        assert len(results) == 3
         assert results[0].event == EventType.TOOL_CALL_START
         assert results[0].data["tool_call_name"] == "maps_weather"
 
@@ -306,6 +326,8 @@ class TestConvertAstreamEventsFormat:
         assert "runtime" not in delta.lower() or "ToolRuntime" not in delta
         assert "internal" not in delta
         assert "__pregel" not in delta
+
+        assert results[2].event == EventType.TOOL_CALL_END
 
     def test_on_tool_start_uses_runtime_tool_call_id(self):
         """测试 on_tool_start 使用 runtime 中的原始 tool_call_id 而非 run_id
@@ -338,8 +360,8 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_ARGS
-        assert len(results) == 2
+        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
+        assert len(results) == 3
 
         # 应该使用 runtime 中的原始 tool_call_id，而不是 run_id
         assert results[0].event == EventType.TOOL_CALL_START
@@ -348,6 +370,9 @@ class TestConvertAstreamEventsFormat:
 
         assert results[1].event == EventType.TOOL_CALL_ARGS
         assert results[1].data["tool_call_id"] == original_tool_call_id
+
+        assert results[2].event == EventType.TOOL_CALL_END
+        assert results[2].data["tool_call_id"] == original_tool_call_id
 
     def test_on_tool_end_uses_runtime_tool_call_id(self):
         """测试 on_tool_end 使用 runtime 中的原始 tool_call_id 而非 run_id"""
@@ -374,15 +399,12 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_RESULT + TOOL_CALL_END
-        assert len(results) == 2
+        # on_tool_end 只发送 TOOL_CALL_RESULT（TOOL_CALL_END 在 on_tool_start 发送）
+        assert len(results) == 1
 
         # 应该使用 runtime 中的原始 tool_call_id
         assert results[0].event == EventType.TOOL_CALL_RESULT
         assert results[0].data["tool_call_id"] == original_tool_call_id
-
-        assert results[1].event == EventType.TOOL_CALL_END
-        assert results[1].data["tool_call_id"] == original_tool_call_id
 
     def test_on_tool_start_fallback_to_run_id(self):
         """测试当 runtime 中没有 tool_call_id 时，回退使用 run_id"""
@@ -395,11 +417,15 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 2
+        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
+        assert len(results) == 3
         assert results[0].event == EventType.TOOL_CALL_START
         # 应该回退使用 run_id
         assert results[0].data["tool_call_id"] == "run_789"
+        assert results[1].event == EventType.TOOL_CALL_ARGS
         assert results[1].data["tool_call_id"] == "run_789"
+        assert results[2].event == EventType.TOOL_CALL_END
+        assert results[2].data["tool_call_id"] == "run_789"
 
     def test_streaming_tool_call_id_consistency_with_map(self):
         """测试流式工具调用的 tool_call_id 一致性（使用映射）
@@ -696,15 +722,27 @@ class TestConvertAstreamEventsFormat:
         }
 
         tool_call_id_map: Dict[int, str] = {}
-        results = list(convert(event, tool_call_id_map=tool_call_id_map))
+        tool_call_started_set: set = set()
+        results = list(
+            convert(
+                event,
+                tool_call_id_map=tool_call_id_map,
+                tool_call_started_set=tool_call_started_set,
+            )
+        )
 
         # 验证映射被建立
         assert tool_call_id_map[0] == "call_complete"
+        # 验证 START 已发送
+        assert "call_complete" in tool_call_started_set
 
-        # 验证 TOOL_CALL_ARGS 使用正确的 ID
-        assert len(results) == 1
-        assert results[0].event == EventType.TOOL_CALL_ARGS
+        # 第一个 chunk 有 id 和 name，先发送 START，再发送 ARGS
+        assert len(results) == 2
+        assert results[0].event == EventType.TOOL_CALL_START
         assert results[0].data["tool_call_id"] == "call_complete"
+        assert results[0].data["tool_call_name"] == "simple_tool"
+        assert results[1].event == EventType.TOOL_CALL_ARGS
+        assert results[1].data["tool_call_id"] == "call_complete"
 
     def test_streaming_tool_call_id_none_vs_empty_string(self):
         """测试 id 为 None 和空字符串的不同处理"""
@@ -763,17 +801,15 @@ class TestConvertAstreamEventsFormat:
         """测试完整工具调用流程中的 ID 一致性
 
         模拟：
-        1. on_chat_model_stream 产生 TOOL_CALL_ARGS
-        2. on_tool_start 产生 TOOL_CALL_START
-        3. on_tool_end 产生 TOOL_CALL_RESULT 和 TOOL_CALL_END
+        1. on_chat_model_stream 产生 TOOL_CALL_START 和 TOOL_CALL_ARGS
+        2. on_tool_start 产生 TOOL_CALL_END（参数传输完成）
+        3. on_tool_end 产生 TOOL_CALL_RESULT
 
-        验证所有事件使用相同的 tool_call_id
+        验证所有事件使用相同的 tool_call_id，并验证正确的事件顺序
         """
-        from agentrun.integration.langchain import AgentRunConverter
-
         # 模拟完整的工具调用流程
         events = [
-            # 流式工具调用参数
+            # 流式工具调用参数（第一个 chunk 有 id 和 name）
             {
                 "event": "on_chat_model_stream",
                 "data": {
@@ -856,12 +892,28 @@ class TestConvertAstreamEventsFormat:
                 f" {event.data['tool_call_id']}"
             )
 
-        # 验证事件顺序
+        # 验证所有事件类型都存在
         event_types = [e.event for e in tool_events]
-        assert EventType.TOOL_CALL_ARGS in event_types
         assert EventType.TOOL_CALL_START in event_types
-        assert EventType.TOOL_CALL_RESULT in event_types
+        assert EventType.TOOL_CALL_ARGS in event_types
         assert EventType.TOOL_CALL_END in event_types
+        assert EventType.TOOL_CALL_RESULT in event_types
+
+        # 验证 AG-UI 协议要求的事件顺序：START → ARGS → END → RESULT
+        start_idx = event_types.index(EventType.TOOL_CALL_START)
+        args_idx = event_types.index(EventType.TOOL_CALL_ARGS)
+        end_idx = event_types.index(EventType.TOOL_CALL_END)
+        result_idx = event_types.index(EventType.TOOL_CALL_RESULT)
+
+        assert (
+            start_idx < args_idx
+        ), "TOOL_CALL_START must come before TOOL_CALL_ARGS"
+        assert (
+            args_idx < end_idx
+        ), "TOOL_CALL_ARGS must come before TOOL_CALL_END"
+        assert (
+            end_idx < result_idx
+        ), "TOOL_CALL_END must come before TOOL_CALL_RESULT"
 
     def test_on_chain_stream_model_node(self):
         """测试 on_chain_stream 事件（model 节点）"""
@@ -1099,7 +1151,11 @@ class TestConvertEventSequence:
     """测试完整的事件序列转换"""
 
     def test_astream_events_full_sequence(self):
-        """测试 astream_events 格式的完整事件序列"""
+        """测试 astream_events 格式的完整事件序列
+
+        AG-UI 协议要求的事件顺序：
+        TOOL_CALL_START → TOOL_CALL_ARGS → TOOL_CALL_END → TOOL_CALL_RESULT
+        """
         events = [
             # 1. 开始工具调用
             {
@@ -1134,13 +1190,16 @@ class TestConvertEventSequence:
             all_results.extend(convert(event))
 
         # 验证结果
+        # on_tool_start: START + ARGS + END = 3
+        # on_tool_end: RESULT = 1
+        # 3x on_chat_model_stream: 3 个文本
         assert len(all_results) == 7
 
-        # 工具调用事件
+        # 工具调用事件（新顺序：START → ARGS → END → RESULT）
         assert all_results[0].event == EventType.TOOL_CALL_START
         assert all_results[1].event == EventType.TOOL_CALL_ARGS
-        assert all_results[2].event == EventType.TOOL_CALL_RESULT
-        assert all_results[3].event == EventType.TOOL_CALL_END
+        assert all_results[2].event == EventType.TOOL_CALL_END
+        assert all_results[3].event == EventType.TOOL_CALL_RESULT
 
         # 文本内容
         assert all_results[4] == "北京"
@@ -1300,7 +1359,8 @@ class TestConvertEdgeCases:
 
         results = list(convert(event))
 
-        assert len(results) == 2
+        # on_tool_end 只发送 TOOL_CALL_RESULT（TOOL_CALL_END 在 on_tool_start 发送）
+        assert len(results) == 1
         assert results[0].event == EventType.TOOL_CALL_RESULT
         assert results[0].data["result"] == "工具输出内容"
 
@@ -1331,3 +1391,372 @@ class TestConvertEdgeCases:
 
         results = list(convert(event))
         assert len(results) == 0
+
+
+# =============================================================================
+# 测试 AG-UI 协议事件顺序
+# =============================================================================
+
+
+class TestAguiEventOrder:
+    """测试 AG-UI 协议要求的事件顺序
+
+    根据 AG-UI 协议规范，工具调用事件的正确顺序是：
+    1. TOOL_CALL_START - 工具调用开始
+    2. TOOL_CALL_ARGS - 工具调用参数（可能多个）
+    3. TOOL_CALL_END - 参数传输完成
+    4. TOOL_CALL_RESULT - 工具执行结果
+    """
+
+    def test_streaming_tool_call_order(self):
+        """测试流式工具调用的事件顺序
+
+        AG-UI 协议要求：TOOL_CALL_START 必须在 TOOL_CALL_ARGS 之前
+        """
+        events = [
+            # 第一个 chunk：包含 id、name，无 args
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "call_order_test",
+                            "name": "test_tool",
+                            "args": "",
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            # 第二个 chunk：有 args
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "",
+                            "name": "",
+                            "args": '{"key": "value"}',
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            # 工具开始执行
+            {
+                "event": "on_tool_start",
+                "name": "test_tool",
+                "run_id": "run_order",
+                "data": {
+                    "input": {
+                        "key": "value",
+                        "runtime": MagicMock(tool_call_id="call_order_test"),
+                    }
+                },
+            },
+            # 工具执行完成
+            {
+                "event": "on_tool_end",
+                "run_id": "run_order",
+                "data": {
+                    "input": {
+                        "key": "value",
+                        "runtime": MagicMock(tool_call_id="call_order_test"),
+                    },
+                    "output": "success",
+                },
+            },
+        ]
+
+        converter = AgentRunConverter()
+        all_results = []
+        for event in events:
+            all_results.extend(converter.convert(event))
+
+        # 提取工具调用相关事件
+        tool_events = [
+            r
+            for r in all_results
+            if isinstance(r, AgentResult)
+            and r.event
+            in [
+                EventType.TOOL_CALL_START,
+                EventType.TOOL_CALL_ARGS,
+                EventType.TOOL_CALL_END,
+                EventType.TOOL_CALL_RESULT,
+            ]
+        ]
+
+        # 验证有4种事件
+        event_types = [e.event for e in tool_events]
+        assert EventType.TOOL_CALL_START in event_types
+        assert EventType.TOOL_CALL_ARGS in event_types
+        assert EventType.TOOL_CALL_END in event_types
+        assert EventType.TOOL_CALL_RESULT in event_types
+
+        # 验证顺序：START 必须在所有 ARGS 之前
+        start_idx = event_types.index(EventType.TOOL_CALL_START)
+        args_indices = [
+            i
+            for i, t in enumerate(event_types)
+            if t == EventType.TOOL_CALL_ARGS
+        ]
+        for args_idx in args_indices:
+            assert start_idx < args_idx, (
+                f"TOOL_CALL_START (idx={start_idx}) must come before "
+                f"TOOL_CALL_ARGS (idx={args_idx})"
+            )
+
+        # 验证顺序：END 必须在 RESULT 之前
+        end_idx = event_types.index(EventType.TOOL_CALL_END)
+        result_idx = event_types.index(EventType.TOOL_CALL_RESULT)
+        assert end_idx < result_idx, (
+            f"TOOL_CALL_END (idx={end_idx}) must come before "
+            f"TOOL_CALL_RESULT (idx={result_idx})"
+        )
+
+        # 验证完整顺序：START → ARGS → END → RESULT
+        assert start_idx < end_idx, "START must come before END"
+        assert end_idx < result_idx, "END must come before RESULT"
+
+    def test_streaming_tool_call_start_not_duplicated(self):
+        """测试流式工具调用时 TOOL_CALL_START 不会重复发送"""
+        events = [
+            # 第一个 chunk：包含 id、name
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "call_no_dup",
+                            "name": "test_tool",
+                            "args": '{"a": 1}',
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            # 工具开始执行（此时 START 已在上面发送，不应重复）
+            {
+                "event": "on_tool_start",
+                "name": "test_tool",
+                "run_id": "run_no_dup",
+                "data": {
+                    "input": {
+                        "a": 1,
+                        "runtime": MagicMock(tool_call_id="call_no_dup"),
+                    }
+                },
+            },
+            # 工具执行完成
+            {
+                "event": "on_tool_end",
+                "run_id": "run_no_dup",
+                "data": {
+                    "input": {
+                        "a": 1,
+                        "runtime": MagicMock(tool_call_id="call_no_dup"),
+                    },
+                    "output": "done",
+                },
+            },
+        ]
+
+        converter = AgentRunConverter()
+        all_results = []
+        for event in events:
+            all_results.extend(converter.convert(event))
+
+        # 统计 TOOL_CALL_START 事件的数量
+        start_events = [
+            r
+            for r in all_results
+            if isinstance(r, AgentResult)
+            and r.event == EventType.TOOL_CALL_START
+        ]
+
+        # 应该只有一个 TOOL_CALL_START
+        assert (
+            len(start_events) == 1
+        ), f"Expected 1 TOOL_CALL_START, got {len(start_events)}"
+
+    def test_non_streaming_tool_call_order(self):
+        """测试非流式场景的工具调用事件顺序
+
+        在没有 on_chat_model_stream 事件的场景下，
+        事件顺序仍应正确：START → ARGS → END → RESULT
+        """
+        events = [
+            # 直接工具开始（无流式事件）
+            {
+                "event": "on_tool_start",
+                "name": "weather",
+                "run_id": "run_nonstream",
+                "data": {"input": {"city": "北京"}},
+            },
+            # 工具执行完成
+            {
+                "event": "on_tool_end",
+                "run_id": "run_nonstream",
+                "data": {"output": "晴天"},
+            },
+        ]
+
+        converter = AgentRunConverter()
+        all_results = []
+        for event in events:
+            all_results.extend(converter.convert(event))
+
+        tool_events = [r for r in all_results if isinstance(r, AgentResult)]
+
+        event_types = [e.event for e in tool_events]
+
+        # 验证顺序
+        assert event_types == [
+            EventType.TOOL_CALL_START,
+            EventType.TOOL_CALL_ARGS,
+            EventType.TOOL_CALL_END,
+            EventType.TOOL_CALL_RESULT,
+        ], f"Unexpected order: {event_types}"
+
+    def test_multiple_concurrent_tool_calls_order(self):
+        """测试多个并发工具调用时各自的事件顺序正确"""
+        events = [
+            # 两个工具调用的第一个 chunk
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[
+                            {
+                                "id": "call_a",
+                                "name": "tool_a",
+                                "args": "",
+                                "index": 0,
+                            },
+                            {
+                                "id": "call_b",
+                                "name": "tool_b",
+                                "args": "",
+                                "index": 1,
+                            },
+                        ],
+                    )
+                },
+            },
+            # 两个工具的参数
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[
+                            {
+                                "id": "",
+                                "name": "",
+                                "args": '{"x": 1}',
+                                "index": 0,
+                            },
+                            {
+                                "id": "",
+                                "name": "",
+                                "args": '{"y": 2}',
+                                "index": 1,
+                            },
+                        ],
+                    )
+                },
+            },
+            # 工具 A 开始
+            {
+                "event": "on_tool_start",
+                "name": "tool_a",
+                "run_id": "run_a",
+                "data": {
+                    "input": {
+                        "x": 1,
+                        "runtime": MagicMock(tool_call_id="call_a"),
+                    }
+                },
+            },
+            # 工具 B 开始
+            {
+                "event": "on_tool_start",
+                "name": "tool_b",
+                "run_id": "run_b",
+                "data": {
+                    "input": {
+                        "y": 2,
+                        "runtime": MagicMock(tool_call_id="call_b"),
+                    }
+                },
+            },
+            # 工具 A 结束
+            {
+                "event": "on_tool_end",
+                "run_id": "run_a",
+                "data": {
+                    "input": {
+                        "x": 1,
+                        "runtime": MagicMock(tool_call_id="call_a"),
+                    },
+                    "output": "result_a",
+                },
+            },
+            # 工具 B 结束
+            {
+                "event": "on_tool_end",
+                "run_id": "run_b",
+                "data": {
+                    "input": {
+                        "y": 2,
+                        "runtime": MagicMock(tool_call_id="call_b"),
+                    },
+                    "output": "result_b",
+                },
+            },
+        ]
+
+        converter = AgentRunConverter()
+        all_results = []
+        for event in events:
+            all_results.extend(converter.convert(event))
+
+        # 分别验证工具 A 和工具 B 的事件顺序
+        for tool_id in ["call_a", "call_b"]:
+            tool_events = [
+                (i, r)
+                for i, r in enumerate(all_results)
+                if isinstance(r, AgentResult)
+                and r.data.get("tool_call_id") == tool_id
+            ]
+
+            event_types = [e.event for _, e in tool_events]
+            indices = [i for i, _ in tool_events]
+
+            # 验证包含所有必需事件
+            assert (
+                EventType.TOOL_CALL_START in event_types
+            ), f"Tool {tool_id} missing TOOL_CALL_START"
+            assert (
+                EventType.TOOL_CALL_END in event_types
+            ), f"Tool {tool_id} missing TOOL_CALL_END"
+            assert (
+                EventType.TOOL_CALL_RESULT in event_types
+            ), f"Tool {tool_id} missing TOOL_CALL_RESULT"
+
+            # 验证顺序：对于每个工具，START 应该在该工具的 END 之前
+            start_pos = event_types.index(EventType.TOOL_CALL_START)
+            end_pos = event_types.index(EventType.TOOL_CALL_END)
+            result_pos = event_types.index(EventType.TOOL_CALL_RESULT)
+
+            assert (
+                start_pos < end_pos
+            ), f"Tool {tool_id}: START must come before END"
+            assert (
+                end_pos < result_pos
+            ), f"Tool {tool_id}: END must come before RESULT"
