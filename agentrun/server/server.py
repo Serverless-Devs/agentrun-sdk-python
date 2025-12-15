@@ -155,8 +155,8 @@ class AgentRunServer:
             # 获取协议的 Router
             router = protocol.as_fastapi_router(self.agent_invoker)
 
-            # 确定路由前缀
-            prefix = self._get_protocol_prefix(protocol)
+            # 使用协议定义的前缀
+            prefix = protocol.get_prefix()
 
             # 挂载到主应用
             self.app.include_router(router, prefix=prefix)
@@ -165,29 +165,6 @@ class AgentRunServer:
                 f"已挂载协议: {protocol.__class__.__name__} ->"
                 f" {prefix or '(无前缀)'}"
             )
-
-    def _get_protocol_prefix(self, protocol: ProtocolHandler) -> str:
-        """获取协议的路由前缀
-
-        优先级:
-        1. 协议自己的建议前缀
-        2. 基于协议类名的默认前缀
-
-        Args:
-            protocol: 协议处理器
-
-        Returns:
-            str: 路由前缀
-        """
-        suggested_prefix = protocol.get_prefix()
-        if suggested_prefix:
-            return suggested_prefix
-
-        protocol_name = protocol.__class__.__name__
-        name_without_handler = protocol_name.replace(
-            "ProtocolHandler", ""
-        ).replace("Handler", "")
-        return f"/{name_without_handler.lower()}"
 
     def start(
         self,

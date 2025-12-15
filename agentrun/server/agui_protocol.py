@@ -7,7 +7,15 @@ AG-UI 是一种开源、轻量级、基于事件的协议，用于标准化 AI A
 将 AgentResult 事件转换为 AG-UI SSE 格式。
 """
 
-from typing import Any, AsyncIterator, Dict, List, Optional, TYPE_CHECKING
+from typing import (
+    Any,
+    AsyncIterator,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    TYPE_CHECKING,
+)
 import uuid
 
 from ag_ui.core import AssistantMessage
@@ -47,8 +55,8 @@ import pydash
 from ..utils.helper import merge
 from .model import (
     AdditionMode,
+    AgentEvent,
     AgentRequest,
-    AgentResult,
     EventType,
     Message,
     MessageRole,
@@ -189,6 +197,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
         # 构建 AgentRequest
         agent_request = AgentRequest(
+            protocol="agui",  # 设置协议名称
             messages=messages,
             stream=True,  # AG-UI 总是流式
             tools=tools,
@@ -276,295 +285,243 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
     async def _format_stream(
         self,
-        result_stream: AsyncIterator[AgentResult],
+        event_stream: AsyncIterator[AgentEvent],
         context: Dict[str, Any],
     ) -> AsyncIterator[str]:
-        """将 AgentResult 流转换为 AG-UI SSE 格式
+        """将 AgentEvent 流转换为 AG-UI SSE 格式
+
+        自动生成边界事件：
+        - RUN_STARTED / RUN_FINISHED（生命周期）
+        - TEXT_MESSAGE_START / TEXT_MESSAGE_END（文本边界）
+        - TOOL_CALL_START / TOOL_CALL_END（工具调用边界）
 
         Args:
-            result_stream: AgentResult 流
+            event_stream: AgentEvent 流
             context: 上下文信息
 
         Yields:
             SSE 格式的字符串
         """
-        async for result in result_stream:
-            sse_data = self._format_event(result, context)
-            if sse_data:
-                yield sse_data
+        message_id = str(uuid.uuid4())
 
-    def _format_event(
+        # 状态追踪
+        text_started = False
+        # 工具调用状态：{tool_id: {"started": bool, "ended": bool}}
+        tool_call_states: Dict[str, Dict[str, bool]] = {}
+
+        # 发送 RUN_STARTED
+        yield self._encoder.encode(
+            RunStartedEvent(
+                thread_id=context.get("thread_id"),
+                run_id=context.get("run_id"),
+            )
+        )
+
+        async for event in event_stream:
+            # 处理边界事件注入
+            for sse_data in self._process_event_with_boundaries(
+                event, context, message_id, text_started, tool_call_states
+            ):
+                if sse_data:
+                    yield sse_data
+
+            # 更新状态
+            if event.event == EventType.TEXT:
+                text_started = True
+            elif event.event == EventType.TOOL_CALL_CHUNK:
+                tool_id = event.data.get("id", "")
+                if tool_id:
+                    if tool_id not in tool_call_states:
+                        tool_call_states[tool_id] = {
+                            "started": True,
+                            "ended": False,
+                        }
+
+        # 结束所有未结束的工具调用
+        for tool_id, state in tool_call_states.items():
+            if state["started"] and not state["ended"]:
+                yield self._encoder.encode(
+                    ToolCallEndEvent(tool_call_id=tool_id)
+                )
+
+        # 发送 TEXT_MESSAGE_END（如果有文本消息）
+        if text_started:
+            yield self._encoder.encode(
+                TextMessageEndEvent(message_id=message_id)
+            )
+
+        # 发送 RUN_FINISHED
+        yield self._encoder.encode(
+            RunFinishedEvent(
+                thread_id=context.get("thread_id"),
+                run_id=context.get("run_id"),
+            )
+        )
+
+    def _process_event_with_boundaries(
         self,
-        result: AgentResult,
+        event: AgentEvent,
         context: Dict[str, Any],
-    ) -> str:
-        """将 AgentResult 转换为 SSE 格式
+        message_id: str,
+        text_started: bool,
+        tool_call_states: Dict[str, Dict[str, bool]],
+    ) -> Iterator[str]:
+        """处理事件并注入边界事件
 
         Args:
-            result: AgentResult 事件
-            context: 上下文信息
+            event: 用户事件
+            context: 上下文
+            message_id: 消息 ID
+            text_started: 文本是否已开始
+            tool_call_states: 工具调用状态
 
-        Returns:
+        Yields:
             SSE 格式的字符串
         """
         import json
 
-        # 统一将字符串或 dict 标准化为 AgentResult
-        if isinstance(result, str):
-            result = AgentResult(
-                event=EventType.TEXT_MESSAGE_CHUNK,
-                data={"delta": result},
-            )
-        elif isinstance(result, dict):
-            ev = self._parse_event_type(result.get("event"))
-            result = AgentResult(event=ev, data=result.get("data", result))
-
-        # 特殊处理 STREAM_DATA 事件 - 直接返回原始 SSE 数据
-        if result.event == EventType.STREAM_DATA:
-            raw_data = result.data.get("raw", "")
+        # RAW 事件直接透传
+        if event.event == EventType.RAW:
+            raw_data = event.data.get("raw", "")
             if raw_data:
-                # 如果已经是 SSE 格式，直接返回
-                if raw_data.startswith("data:"):
-                    # 确保以 \n\n 结尾
-                    if not raw_data.endswith("\n\n"):
-                        raw_data = raw_data.rstrip("\n") + "\n\n"
-                    return raw_data
-                else:
-                    # 包装为 SSE 格式
-                    return f"data: {raw_data}\n\n"
-            return ""
+                if not raw_data.endswith("\n\n"):
+                    raw_data = raw_data.rstrip("\n") + "\n\n"
+                yield raw_data
+            return
 
-        # 创建 ag-ui-protocol 事件对象
-        agui_event = self._create_agui_event(result, context)
+        # TEXT 事件：在首个 TEXT 前注入 TEXT_MESSAGE_START
+        if event.event == EventType.TEXT:
+            if not text_started:
+                yield self._encoder.encode(
+                    TextMessageStartEvent(
+                        message_id=message_id,
+                        role="assistant",
+                    )
+                )
 
-        if agui_event is None:
-            return ""
-
-        # 处理 addition - 需要将事件转为 dict，应用 addition，然后重新序列化
-        if result.addition:
-            # ag-ui-protocol 事件是 pydantic model，需要转为 dict 处理 addition
-            # 使用 by_alias=True 确保字段名使用 camelCase（与编码器一致）
-            event_dict = agui_event.model_dump(by_alias=True, exclude_none=True)
-            event_dict = self._apply_addition(
-                event_dict, result.addition, result.addition_mode
+            # 发送 TEXT_MESSAGE_CONTENT
+            agui_event = TextMessageContentEvent(
+                message_id=message_id,
+                delta=event.data.get("delta", ""),
             )
-            # 使用与 EventEncoder 相同的格式
-            json_str = json.dumps(event_dict, ensure_ascii=False)
-            return f"data: {json_str}\n\n"
+            if event.addition:
+                event_dict = agui_event.model_dump(
+                    by_alias=True, exclude_none=True
+                )
+                event_dict = self._apply_addition(
+                    event_dict, event.addition, event.addition_mode
+                )
+                json_str = json.dumps(event_dict, ensure_ascii=False)
+                yield f"data: {json_str}\n\n"
+            else:
+                yield self._encoder.encode(agui_event)
+            return
 
-        # 使用 ag-ui-protocol 的编码器
-        return self._encoder.encode(agui_event)
+        # TOOL_CALL_CHUNK 事件：在首个 CHUNK 前注入 TOOL_CALL_START
+        if event.event == EventType.TOOL_CALL_CHUNK:
+            tool_id = event.data.get("id", "")
+            tool_name = event.data.get("name", "")
 
-    def _parse_event_type(self, evt: Any) -> EventType:
-        """解析事件类型
+            if tool_id and tool_id not in tool_call_states:
+                # 首次见到这个工具调用，发送 TOOL_CALL_START
+                yield self._encoder.encode(
+                    ToolCallStartEvent(
+                        tool_call_id=tool_id,
+                        tool_call_name=tool_name,
+                    )
+                )
+                tool_call_states[tool_id] = {"started": True, "ended": False}
 
-        Args:
-            evt: 事件类型值
-
-        Returns:
-            EventType 枚举值
-        """
-        if isinstance(evt, EventType):
-            return evt
-
-        if isinstance(evt, str):
-            try:
-                return EventType(evt)
-            except ValueError:
-                try:
-                    return EventType[evt]
-                except KeyError:
-                    pass
-
-        return EventType.TEXT_MESSAGE_CHUNK
-
-    def _create_agui_event(
-        self,
-        result: AgentResult,
-        context: Dict[str, Any],
-    ) -> Any:
-        """根据 AgentResult 创建对应的 ag-ui-protocol 事件对象
-
-        Args:
-            result: AgentResult 事件
-            context: 上下文信息
-
-        Returns:
-            ag-ui-protocol 事件对象
-        """
-        data = result.data
-        event_type = result.event
-
-        # 生命周期事件
-        if event_type == EventType.RUN_STARTED:
-            return RunStartedEvent(
-                thread_id=data.get("thread_id") or context.get("thread_id"),
-                run_id=data.get("run_id") or context.get("run_id"),
+            # 发送 TOOL_CALL_ARGS
+            yield self._encoder.encode(
+                ToolCallArgsEvent(
+                    tool_call_id=tool_id,
+                    delta=event.data.get("args_delta", ""),
+                )
             )
+            return
 
-        elif event_type == EventType.RUN_FINISHED:
-            return RunFinishedEvent(
-                thread_id=data.get("thread_id") or context.get("thread_id"),
-                run_id=data.get("run_id") or context.get("run_id"),
-            )
+        # TOOL_RESULT 事件：确保工具调用已结束
+        if event.event == EventType.TOOL_RESULT:
+            tool_id = event.data.get("id", "")
 
-        elif event_type == EventType.RUN_ERROR:
-            return RunErrorEvent(
-                message=data.get("message", ""),
-                code=data.get("code"),
-            )
+            # 如果工具调用未开始，先补充 START
+            if tool_id and tool_id not in tool_call_states:
+                yield self._encoder.encode(
+                    ToolCallStartEvent(
+                        tool_call_id=tool_id,
+                        tool_call_name="",
+                    )
+                )
+                tool_call_states[tool_id] = {"started": True, "ended": False}
 
-        elif event_type == EventType.STEP_STARTED:
-            return StepStartedEvent(
-                step_name=data.get("step_name", ""),
-            )
+            # 如果工具调用未结束，先补充 END
+            if (
+                tool_id
+                and tool_call_states.get(tool_id, {}).get("started")
+                and not tool_call_states.get(tool_id, {}).get("ended")
+            ):
+                yield self._encoder.encode(
+                    ToolCallEndEvent(tool_call_id=tool_id)
+                )
+                tool_call_states[tool_id]["ended"] = True
 
-        elif event_type == EventType.STEP_FINISHED:
-            return StepFinishedEvent(
-                step_name=data.get("step_name", ""),
+            # 发送 TOOL_CALL_RESULT
+            yield self._encoder.encode(
+                ToolCallResultEvent(
+                    message_id=event.data.get(
+                        "message_id", f"tool-result-{tool_id}"
+                    ),
+                    tool_call_id=tool_id,
+                    content=event.data.get("content")
+                    or event.data.get("result", ""),
+                    role="tool",
+                )
             )
+            return
 
-        # 文本消息事件
-        elif event_type == EventType.TEXT_MESSAGE_START:
-            return TextMessageStartEvent(
-                message_id=data.get("message_id", str(uuid.uuid4())),
-                role=data.get("role", "assistant"),
+        # ERROR 事件
+        if event.event == EventType.ERROR:
+            yield self._encoder.encode(
+                RunErrorEvent(
+                    message=event.data.get("message", ""),
+                    code=event.data.get("code"),
+                )
             )
+            return
 
-        elif event_type == EventType.TEXT_MESSAGE_CONTENT:
-            return TextMessageContentEvent(
-                message_id=data.get("message_id", ""),
-                delta=data.get("delta", ""),
-            )
-
-        elif event_type == EventType.TEXT_MESSAGE_END:
-            return TextMessageEndEvent(
-                message_id=data.get("message_id", ""),
-            )
-
-        elif event_type == EventType.TEXT_MESSAGE_CHUNK:
-            # TEXT_MESSAGE_CHUNK 需要转换为 TEXT_MESSAGE_CONTENT
-            return TextMessageContentEvent(
-                message_id=data.get("message_id", ""),
-                delta=data.get("delta", ""),
-            )
-
-        # 工具调用事件
-        elif event_type == EventType.TOOL_CALL_START:
-            return ToolCallStartEvent(
-                tool_call_id=data.get("tool_call_id", ""),
-                tool_call_name=data.get("tool_call_name", ""),
-                parent_message_id=data.get("parent_message_id"),
-            )
-
-        elif event_type == EventType.TOOL_CALL_ARGS:
-            return ToolCallArgsEvent(
-                tool_call_id=data.get("tool_call_id", ""),
-                delta=data.get("delta", ""),
-            )
-
-        elif event_type == EventType.TOOL_CALL_END:
-            return ToolCallEndEvent(
-                tool_call_id=data.get("tool_call_id", ""),
-            )
-
-        elif event_type == EventType.TOOL_CALL_RESULT:
-            return ToolCallResultEvent(
-                message_id=data.get(
-                    "message_id", f"tool-result-{data.get('tool_call_id', '')}"
-                ),
-                tool_call_id=data.get("tool_call_id", ""),
-                content=data.get("content") or data.get("result", ""),
-                role="tool",
-            )
-
-        elif event_type == EventType.TOOL_CALL_CHUNK:
-            # TOOL_CALL_CHUNK 需要转换为 TOOL_CALL_ARGS
-            return ToolCallArgsEvent(
-                tool_call_id=data.get("tool_call_id", ""),
-                delta=data.get("delta", ""),
-            )
-
-        # 状态管理事件
-        elif event_type == EventType.STATE_SNAPSHOT:
-            return StateSnapshotEvent(
-                snapshot=data.get("snapshot", {}),
-            )
-
-        elif event_type == EventType.STATE_DELTA:
-            return StateDeltaEvent(
-                delta=data.get("delta", []),
-            )
-
-        # 消息快照事件
-        elif event_type == EventType.MESSAGES_SNAPSHOT:
-            # 需要转换消息格式
-            messages = self._convert_messages_for_snapshot(
-                data.get("messages", [])
-            )
-            return MessagesSnapshotEvent(
-                messages=messages,
-            )
-
-        # Reasoning 事件（ag-ui-protocol 使用 Thinking 命名）
-        # 这些事件在 ag-ui-protocol 中可能使用不同的名称，
-        # 需要映射到对应的事件类型或使用 CustomEvent
-        elif event_type in (
-            EventType.REASONING_START,
-            EventType.REASONING_MESSAGE_START,
-            EventType.REASONING_MESSAGE_CONTENT,
-            EventType.REASONING_MESSAGE_END,
-            EventType.REASONING_MESSAGE_CHUNK,
-            EventType.REASONING_END,
-        ):
-            # 使用 CustomEvent 来包装 Reasoning 事件
-            return AguiCustomEvent(
-                name=event_type.value,
-                value=data,
-            )
-
-        # Activity 事件 - ag-ui-protocol 有对应的事件但格式不同
-        elif event_type == EventType.ACTIVITY_SNAPSHOT:
-            return AguiCustomEvent(
-                name="ACTIVITY_SNAPSHOT",
-                value=data.get("snapshot", {}),
-            )
-
-        elif event_type == EventType.ACTIVITY_DELTA:
-            return AguiCustomEvent(
-                name="ACTIVITY_DELTA",
-                value=data.get("delta", []),
-            )
-
-        # Meta 事件
-        elif event_type == EventType.META_EVENT:
-            return AguiCustomEvent(
-                name=data.get("name", "meta"),
-                value=data.get("value"),
-            )
-
-        # RAW 事件
-        elif event_type == EventType.RAW:
-            return AguiRawEvent(
-                event=data.get("event", {}),
-            )
+        # STATE 事件
+        if event.event == EventType.STATE:
+            if "snapshot" in event.data:
+                yield self._encoder.encode(
+                    StateSnapshotEvent(snapshot=event.data.get("snapshot", {}))
+                )
+            elif "delta" in event.data:
+                yield self._encoder.encode(
+                    StateDeltaEvent(delta=event.data.get("delta", []))
+                )
+            else:
+                yield self._encoder.encode(
+                    StateSnapshotEvent(snapshot=event.data)
+                )
+            return
 
         # CUSTOM 事件
-        elif event_type == EventType.CUSTOM:
-            return AguiCustomEvent(
-                name=data.get("name", ""),
-                value=data.get("value"),
+        if event.event == EventType.CUSTOM:
+            yield self._encoder.encode(
+                AguiCustomEvent(
+                    name=event.data.get("name", "custom"),
+                    value=event.data.get("value"),
+                )
             )
+            return
 
-        # STREAM_DATA 在 _format_event 中已特殊处理，这里不应该到达
-        # 但如果到达了，返回 None 表示跳过
-        elif event_type == EventType.STREAM_DATA:
-            return None
-
-        # 默认使用 CustomEvent
-        return AguiCustomEvent(
-            name=event_type.value,
-            value=data,
+        # 其他未知事件
+        yield self._encoder.encode(
+            AguiCustomEvent(
+                name=event.event.value,
+                value=event.data,
+            )
         )
 
     def _convert_messages_for_snapshot(
@@ -654,25 +611,15 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         Yields:
             SSE 格式的错误事件
         """
-        context = {
-            "thread_id": str(uuid.uuid4()),
-            "run_id": str(uuid.uuid4()),
-        }
+        thread_id = str(uuid.uuid4())
+        run_id = str(uuid.uuid4())
 
-        # RUN_STARTED
-        yield self._format_event(
-            AgentResult(
-                event=EventType.RUN_STARTED,
-                data=context,
-            ),
-            context,
+        # 生命周期开始
+        yield self._encoder.encode(
+            RunStartedEvent(thread_id=thread_id, run_id=run_id)
         )
 
-        # RUN_ERROR
-        yield self._format_event(
-            AgentResult(
-                event=EventType.RUN_ERROR,
-                data={"message": message, "code": "REQUEST_ERROR"},
-            ),
-            context,
+        # 错误事件
+        yield self._encoder.encode(
+            RunErrorEvent(message=message, code="REQUEST_ERROR")
         )

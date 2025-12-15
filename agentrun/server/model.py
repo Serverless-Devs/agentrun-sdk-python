@@ -1,9 +1,7 @@
 """AgentRun Server 模型定义 / AgentRun Server Model Definitions
 
-定义标准化的 AgentRequest 和 AgentResult 数据结构。
-基于 AG-UI 协议进行扩展，支持多协议转换。
-
-参考: https://docs.ag-ui.com/concepts/events
+定义标准化的 AgentRequest 和 AgentEvent 数据结构。
+采用协议无关的设计，支持多协议转换（OpenAI、AG-UI 等）。
 """
 
 from enum import Enum
@@ -92,87 +90,35 @@ class Tool(BaseModel):
 
 
 # ============================================================================
-# AG-UI 事件类型定义（完整超集）
+# 事件类型定义（协议无关）
 # ============================================================================
 
 
 class EventType(str, Enum):
-    """AG-UI 事件类型（完整超集）
+    """事件类型（协议无关）
 
-    包含 AG-UI 协议的所有事件类型，以及扩展事件。
-    参考: https://docs.ag-ui.com/concepts/events
+    定义核心事件类型，框架会自动转换为对应协议格式（OpenAI、AG-UI 等）。
+    用户只需关心语义，无需关心具体协议细节。
+
+    边界事件（如消息开始/结束、生命周期开始/结束）由协议层自动处理，
+    用户无需关心。
     """
 
     # =========================================================================
-    # Lifecycle Events（生命周期事件）
+    # 核心事件（用户主要使用）
     # =========================================================================
-    RUN_STARTED = "RUN_STARTED"
-    RUN_FINISHED = "RUN_FINISHED"
-    RUN_ERROR = "RUN_ERROR"
-    STEP_STARTED = "STEP_STARTED"
-    STEP_FINISHED = "STEP_FINISHED"
+    TEXT = "TEXT"  # 文本内容块
+    TOOL_CALL = "TOOL_CALL"  # 完整工具调用（含 id, name, args）
+    TOOL_CALL_CHUNK = "TOOL_CALL_CHUNK"  # 工具调用参数片段（流式场景）
+    TOOL_RESULT = "TOOL_RESULT"  # 工具执行结果
+    ERROR = "ERROR"  # 错误事件
+    STATE = "STATE"  # 状态更新（快照或增量）
 
     # =========================================================================
-    # Text Message Events（文本消息事件）
+    # 扩展事件
     # =========================================================================
-    TEXT_MESSAGE_START = "TEXT_MESSAGE_START"
-    TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT"
-    TEXT_MESSAGE_END = "TEXT_MESSAGE_END"
-    TEXT_MESSAGE_CHUNK = (
-        "TEXT_MESSAGE_CHUNK"  # 简化事件（包含 start/content/end）
-    )
-
-    # =========================================================================
-    # Tool Call Events（工具调用事件）
-    # =========================================================================
-    TOOL_CALL_START = "TOOL_CALL_START"
-    TOOL_CALL_ARGS = "TOOL_CALL_ARGS"
-    TOOL_CALL_END = "TOOL_CALL_END"
-    TOOL_CALL_RESULT = "TOOL_CALL_RESULT"
-    TOOL_CALL_CHUNK = "TOOL_CALL_CHUNK"  # 简化事件（包含 start/args/end）
-
-    # =========================================================================
-    # State Management Events（状态管理事件）
-    # =========================================================================
-    STATE_SNAPSHOT = "STATE_SNAPSHOT"
-    STATE_DELTA = "STATE_DELTA"
-
-    # =========================================================================
-    # Message Snapshot Events（消息快照事件）
-    # =========================================================================
-    MESSAGES_SNAPSHOT = "MESSAGES_SNAPSHOT"
-
-    # =========================================================================
-    # Activity Events（活动事件）
-    # =========================================================================
-    ACTIVITY_SNAPSHOT = "ACTIVITY_SNAPSHOT"
-    ACTIVITY_DELTA = "ACTIVITY_DELTA"
-
-    # =========================================================================
-    # Reasoning Events（推理事件）
-    # =========================================================================
-    REASONING_START = "REASONING_START"
-    REASONING_MESSAGE_START = "REASONING_MESSAGE_START"
-    REASONING_MESSAGE_CONTENT = "REASONING_MESSAGE_CONTENT"
-    REASONING_MESSAGE_END = "REASONING_MESSAGE_END"
-    REASONING_MESSAGE_CHUNK = "REASONING_MESSAGE_CHUNK"
-    REASONING_END = "REASONING_END"
-
-    # =========================================================================
-    # Meta Events（元事件）
-    # =========================================================================
-    META_EVENT = "META_EVENT"
-
-    # =========================================================================
-    # Special Events（特殊事件）
-    # =========================================================================
-    RAW = "RAW"  # 原始事件
-    CUSTOM = "CUSTOM"  # 自定义事件
-
-    # =========================================================================
-    # Extended Events（扩展事件 - 非 AG-UI 标准）
-    # =========================================================================
-    STREAM_DATA = "STREAM_DATA"  # 原始流数据（用户可直接发送任意 SSE 内容）
+    CUSTOM = "CUSTOM"  # 自定义事件（协议层会正确处理）
+    RAW = "RAW"  # 原始协议数据（直接透传到响应流）
 
 
 # ============================================================================
@@ -192,44 +138,64 @@ class AdditionMode(str, Enum):
 
 
 # ============================================================================
-# AgentResult（标准化返回值）
+# AgentEvent（标准化事件）
 # ============================================================================
 
 
-class AgentResult(BaseModel):
-    """Agent 执行结果事件
+class AgentEvent(BaseModel):
+    """Agent 执行事件
 
-    标准化的返回值结构，基于 AG-UI 事件模型。
-    框架层会自动将 AgentResult 转换为对应协议的格式。
+    标准化的事件结构，协议无关设计。
+    框架层会自动将 AgentEvent 转换为对应协议的格式（OpenAI、AG-UI 等）。
 
     Attributes:
-        event: 事件类型（AG-UI 事件枚举）
+        event: 事件类型
         data: 事件数据
-        addition: 额外附加字段（可选）
+        addition: 额外附加字段（可选，用于协议特定扩展）
         addition_mode: 附加字段合并模式
 
     Example (文本消息):
-        >>> yield AgentResult(
-        ...     event=EventType.TEXT_MESSAGE_CONTENT,
-        ...     data={"message_id": "msg-1", "delta": "Hello"}
+        >>> yield AgentEvent(
+        ...     event=EventType.TEXT,
+        ...     data={"delta": "Hello, world!"}
         ... )
 
-    Example (工具调用):
-        >>> yield AgentResult(
-        ...     event=EventType.TOOL_CALL_START,
-        ...     data={"tool_call_id": "tc-1", "tool_call_name": "get_weather"}
+    Example (完整工具调用):
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_CALL,
+        ...     data={
+        ...         "id": "tc-1",
+        ...         "name": "get_weather",
+        ...         "args": '{"location": "Beijing"}'
+        ...     }
         ... )
 
-    Example (原始流数据):
-        >>> yield AgentResult(
-        ...     event=EventType.STREAM_DATA,
-        ...     data={"raw": "data: {...}\\n\\n"}
+    Example (流式工具调用):
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_CALL_CHUNK,
+        ...     data={"id": "tc-1", "name": "search", "args_delta": '{"q":'}
+        ... )
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_CALL_CHUNK,
+        ...     data={"id": "tc-1", "args_delta": '"test"}'}
+        ... )
+
+    Example (工具执行结果):
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_RESULT,
+        ...     data={"id": "tc-1", "result": "Sunny, 25°C"}
         ... )
 
     Example (自定义事件):
-        >>> yield AgentResult(
+        >>> yield AgentEvent(
         ...     event=EventType.CUSTOM,
-        ...     data={"name": "my_event", "value": {"foo": "bar"}}
+        ...     data={"name": "step_started", "value": {"step": "thinking"}}
+        ... )
+
+    Example (原始协议数据):
+        >>> yield AgentEvent(
+        ...     event=EventType.RAW,
+        ...     data={"raw": "data: {...}\\n\\n"}
         ... )
     """
 
@@ -237,6 +203,10 @@ class AgentResult(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
     addition: Optional[Dict[str, Any]] = None
     addition_mode: AdditionMode = AdditionMode.MERGE
+
+
+# 兼容别名
+AgentResult = AgentEvent
 
 
 # ============================================================================
@@ -250,9 +220,10 @@ class AgentRequest(BaseModel):
     标准化的请求结构，统一了 OpenAI 和 AG-UI 协议的输入格式。
 
     Attributes:
+        protocol: 当前交互协议名称（如 "openai", "agui"）
         messages: 对话历史消息列表（标准化格式）
         stream: 是否使用流式输出
-        tools: 可用的工具列表（AG-UI 格式）
+        tools: 可用的工具列表
         body: 原始 HTTP 请求体
         headers: 原始 HTTP 请求头
 
@@ -268,38 +239,48 @@ class AgentRequest(BaseModel):
 
     Example (使用事件):
         >>> async def invoke_agent(request: AgentRequest):
-        ...     yield AgentResult(
-        ...         event=EventType.STEP_STARTED,
-        ...         data={"step_name": "thinking"}
+        ...     yield AgentEvent(
+        ...         event=EventType.CUSTOM,
+        ...         data={"name": "step_started", "value": {"step": "thinking"}}
         ...     )
         ...     yield "I'm thinking..."
-        ...     yield AgentResult(
-        ...         event=EventType.STEP_FINISHED,
-        ...         data={"step_name": "thinking"}
+        ...     yield AgentEvent(
+        ...         event=EventType.CUSTOM,
+        ...         data={"name": "step_finished", "value": {"step": "thinking"}}
         ...     )
 
     Example (工具调用):
         >>> async def invoke_agent(request: AgentRequest):
-        ...     yield AgentResult(
-        ...         event=EventType.TOOL_CALL_START,
-        ...         data={"tool_call_id": "tc-1", "tool_call_name": "search"}
+        ...     # 完整工具调用
+        ...     yield AgentEvent(
+        ...         event=EventType.TOOL_CALL,
+        ...         data={
+        ...             "id": "tc-1",
+        ...             "name": "search",
+        ...             "args": '{"query": "weather"}'
+        ...         }
         ...     )
-        ...     yield AgentResult(
-        ...         event=EventType.TOOL_CALL_ARGS,
-        ...         data={"tool_call_id": "tc-1", "delta": '{"query": "weather"}'}
-        ...     )
+        ...     # 执行工具并返回结果
         ...     result = do_search("weather")
-        ...     yield AgentResult(
-        ...         event=EventType.TOOL_CALL_RESULT,
-        ...         data={"tool_call_id": "tc-1", "result": result}
+        ...     yield AgentEvent(
+        ...         event=EventType.TOOL_RESULT,
+        ...         data={"id": "tc-1", "result": result}
         ...     )
-        ...     yield AgentResult(
-        ...         event=EventType.TOOL_CALL_END,
-        ...         data={"tool_call_id": "tc-1"}
-        ...     )
+
+    Example (根据协议差异化处理):
+        >>> async def invoke_agent(request: AgentRequest):
+        ...     if request.protocol == "openai":
+        ...         # OpenAI 特定处理
+        ...         pass
+        ...     elif request.protocol == "agui":
+        ...         # AG-UI 特定处理
+        ...         pass
     """
 
     model_config = {"arbitrary_types_allowed": True}
+
+    # 协议信息
+    protocol: str = Field("unknown", description="当前交互协议名称")
 
     # 标准化参数
     messages: List[Message] = Field(
@@ -335,25 +316,30 @@ class OpenAIProtocolConfig(ProtocolConfig):
 # ============================================================================
 
 
-# 单个结果项：可以是字符串或 AgentResult
-AgentResultItem = Union[str, AgentResult]
+# 单个结果项：可以是字符串或 AgentEvent
+AgentEventItem = Union[str, AgentEvent]
+
+# 兼容别名
+AgentResultItem = AgentEventItem
 
 # 同步生成器
-SyncAgentResultGenerator = Generator[AgentResultItem, None, None]
+SyncAgentEventGenerator = Generator[AgentEventItem, None, None]
+SyncAgentResultGenerator = SyncAgentEventGenerator  # 兼容别名
 
 # 异步生成器
-AsyncAgentResultGenerator = AsyncGenerator[AgentResultItem, None]
+AsyncAgentEventGenerator = AsyncGenerator[AgentEventItem, None]
+AsyncAgentResultGenerator = AsyncAgentEventGenerator  # 兼容别名
 
 # Agent 函数返回值类型
 AgentReturnType = Union[
     # 简单返回
     str,  # 直接返回字符串
-    AgentResult,  # 返回单个事件
-    List[AgentResult],  # 返回多个事件（非流式）
+    AgentEvent,  # 返回单个事件
+    List[AgentEvent],  # 返回多个事件（非流式）
     Dict[str, Any],  # 返回字典（如 OpenAI/AG-UI 非流式响应）
     # 迭代器/生成器返回（流式）
-    Iterator[AgentResultItem],
-    AsyncIterator[AgentResultItem],
-    SyncAgentResultGenerator,
-    AsyncAgentResultGenerator,
+    Iterator[AgentEventItem],
+    AsyncIterator[AgentEventItem],
+    SyncAgentEventGenerator,
+    AsyncAgentEventGenerator,
 ]
