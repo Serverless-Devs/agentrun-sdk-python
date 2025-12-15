@@ -16,11 +16,9 @@
 - agent.astream(input, stream_mode="updates") - 异步按节点输出
 """
 
-from agentrun.integration.langgraph.agent_converter import (
-    AguiEventConverter,
-)  # 向后兼容
-from agentrun.integration.langgraph.agent_converter import (
+from agentrun.integration.langgraph.agent_converter import (  # 向后兼容
     AgentRunConverter,
+    AguiEventConverter,
     convert,
     to_agui_events,
 )
