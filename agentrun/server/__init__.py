@@ -20,13 +20,13 @@ Example (流式输出):
 >>> AgentRunServer(invoke_agent=invoke_agent).start()
 
 Example (使用事件):
->>> from agentrun.server import AgentResult, EventType
+>>> from agentrun.server import AgentEvent, EventType
 >>>
 >>> async def invoke_agent(request: AgentRequest):
-...     # 发送步骤开始事件
-...     yield AgentResult(
-...         event=EventType.STEP_STARTED,
-...         data={"step_name": "processing"}
+...     # 发送自定义事件（如步骤开始）
+...     yield AgentEvent(
+...         event=EventType.CUSTOM,
+...         data={"name": "step_started", "value": {"step": "processing"}}
 ...     )
 ...
 ...     # 流式输出内容
@@ -34,40 +34,35 @@ Example (使用事件):
 ...     yield "world!"
 ...
 ...     # 发送步骤结束事件
-...     yield AgentResult(
-...         event=EventType.STEP_FINISHED,
-...         data={"step_name": "processing"}
+...     yield AgentEvent(
+...         event=EventType.CUSTOM,
+...         data={"name": "step_finished", "value": {"step": "processing"}}
 ...     )
 
 Example (工具调用事件):
 >>> async def invoke_agent(request: AgentRequest):
-...     # 工具调用开始
-...     yield AgentResult(
-...         event=EventType.TOOL_CALL_START,
-...         data={"tool_call_id": "call_1", "tool_call_name": "get_time"}
-...     )
-...     yield AgentResult(
-...         event=EventType.TOOL_CALL_ARGS,
-...         data={"tool_call_id": "call_1", "delta": '{"timezone": "UTC"}'}
+...     # 完整工具调用
+...     yield AgentEvent(
+...         event=EventType.TOOL_CALL,
+...         data={"id": "call_1", "name": "get_time", "args": '{"timezone": "UTC"}'}
 ...     )
 ...
 ...     # 执行工具
 ...     result = "2024-01-01 12:00:00"
 ...
 ...     # 工具调用结果
-...     yield AgentResult(
-...         event=EventType.TOOL_CALL_RESULT,
-...         data={"tool_call_id": "call_1", "result": result}
-...     )
-...     yield AgentResult(
-...         event=EventType.TOOL_CALL_END,
-...         data={"tool_call_id": "call_1"}
+...     yield AgentEvent(
+...         event=EventType.TOOL_RESULT,
+...         data={"id": "call_1", "result": result}
 ...     )
 ...
 ...     yield f"当前时间: {result}"
 
 Example (访问原始请求):
 >>> def invoke_agent(request: AgentRequest):
+...     # 访问当前协议
+...     protocol = request.protocol  # "openai" 或 "agui"
+...
 ...     # 访问原始请求头
 ...     auth = request.headers.get("Authorization")
 ...
@@ -81,10 +76,13 @@ from .agui_normalizer import AguiEventNormalizer
 from .agui_protocol import AGUIProtocolHandler
 from .model import (
     AdditionMode,
+    AgentEvent,
+    AgentEventItem,
     AgentRequest,
     AgentResult,
     AgentResultItem,
     AgentReturnType,
+    AsyncAgentEventGenerator,
     AsyncAgentResultGenerator,
     EventType,
     Message,
@@ -92,6 +90,7 @@ from .model import (
     OpenAIProtocolConfig,
     ProtocolConfig,
     ServerConfig,
+    SyncAgentEventGenerator,
     SyncAgentResultGenerator,
     Tool,
     ToolCall,
@@ -115,7 +114,8 @@ __all__ = [
     "OpenAIProtocolConfig",
     # Request/Response Models
     "AgentRequest",
-    "AgentResult",
+    "AgentEvent",
+    "AgentResult",  # 兼容别名
     "Message",
     "MessageRole",
     "Tool",
@@ -124,10 +124,13 @@ __all__ = [
     "EventType",
     "AdditionMode",
     # Type Aliases
-    "AgentResultItem",
+    "AgentEventItem",
+    "AgentResultItem",  # 兼容别名
     "AgentReturnType",
-    "SyncAgentResultGenerator",
-    "AsyncAgentResultGenerator",
+    "SyncAgentEventGenerator",
+    "SyncAgentResultGenerator",  # 兼容别名
+    "AsyncAgentEventGenerator",
+    "AsyncAgentResultGenerator",  # 兼容别名
     "InvokeAgentHandler",
     "AsyncInvokeAgentHandler",
     "SyncInvokeAgentHandler",

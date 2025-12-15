@@ -2,8 +2,11 @@
 
 负责处理 Agent 调用的通用逻辑，包括：
 - 同步/异步调用处理
-- 字符串到 AgentResult 的自动转换
+- 字符串到 AgentEvent 的自动转换
 - 流式/非流式结果处理
+- TOOL_CALL 事件的展开
+
+边界事件（如生命周期开始/结束、文本消息开始/结束）由协议层处理。
 """
 
 import asyncio
@@ -20,7 +23,7 @@ from typing import (
 )
 import uuid
 
-from .model import AgentRequest, AgentResult, AgentResultItem, EventType
+from .model import AgentEvent, AgentRequest, EventType
 from .protocol import (
     AsyncInvokeAgentHandler,
     InvokeAgentHandler,
@@ -34,16 +37,22 @@ class AgentInvoker:
     职责:
     1. 调用用户的 invoke_agent
     2. 处理同步/异步调用
-    3. 自动转换 string 为 AgentResult
-    4. 处理流式和非流式返回
+    3. 自动转换 string 为 AgentEvent(TEXT)
+    4. 展开 TOOL_CALL 为 TOOL_CALL_CHUNK
+    5. 处理流式和非流式返回
+
+    协议层负责:
+    - 生成生命周期事件（RUN_STARTED, RUN_FINISHED 等）
+    - 生成文本边界事件（TEXT_MESSAGE_START, TEXT_MESSAGE_END 等）
+    - 生成工具调用边界事件（TOOL_CALL_START, TOOL_CALL_END 等）
 
     Example:
         >>> def my_agent(request: AgentRequest) -> str:
-        ...     return "Hello"  # 自动转换为 TEXT_MESSAGE_CONTENT
+        ...     return "Hello"  # 自动转换为 TEXT 事件
         >>>
         >>> invoker = AgentInvoker(my_agent)
-        >>> async for result in invoker.invoke_stream(AgentRequest(...)):
-        ...     print(result)  # AgentResult 对象
+        >>> async for event in invoker.invoke_stream(AgentRequest(...)):
+        ...     print(event)  # AgentEvent 对象
     """
 
     def __init__(self, invoke_agent: InvokeAgentHandler):
@@ -60,18 +69,18 @@ class AgentInvoker:
 
     async def invoke(
         self, request: AgentRequest
-    ) -> Union[List[AgentResult], AsyncGenerator[AgentResult, None]]:
+    ) -> Union[List[AgentEvent], AsyncGenerator[AgentEvent, None]]:
         """调用 Agent 并返回结果
 
         根据返回值类型决定返回：
-        - 非迭代器: 返回 List[AgentResult]
-        - 迭代器: 返回 AsyncGenerator[AgentResult, None]
+        - 非迭代器: 返回 List[AgentEvent]
+        - 迭代器: 返回 AsyncGenerator[AgentEvent, None]
 
         Args:
             request: AgentRequest 请求对象
 
         Returns:
-            List[AgentResult] 或 AsyncGenerator[AgentResult, None]
+            List[AgentEvent] 或 AsyncGenerator[AgentEvent, None]
         """
         raw_result = await self._call_handler(request)
 
@@ -82,32 +91,18 @@ class AgentInvoker:
 
     async def invoke_stream(
         self, request: AgentRequest
-    ) -> AsyncGenerator[AgentResult, None]:
+    ) -> AsyncGenerator[AgentEvent, None]:
         """调用 Agent 并返回流式结果
 
         始终返回流式结果，即使原始返回值是非流式的。
-        自动添加 RUN_STARTED 和 RUN_FINISHED 事件。
+        只输出核心事件，边界事件由协议层生成。
 
         Args:
             request: AgentRequest 请求对象
 
         Yields:
-            AgentResult: 事件结果
+            AgentEvent: 事件结果
         """
-        thread_id = self._get_thread_id(request)
-        run_id = self._get_run_id(request)
-        message_id = str(uuid.uuid4())
-
-        # 状态追踪
-        text_started = False
-        text_ended = False
-
-        # 发送 RUN_STARTED
-        yield AgentResult(
-            event=EventType.RUN_STARTED,
-            data={"thread_id": thread_id, "run_id": run_id},
-        )
-
         try:
             raw_result = await self._call_handler(request)
 
@@ -120,61 +115,65 @@ class AgentInvoker:
                     if isinstance(item, str):
                         if not item:  # 跳过空字符串
                             continue
-                        # 字符串：需要包装为文本消息事件
-                        if not text_started:
-                            yield AgentResult(
-                                event=EventType.TEXT_MESSAGE_START,
-                                data={
-                                    "message_id": message_id,
-                                    "role": "assistant",
-                                },
-                            )
-                            text_started = True
-                        yield AgentResult(
-                            event=EventType.TEXT_MESSAGE_CONTENT,
-                            data={"message_id": message_id, "delta": item},
+                        yield AgentEvent(
+                            event=EventType.TEXT,
+                            data={"delta": item},
                         )
 
-                    elif isinstance(item, AgentResult):
-                        # 用户返回的事件
-                        if item.event == EventType.TEXT_MESSAGE_START:
-                            text_started = True
-                        elif item.event == EventType.TEXT_MESSAGE_END:
-                            text_ended = True
-                        yield item
+                    elif isinstance(item, AgentEvent):
+                        # 处理用户返回的事件
+                        for processed_event in self._process_user_event(item):
+                            yield processed_event
             else:
                 # 非流式结果
                 results = self._wrap_non_stream(raw_result)
                 for result in results:
-                    if result.event == EventType.TEXT_MESSAGE_START:
-                        text_started = True
-                    elif result.event == EventType.TEXT_MESSAGE_END:
-                        text_ended = True
                     yield result
 
-            # 发送 TEXT_MESSAGE_END（如果有文本消息且未发送）
-            if text_started and not text_ended:
-                yield AgentResult(
-                    event=EventType.TEXT_MESSAGE_END,
-                    data={"message_id": message_id},
-                )
-
-            # 发送 RUN_FINISHED
-            yield AgentResult(
-                event=EventType.RUN_FINISHED,
-                data={"thread_id": thread_id, "run_id": run_id},
-            )
-
         except Exception as e:
-            # 发送 RUN_ERROR
-
+            # 发送错误事件
             from agentrun.utils.log import logger
 
             logger.error(f"Agent 调用出错: {e}", exc_info=True)
-            yield AgentResult(
-                event=EventType.RUN_ERROR,
+            yield AgentEvent(
+                event=EventType.ERROR,
                 data={"message": str(e), "code": type(e).__name__},
             )
+
+    def _process_user_event(
+        self,
+        event: AgentEvent,
+    ) -> Iterator[AgentEvent]:
+        """处理用户返回的事件
+
+        - TOOL_CALL 事件会被展开为 TOOL_CALL_CHUNK
+        - 其他事件直接传递
+
+        Args:
+            event: 用户返回的事件
+
+        Yields:
+            处理后的事件
+        """
+        # 展开 TOOL_CALL 为 TOOL_CALL_CHUNK
+        if event.event == EventType.TOOL_CALL:
+            tool_id = event.data.get("id", str(uuid.uuid4()))
+            tool_name = event.data.get("name", "")
+            tool_args = event.data.get("args", "")
+
+            # 发送包含名称的 chunk（首个 chunk 包含名称）
+            yield AgentEvent(
+                event=EventType.TOOL_CALL_CHUNK,
+                data={
+                    "id": tool_id,
+                    "name": tool_name,
+                    "args_delta": tool_args,
+                },
+            )
+            return
+
+        # 其他事件直接传递
+        yield event
 
     async def _call_handler(self, request: AgentRequest) -> Any:
         """调用用户的 handler
@@ -202,53 +201,41 @@ class AgentInvoker:
 
         return result
 
-    def _wrap_non_stream(self, result: Any) -> List[AgentResult]:
-        """包装非流式结果为 AgentResult 列表
+    def _wrap_non_stream(self, result: Any) -> List[AgentEvent]:
+        """包装非流式结果为 AgentEvent 列表
 
         Args:
             result: 原始返回值
 
         Returns:
-            AgentResult 列表
+            AgentEvent 列表
         """
-        message_id = str(uuid.uuid4())
-        results: List[AgentResult] = []
+        results: List[AgentEvent] = []
 
         if result is None:
             return results
 
         if isinstance(result, str):
             results.append(
-                AgentResult(
-                    event=EventType.TEXT_MESSAGE_START,
-                    data={"message_id": message_id, "role": "assistant"},
-                )
-            )
-            results.append(
-                AgentResult(
-                    event=EventType.TEXT_MESSAGE_CONTENT,
-                    data={"message_id": message_id, "delta": result},
-                )
-            )
-            results.append(
-                AgentResult(
-                    event=EventType.TEXT_MESSAGE_END,
-                    data={"message_id": message_id},
+                AgentEvent(
+                    event=EventType.TEXT,
+                    data={"delta": result},
                 )
             )
 
-        elif isinstance(result, AgentResult):
-            results.append(result)
+        elif isinstance(result, AgentEvent):
+            # 处理可能的 TOOL_CALL 展开
+            results.extend(self._process_user_event(result))
 
         elif isinstance(result, list):
             for item in result:
-                if isinstance(item, AgentResult):
-                    results.append(item)
+                if isinstance(item, AgentEvent):
+                    results.extend(self._process_user_event(item))
                 elif isinstance(item, str) and item:
                     results.append(
-                        AgentResult(
-                            event=EventType.TEXT_MESSAGE_CONTENT,
-                            data={"message_id": message_id, "delta": item},
+                        AgentEvent(
+                            event=EventType.TEXT,
+                            data={"delta": item},
                         )
                     )
 
@@ -256,20 +243,15 @@ class AgentInvoker:
 
     async def _wrap_stream(
         self, iterator: Any
-    ) -> AsyncGenerator[AgentResult, None]:
-        """包装迭代器为 AgentResult 异步生成器
-
-        注意：此方法不添加生命周期事件，由 invoke_stream 处理。
+    ) -> AsyncGenerator[AgentEvent, None]:
+        """包装迭代器为 AgentEvent 异步生成器
 
         Args:
             iterator: 原始迭代器
 
         Yields:
-            AgentResult: 事件结果
+            AgentEvent: 事件结果
         """
-        message_id = str(uuid.uuid4())
-        text_started = False
-
         async for item in self._iterate_async(iterator):
             if item is None:
                 continue
@@ -277,21 +259,14 @@ class AgentInvoker:
             if isinstance(item, str):
                 if not item:
                     continue
-                if not text_started:
-                    yield AgentResult(
-                        event=EventType.TEXT_MESSAGE_START,
-                        data={"message_id": message_id, "role": "assistant"},
-                    )
-                    text_started = True
-                yield AgentResult(
-                    event=EventType.TEXT_MESSAGE_CONTENT,
-                    data={"message_id": message_id, "delta": item},
+                yield AgentEvent(
+                    event=EventType.TEXT,
+                    data={"delta": item},
                 )
 
-            elif isinstance(item, AgentResult):
-                if item.event == EventType.TEXT_MESSAGE_START:
-                    text_started = True
-                yield item
+            elif isinstance(item, AgentEvent):
+                for processed_event in self._process_user_event(item):
+                    yield processed_event
 
     async def _iterate_async(
         self, content: Union[Iterator[Any], AsyncIterator[Any]]
@@ -329,7 +304,7 @@ class AgentInvoker:
 
     def _is_iterator(self, obj: Any) -> bool:
         """检查对象是否是迭代器"""
-        if isinstance(obj, (str, bytes, dict, list, AgentResult)):
+        if isinstance(obj, (str, bytes, dict, list, AgentEvent)):
             return False
         return hasattr(obj, "__iter__") or hasattr(obj, "__aiter__")
 

@@ -385,39 +385,34 @@ def _convert_stream_updates_event(
                     tc_args = tc.get("args", {})
 
                     if tc_id:
-                        yield AgentResult(
-                            event=EventType.TOOL_CALL_START,
-                            data={
-                                "tool_call_id": tc_id,
-                                "tool_call_name": tc_name,
-                            },
-                        )
+                        # 发送带有完整参数的 TOOL_CALL_CHUNK
+                        args_str = ""
                         if tc_args:
                             args_str = (
                                 _safe_json_dumps(tc_args)
                                 if isinstance(tc_args, dict)
                                 else str(tc_args)
                             )
-                            yield AgentResult(
-                                event=EventType.TOOL_CALL_ARGS,
-                                data={"tool_call_id": tc_id, "delta": args_str},
-                            )
+                        yield AgentResult(
+                            event=EventType.TOOL_CALL_CHUNK,
+                            data={
+                                "id": tc_id,
+                                "name": tc_name,
+                                "args_delta": args_str,
+                            },
+                        )
 
             elif msg_type == "tool":
-                # 工具结果（发送 RESULT 和 END）
+                # 工具结果
                 tool_call_id = _get_tool_call_id(msg)
                 if tool_call_id:
                     tool_content = _get_message_content(msg)
                     yield AgentResult(
-                        event=EventType.TOOL_CALL_RESULT,
+                        event=EventType.TOOL_RESULT,
                         data={
-                            "tool_call_id": tool_call_id,
+                            "id": tool_call_id,
                             "result": str(tool_content) if tool_content else "",
                         },
-                    )
-                    yield AgentResult(
-                        event=EventType.TOOL_CALL_END,
-                        data={"tool_call_id": tool_call_id},
                     )
 
 
@@ -454,45 +449,40 @@ def _convert_stream_values_event(
         if content:
             yield content
 
-        # 工具调用（仅发送 START 和 ARGS）
+        # 工具调用
         for tc in _get_message_tool_calls(last_msg):
             tc_id = tc.get("id", "")
             tc_name = tc.get("name", "")
             tc_args = tc.get("args", {})
 
             if tc_id:
-                yield AgentResult(
-                    event=EventType.TOOL_CALL_START,
-                    data={
-                        "tool_call_id": tc_id,
-                        "tool_call_name": tc_name,
-                    },
-                )
+                # 发送带有完整参数的 TOOL_CALL_CHUNK
+                args_str = ""
                 if tc_args:
                     args_str = (
                         _safe_json_dumps(tc_args)
                         if isinstance(tc_args, dict)
                         else str(tc_args)
                     )
-                    yield AgentResult(
-                        event=EventType.TOOL_CALL_ARGS,
-                        data={"tool_call_id": tc_id, "delta": args_str},
-                    )
+                yield AgentResult(
+                    event=EventType.TOOL_CALL_CHUNK,
+                    data={
+                        "id": tc_id,
+                        "name": tc_name,
+                        "args_delta": args_str,
+                    },
+                )
 
     elif msg_type == "tool":
         tool_call_id = _get_tool_call_id(last_msg)
         if tool_call_id:
             tool_content = _get_message_content(last_msg)
             yield AgentResult(
-                event=EventType.TOOL_CALL_RESULT,
+                event=EventType.TOOL_RESULT,
                 data={
-                    "tool_call_id": tool_call_id,
+                    "id": tool_call_id,
                     "result": str(tool_content) if tool_content else "",
                 },
-            )
-            yield AgentResult(
-                event=EventType.TOOL_CALL_END,
-                data={"tool_call_id": tool_call_id},
             )
 
 
@@ -559,30 +549,49 @@ def _convert_astream_events_event(
                 if not tc_id:
                     continue
 
-                # AG-UI 协议要求：先发送 TOOL_CALL_START，再发送 TOOL_CALL_ARGS
-                # 第一次遇到某个工具调用时（有 id 和 name），先发送 TOOL_CALL_START
-                if tc_raw_id and tc_name:
-                    if (
+                # 流式工具调用：第一个 chunk 包含 id 和 name，后续只有 args_delta
+                # 协议层会自动处理 START/END 边界事件
+                is_first_chunk = (
+                    tc_raw_id
+                    and tc_name
+                    and (
                         tool_call_started_set is None
                         or tc_id not in tool_call_started_set
-                    ):
-                        yield AgentResult(
-                            event=EventType.TOOL_CALL_START,
-                            data={
-                                "tool_call_id": tc_id,
-                                "tool_call_name": tc_name,
-                            },
-                        )
-                        if tool_call_started_set is not None:
-                            tool_call_started_set.add(tc_id)
+                    )
+                )
 
-                # 只有有 args 时才生成 TOOL_CALL_ARGS 事件
-                if tc_args:
-                    if isinstance(tc_args, (dict, list)):
-                        tc_args = _safe_json_dumps(tc_args)
+                if is_first_chunk:
+                    if tool_call_started_set is not None:
+                        tool_call_started_set.add(tc_id)
+                    # 第一个 chunk 包含 id 和 name
+                    args_delta = ""
+                    if tc_args:
+                        args_delta = (
+                            _safe_json_dumps(tc_args)
+                            if isinstance(tc_args, (dict, list))
+                            else str(tc_args)
+                        )
                     yield AgentResult(
-                        event=EventType.TOOL_CALL_ARGS,
-                        data={"tool_call_id": tc_id, "delta": tc_args},
+                        event=EventType.TOOL_CALL_CHUNK,
+                        data={
+                            "id": tc_id,
+                            "name": tc_name,
+                            "args_delta": args_delta,
+                        },
+                    )
+                elif tc_args:
+                    # 后续 chunk 只有 args_delta
+                    args_delta = (
+                        _safe_json_dumps(tc_args)
+                        if isinstance(tc_args, (dict, list))
+                        else str(tc_args)
+                    )
+                    yield AgentResult(
+                        event=EventType.TOOL_CALL_CHUNK,
+                        data={
+                            "id": tc_id,
+                            "args_delta": args_delta,
+                        },
                     )
 
     # 2. LangChain 格式: on_chain_stream
@@ -598,17 +607,24 @@ def _convert_astream_events_event(
 
                 for tc in _get_message_tool_calls(msg):
                     tc_id = tc.get("id", "")
+                    tc_name = tc.get("name", "")
                     tc_args = tc.get("args", {})
 
-                    if tc_id and tc_args:
-                        args_str = (
-                            _safe_json_dumps(tc_args)
-                            if isinstance(tc_args, dict)
-                            else str(tc_args)
-                        )
+                    if tc_id:
+                        args_delta = ""
+                        if tc_args:
+                            args_delta = (
+                                _safe_json_dumps(tc_args)
+                                if isinstance(tc_args, dict)
+                                else str(tc_args)
+                            )
                         yield AgentResult(
-                            event=EventType.TOOL_CALL_ARGS,
-                            data={"tool_call_id": tc_id, "delta": args_str},
+                            event=EventType.TOOL_CALL_CHUNK,
+                            data={
+                                "id": tc_id,
+                                "name": tc_name,
+                                "args_delta": args_delta,
+                            },
                         )
 
     # 3. 工具开始
@@ -622,41 +638,33 @@ def _convert_astream_events_event(
         tool_input = _filter_tool_input(tool_input_raw)
 
         if tool_call_id:
-            # 检查是否已在 on_chat_model_stream 中发送过 TOOL_CALL_START
+            # 检查是否已在 on_chat_model_stream 中发送过
             already_started = (
                 tool_call_started_set is not None
                 and tool_call_id in tool_call_started_set
             )
 
             if not already_started:
-                # 非流式场景或未收到流式事件，需要发送 TOOL_CALL_START
-                yield AgentResult(
-                    event=EventType.TOOL_CALL_START,
-                    data={
-                        "tool_call_id": tool_call_id,
-                        "tool_call_name": tool_name,
-                    },
-                )
+                # 非流式场景或未收到流式事件，发送完整的 TOOL_CALL_CHUNK
                 if tool_call_started_set is not None:
                     tool_call_started_set.add(tool_call_id)
 
-                # 非流式场景下，在 START 后发送完整参数
+                args_delta = ""
                 if tool_input:
-                    args_str = (
+                    args_delta = (
                         _safe_json_dumps(tool_input)
                         if isinstance(tool_input, dict)
                         else str(tool_input)
                     )
-                    yield AgentResult(
-                        event=EventType.TOOL_CALL_ARGS,
-                        data={"tool_call_id": tool_call_id, "delta": args_str},
-                    )
-
-            # AG-UI 协议：TOOL_CALL_END 表示参数传输完成，在工具执行前发送
-            yield AgentResult(
-                event=EventType.TOOL_CALL_END,
-                data={"tool_call_id": tool_call_id},
-            )
+                yield AgentResult(
+                    event=EventType.TOOL_CALL_CHUNK,
+                    data={
+                        "id": tool_call_id,
+                        "name": tool_name,
+                        "args_delta": args_delta,
+                    },
+                )
+            # 协议层会自动处理边界事件，无需手动发送 TOOL_CALL_END
 
     # 4. 工具结束
     elif event_type == "on_tool_end":
@@ -667,12 +675,11 @@ def _convert_astream_events_event(
         tool_call_id = _extract_tool_call_id(tool_input_raw) or run_id
 
         if tool_call_id:
-            # AG-UI 协议：TOOL_CALL_RESULT 在工具执行完成后发送
-            # 注意：TOOL_CALL_END 已在 on_tool_start 中发送（表示参数传输完成）
+            # 工具执行完成后发送结果
             yield AgentResult(
-                event=EventType.TOOL_CALL_RESULT,
+                event=EventType.TOOL_RESULT,
                 data={
-                    "tool_call_id": tool_call_id,
+                    "id": tool_call_id,
                     "result": _format_tool_output(output),
                 },
             )

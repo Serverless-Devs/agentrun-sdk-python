@@ -162,17 +162,13 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # 当第一个 chunk 有 id 和 name 时，先发送 TOOL_CALL_START
-        assert len(results) == 2
+        # 第一个 chunk 有 id 和 name 时，发送完整的 TOOL_CALL_CHUNK
+        assert len(results) == 1
         assert isinstance(results[0], AgentResult)
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[0].data["tool_call_id"] == "call_123"
-        assert results[0].data["tool_call_name"] == "get_weather"
-
-        assert isinstance(results[1], AgentResult)
-        assert results[1].event == EventType.TOOL_CALL_ARGS
-        assert results[1].data["tool_call_id"] == "call_123"
-        assert results[1].data["delta"] == '{"city": "北京"}'
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
+        assert results[0].data["id"] == "call_123"
+        assert results[0].data["name"] == "get_weather"
+        assert results[0].data["args_delta"] == '{"city": "北京"}'
 
     def test_on_tool_start(self):
         """测试 on_tool_start 事件"""
@@ -185,25 +181,13 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
-        assert len(results) == 3
-
-        # TOOL_CALL_START
+        # 现在是单个 TOOL_CALL_CHUNK（边界事件由协议层自动处理）
+        assert len(results) == 1
         assert isinstance(results[0], AgentResult)
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[0].data["tool_call_id"] == "run_456"
-        assert results[0].data["tool_call_name"] == "get_weather"
-
-        # TOOL_CALL_ARGS
-        assert isinstance(results[1], AgentResult)
-        assert results[1].event == EventType.TOOL_CALL_ARGS
-        assert results[1].data["tool_call_id"] == "run_456"
-        assert "city" in results[1].data["delta"]
-
-        # TOOL_CALL_END
-        assert isinstance(results[2], AgentResult)
-        assert results[2].event == EventType.TOOL_CALL_END
-        assert results[2].data["tool_call_id"] == "run_456"
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
+        assert results[0].data["id"] == "run_456"
+        assert results[0].data["name"] == "get_weather"
+        assert "city" in results[0].data["args_delta"]
 
     def test_on_tool_start_without_input(self):
         """测试 on_tool_start 事件（无输入参数）"""
@@ -216,13 +200,11 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_END (无 ARGS，因为没有输入)
-        assert len(results) == 2
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[0].data["tool_call_id"] == "run_789"
-        assert results[0].data["tool_call_name"] == "get_time"
-        assert results[1].event == EventType.TOOL_CALL_END
-        assert results[1].data["tool_call_id"] == "run_789"
+        # 现在是单个 TOOL_CALL_CHUNK（边界事件由协议层自动处理）
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
+        assert results[0].data["id"] == "run_789"
+        assert results[0].data["name"] == "get_time"
 
     def test_on_tool_end(self):
         """测试 on_tool_end 事件
@@ -242,8 +224,8 @@ class TestConvertAstreamEventsFormat:
         assert len(results) == 1
 
         # TOOL_CALL_RESULT
-        assert results[0].event == EventType.TOOL_CALL_RESULT
-        assert results[0].data["tool_call_id"] == "run_456"
+        assert results[0].event == EventType.TOOL_RESULT
+        assert results[0].data["id"] == "run_456"
         assert "晴天" in results[0].data["result"]
 
     def test_on_tool_end_with_string_output(self):
@@ -258,7 +240,7 @@ class TestConvertAstreamEventsFormat:
 
         # on_tool_end 只发送 TOOL_CALL_RESULT
         assert len(results) == 1
-        assert results[0].event == EventType.TOOL_CALL_RESULT
+        assert results[0].event == EventType.TOOL_RESULT
         assert results[0].data["result"] == "晴天，25度"
 
     def test_on_tool_start_with_non_jsonable_args(self):
@@ -278,15 +260,11 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
-        assert len(results) == 3
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[0].data["tool_call_id"] == "run_non_json"
-        assert results[1].event == EventType.TOOL_CALL_ARGS
-        assert results[1].data["tool_call_id"] == "run_non_json"
-        assert "dummy_obj" in results[1].data["delta"]
-        assert results[2].event == EventType.TOOL_CALL_END
-        assert results[2].data["tool_call_id"] == "run_non_json"
+        # 现在是单个 TOOL_CALL_CHUNK
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
+        assert results[0].data["id"] == "run_non_json"
+        assert "dummy_obj" in results[0].data["args_delta"]
 
     def test_on_tool_start_filters_internal_runtime_field(self):
         """测试 on_tool_start 过滤 MCP 注入的 runtime 等内部字段"""
@@ -313,21 +291,18 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
-        assert len(results) == 3
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[0].data["tool_call_name"] == "maps_weather"
+        # 现在是单个 TOOL_CALL_CHUNK
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
+        assert results[0].data["name"] == "maps_weather"
 
-        assert results[1].event == EventType.TOOL_CALL_ARGS
-        delta = results[1].data["delta"]
+        delta = results[0].data["args_delta"]
         # 应该只包含用户参数 city
         assert "北京" in delta
         # 不应该包含内部字段
         assert "runtime" not in delta.lower() or "ToolRuntime" not in delta
         assert "internal" not in delta
         assert "__pregel" not in delta
-
-        assert results[2].event == EventType.TOOL_CALL_END
 
     def test_on_tool_start_uses_runtime_tool_call_id(self):
         """测试 on_tool_start 使用 runtime 中的原始 tool_call_id 而非 run_id
@@ -360,19 +335,13 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
-        assert len(results) == 3
+        # 现在是单个 TOOL_CALL_CHUNK
+        assert len(results) == 1
 
         # 应该使用 runtime 中的原始 tool_call_id，而不是 run_id
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[0].data["tool_call_id"] == original_tool_call_id
-        assert results[0].data["tool_call_name"] == "get_weather"
-
-        assert results[1].event == EventType.TOOL_CALL_ARGS
-        assert results[1].data["tool_call_id"] == original_tool_call_id
-
-        assert results[2].event == EventType.TOOL_CALL_END
-        assert results[2].data["tool_call_id"] == original_tool_call_id
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
+        assert results[0].data["id"] == original_tool_call_id
+        assert results[0].data["name"] == "get_weather"
 
     def test_on_tool_end_uses_runtime_tool_call_id(self):
         """测试 on_tool_end 使用 runtime 中的原始 tool_call_id 而非 run_id"""
@@ -403,8 +372,8 @@ class TestConvertAstreamEventsFormat:
         assert len(results) == 1
 
         # 应该使用 runtime 中的原始 tool_call_id
-        assert results[0].event == EventType.TOOL_CALL_RESULT
-        assert results[0].data["tool_call_id"] == original_tool_call_id
+        assert results[0].event == EventType.TOOL_RESULT
+        assert results[0].data["id"] == original_tool_call_id
 
     def test_on_tool_start_fallback_to_run_id(self):
         """测试当 runtime 中没有 tool_call_id 时，回退使用 run_id"""
@@ -417,15 +386,11 @@ class TestConvertAstreamEventsFormat:
 
         results = list(convert(event))
 
-        # TOOL_CALL_START + TOOL_CALL_ARGS + TOOL_CALL_END
-        assert len(results) == 3
-        assert results[0].event == EventType.TOOL_CALL_START
+        # 现在是单个 TOOL_CALL_CHUNK
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
         # 应该回退使用 run_id
-        assert results[0].data["tool_call_id"] == "run_789"
-        assert results[1].event == EventType.TOOL_CALL_ARGS
-        assert results[1].data["tool_call_id"] == "run_789"
-        assert results[2].event == EventType.TOOL_CALL_END
-        assert results[2].data["tool_call_id"] == "run_789"
+        assert results[0].data["id"] == "run_789"
 
     def test_streaming_tool_call_id_consistency_with_map(self):
         """测试流式工具调用的 tool_call_id 一致性（使用映射）
@@ -497,20 +462,20 @@ class TestConvertAstreamEventsFormat:
         assert 0 in tool_call_id_map
         assert tool_call_id_map[0] == "call_abc123"
 
-        # 验证：所有 TOOL_CALL_ARGS 都使用相同的 tool_call_id
-        args_events = [
+        # 验证：所有 TOOL_CALL_CHUNK 都使用相同的 tool_call_id
+        chunk_events = [
             r
             for r in all_results
             if isinstance(r, AgentResult)
-            and r.event == EventType.TOOL_CALL_ARGS
+            and r.event == EventType.TOOL_CALL_CHUNK
         ]
 
-        # 应该有 2 个 TOOL_CALL_ARGS 事件（第一个没有 args 不生成事件）
-        assert len(args_events) == 2
+        # 应该有 3 个 TOOL_CALL_CHUNK 事件（每个 chunk 一个）
+        assert len(chunk_events) == 3
 
         # 所有事件应该使用相同的 tool_call_id（从映射获取）
-        for event in args_events:
-            assert event.data["tool_call_id"] == "call_abc123"
+        for event in chunk_events:
+            assert event.data["id"] == "call_abc123"
 
     def test_streaming_tool_call_id_without_map_uses_index(self):
         """测试不使用映射时，后续 chunk 回退到 index"""
@@ -533,9 +498,9 @@ class TestConvertAstreamEventsFormat:
         results = list(convert(event))
 
         assert len(results) == 1
-        assert results[0].event == EventType.TOOL_CALL_ARGS
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
         # 回退使用 index
-        assert results[0].data["tool_call_id"] == "0"
+        assert results[0].data["id"] == "0"
 
     def test_streaming_multiple_concurrent_tool_calls(self):
         """测试多个并发工具调用（不同 index）的 ID 一致性"""
@@ -623,26 +588,24 @@ class TestConvertAstreamEventsFormat:
         assert tool_call_id_map[1] == "call_tool2"
 
         # 验证所有事件使用正确的 ID
-        args_events = [
+        chunk_events = [
             r
             for r in all_results
             if isinstance(r, AgentResult)
-            and r.event == EventType.TOOL_CALL_ARGS
+            and r.event == EventType.TOOL_CALL_CHUNK
         ]
 
-        # 应该有 4 个 TOOL_CALL_ARGS 事件
-        assert len(args_events) == 4
+        # 应该有 6 个 TOOL_CALL_CHUNK 事件
+        # - 2 个初始 chunk（id + name）
+        # - 4 个 args chunk
+        assert len(chunk_events) == 6
 
         # 验证每个工具调用使用正确的 ID
-        tool1_args = [
-            e for e in args_events if e.data["tool_call_id"] == "call_tool1"
-        ]
-        tool2_args = [
-            e for e in args_events if e.data["tool_call_id"] == "call_tool2"
-        ]
+        tool1_chunks = [e for e in chunk_events if e.data["id"] == "call_tool1"]
+        tool2_chunks = [e for e in chunk_events if e.data["id"] == "call_tool2"]
 
-        assert len(tool1_args) == 2  # '{"q": "test"' 和 '}'
-        assert len(tool2_args) == 2  # '{"city": "北京"' 和 '}'
+        assert len(tool1_chunks) == 3  # 初始 + '{"q": "test"' + '}'
+        assert len(tool2_chunks) == 3  # 初始 + '{"city": "北京"' + '}'
 
     def test_agentrun_converter_class(self):
         """测试 AgentRunConverter 类的完整功能"""
@@ -690,14 +653,17 @@ class TestConvertAstreamEventsFormat:
         assert converter._tool_call_id_map[0] == "call_xyz"
 
         # 验证结果
-        args_events = [
+        chunk_events = [
             r
             for r in all_results
             if isinstance(r, AgentResult)
-            and r.event == EventType.TOOL_CALL_ARGS
+            and r.event == EventType.TOOL_CALL_CHUNK
         ]
-        assert len(args_events) == 1
-        assert args_events[0].data["tool_call_id"] == "call_xyz"
+        # 现在有 2 个 chunk 事件（每个 stream chunk 一个）
+        assert len(chunk_events) == 2
+        # 所有事件应该使用相同的 ID
+        for event in chunk_events:
+            assert event.data["id"] == "call_xyz"
 
         # 测试 reset
         converter.reset()
@@ -736,13 +702,12 @@ class TestConvertAstreamEventsFormat:
         # 验证 START 已发送
         assert "call_complete" in tool_call_started_set
 
-        # 第一个 chunk 有 id 和 name，先发送 START，再发送 ARGS
-        assert len(results) == 2
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[0].data["tool_call_id"] == "call_complete"
-        assert results[0].data["tool_call_name"] == "simple_tool"
-        assert results[1].event == EventType.TOOL_CALL_ARGS
-        assert results[1].data["tool_call_id"] == "call_complete"
+        # 现在是单个 TOOL_CALL_CHUNK（包含 id, name, args_delta）
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
+        assert results[0].data["id"] == "call_complete"
+        assert results[0].data["name"] == "simple_tool"
+        assert results[0].data["args_delta"] == '{"done": true}'
 
     def test_streaming_tool_call_id_none_vs_empty_string(self):
         """测试 id 为 None 和空字符串的不同处理"""
@@ -786,26 +751,28 @@ class TestConvertAstreamEventsFormat:
             results = list(convert(event, tool_call_id_map=tool_call_id_map))
             all_results.extend(results)
 
-        args_events = [
+        chunk_events = [
             r
             for r in all_results
             if isinstance(r, AgentResult)
-            and r.event == EventType.TOOL_CALL_ARGS
+            and r.event == EventType.TOOL_CALL_CHUNK
         ]
 
-        assert len(args_events) == 1
-        # None 应该被当作 falsy，从映射获取 ID
-        assert args_events[0].data["tool_call_id"] == "call_from_none"
+        # 现在有 2 个 chunk 事件（每个 stream chunk 一个）
+        assert len(chunk_events) == 2
+        # 所有事件应该使用相同的 ID（从映射获取）
+        for event in chunk_events:
+            assert event.data["id"] == "call_from_none"
 
     def test_full_tool_call_flow_id_consistency(self):
         """测试完整工具调用流程中的 ID 一致性
 
         模拟：
-        1. on_chat_model_stream 产生 TOOL_CALL_START 和 TOOL_CALL_ARGS
-        2. on_tool_start 产生 TOOL_CALL_END（参数传输完成）
-        3. on_tool_end 产生 TOOL_CALL_RESULT
+        1. on_chat_model_stream 产生 TOOL_CALL_CHUNK
+        2. on_tool_start 不产生事件（已在流式中处理）
+        3. on_tool_end 产生 TOOL_RESULT
 
-        验证所有事件使用相同的 tool_call_id，并验证正确的事件顺序
+        验证所有事件使用相同的 tool_call_id
         """
         # 模拟完整的工具调用流程
         events = [
@@ -876,44 +843,26 @@ class TestConvertAstreamEventsFormat:
             r
             for r in all_results
             if isinstance(r, AgentResult)
-            and r.event
-            in [
-                EventType.TOOL_CALL_ARGS,
-                EventType.TOOL_CALL_START,
-                EventType.TOOL_CALL_RESULT,
-                EventType.TOOL_CALL_END,
-            ]
+            and r.event in [EventType.TOOL_CALL_CHUNK, EventType.TOOL_RESULT]
         ]
 
         # 验证所有事件都使用相同的 tool_call_id
         for event in tool_events:
-            assert event.data["tool_call_id"] == "call_full_flow", (
-                f"Event {event.event} has wrong tool_call_id:"
-                f" {event.data['tool_call_id']}"
-            )
+            assert (
+                event.data["id"] == "call_full_flow"
+            ), f"Event {event.event} has wrong id: {event.data.get('id')}"
 
         # 验证所有事件类型都存在
         event_types = [e.event for e in tool_events]
-        assert EventType.TOOL_CALL_START in event_types
-        assert EventType.TOOL_CALL_ARGS in event_types
-        assert EventType.TOOL_CALL_END in event_types
-        assert EventType.TOOL_CALL_RESULT in event_types
+        assert EventType.TOOL_CALL_CHUNK in event_types
+        assert EventType.TOOL_RESULT in event_types
 
-        # 验证 AG-UI 协议要求的事件顺序：START → ARGS → END → RESULT
-        start_idx = event_types.index(EventType.TOOL_CALL_START)
-        args_idx = event_types.index(EventType.TOOL_CALL_ARGS)
-        end_idx = event_types.index(EventType.TOOL_CALL_END)
-        result_idx = event_types.index(EventType.TOOL_CALL_RESULT)
-
+        # 验证顺序：TOOL_CALL_CHUNK 必须在 TOOL_RESULT 之前
+        chunk_idx = event_types.index(EventType.TOOL_CALL_CHUNK)
+        result_idx = event_types.index(EventType.TOOL_RESULT)
         assert (
-            start_idx < args_idx
-        ), "TOOL_CALL_START must come before TOOL_CALL_ARGS"
-        assert (
-            args_idx < end_idx
-        ), "TOOL_CALL_ARGS must come before TOOL_CALL_END"
-        assert (
-            end_idx < result_idx
-        ), "TOOL_CALL_END must come before TOOL_CALL_RESULT"
+            chunk_idx < result_idx
+        ), "TOOL_CALL_CHUNK must come before TOOL_RESULT"
 
     def test_on_chain_stream_model_node(self):
         """测试 on_chain_stream 事件（model 节点）"""
@@ -991,17 +940,12 @@ class TestConvertStreamUpdatesFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 2
-
-        # TOOL_CALL_START
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[0].data["tool_call_id"] == "call_abc"
-        assert results[0].data["tool_call_name"] == "get_weather"
-
-        # TOOL_CALL_ARGS
-        assert results[1].event == EventType.TOOL_CALL_ARGS
-        assert results[1].data["tool_call_id"] == "call_abc"
-        assert "上海" in results[1].data["delta"]
+        # 现在是单个 TOOL_CALL_CHUNK
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
+        assert results[0].data["id"] == "call_abc"
+        assert results[0].data["name"] == "get_weather"
+        assert "上海" in results[0].data["args_delta"]
 
     def test_tool_message_result(self):
         """测试工具消息的结果"""
@@ -1010,16 +954,11 @@ class TestConvertStreamUpdatesFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 2
-
-        # TOOL_CALL_RESULT
-        assert results[0].event == EventType.TOOL_CALL_RESULT
-        assert results[0].data["tool_call_id"] == "call_abc"
+        # 现在只有 TOOL_RESULT
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_RESULT
+        assert results[0].data["id"] == "call_abc"
         assert "多云" in results[0].data["result"]
-
-        # TOOL_CALL_END
-        assert results[1].event == EventType.TOOL_CALL_END
-        assert results[1].data["tool_call_id"] == "call_abc"
 
     def test_end_node_ignored(self):
         """测试 __end__ 节点被忽略"""
@@ -1040,11 +979,10 @@ class TestConvertStreamUpdatesFormat:
 
         results = list(convert(event))
 
-        # 应该有 3 个结果：1 个文本 + 1 个 RESULT + 1 个 END
-        assert len(results) == 3
+        # 应该有 2 个结果：1 个文本 + 1 个 TOOL_RESULT
+        assert len(results) == 2
         assert results[0] == "正在查询..."
-        assert results[1].event == EventType.TOOL_CALL_RESULT
-        assert results[2].event == EventType.TOOL_CALL_END
+        assert results[1].event == EventType.TOOL_RESULT
 
     def test_custom_messages_key(self):
         """测试自定义 messages_key"""
@@ -1093,9 +1031,9 @@ class TestConvertStreamValuesFormat:
 
         results = list(convert(event))
 
-        assert len(results) == 2
-        assert results[0].event == EventType.TOOL_CALL_START
-        assert results[1].event == EventType.TOOL_CALL_ARGS
+        # 现在是单个 TOOL_CALL_CHUNK
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_CHUNK
 
     def test_last_tool_message_result(self):
         """测试最后一条工具消息的结果"""
@@ -1105,10 +1043,9 @@ class TestConvertStreamValuesFormat:
 
         results = list(convert(event))
 
-        # 只处理最后一条消息（工具消息）
-        assert len(results) == 2
-        assert results[0].event == EventType.TOOL_CALL_RESULT
-        assert results[1].event == EventType.TOOL_CALL_END
+        # 只处理最后一条消息（工具消息），现在只有 TOOL_RESULT
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_RESULT
 
     def test_empty_messages(self):
         """测试空消息列表"""
@@ -1190,21 +1127,19 @@ class TestConvertEventSequence:
             all_results.extend(convert(event))
 
         # 验证结果
-        # on_tool_start: START + ARGS + END = 3
-        # on_tool_end: RESULT = 1
+        # on_tool_start: 1 TOOL_CALL_CHUNK
+        # on_tool_end: 1 TOOL_RESULT
         # 3x on_chat_model_stream: 3 个文本
-        assert len(all_results) == 7
+        assert len(all_results) == 5
 
-        # 工具调用事件（新顺序：START → ARGS → END → RESULT）
-        assert all_results[0].event == EventType.TOOL_CALL_START
-        assert all_results[1].event == EventType.TOOL_CALL_ARGS
-        assert all_results[2].event == EventType.TOOL_CALL_END
-        assert all_results[3].event == EventType.TOOL_CALL_RESULT
+        # 工具调用事件
+        assert all_results[0].event == EventType.TOOL_CALL_CHUNK
+        assert all_results[1].event == EventType.TOOL_RESULT
 
         # 文本内容
-        assert all_results[4] == "北京"
-        assert all_results[5] == "今天"
-        assert all_results[6] == "晴天"
+        assert all_results[2] == "北京"
+        assert all_results[3] == "今天"
+        assert all_results[4] == "晴天"
 
     def test_stream_updates_full_sequence(self):
         """测试 stream(updates) 格式的完整事件序列"""
@@ -1242,20 +1177,21 @@ class TestConvertEventSequence:
         for event in events:
             all_results.extend(convert(event))
 
-        # 验证结果
-        assert len(all_results) == 5
+        # 验证结果：
+        # - 1 TOOL_CALL_CHUNK（工具调用）
+        # - 1 TOOL_RESULT（工具结果）
+        # - 1 文本回复
+        assert len(all_results) == 3
 
         # 工具调用
-        assert all_results[0].event == EventType.TOOL_CALL_START
-        assert all_results[0].data["tool_call_name"] == "get_weather"
-        assert all_results[1].event == EventType.TOOL_CALL_ARGS
+        assert all_results[0].event == EventType.TOOL_CALL_CHUNK
+        assert all_results[0].data["name"] == "get_weather"
 
         # 工具结果
-        assert all_results[2].event == EventType.TOOL_CALL_RESULT
-        assert all_results[3].event == EventType.TOOL_CALL_END
+        assert all_results[1].event == EventType.TOOL_RESULT
 
         # 最终回复
-        assert all_results[4] == "上海今天多云。"
+        assert all_results[2] == "上海今天多云。"
 
 
 # =============================================================================
@@ -1361,7 +1297,7 @@ class TestConvertEdgeCases:
 
         # on_tool_end 只发送 TOOL_CALL_RESULT（TOOL_CALL_END 在 on_tool_start 发送）
         assert len(results) == 1
-        assert results[0].event == EventType.TOOL_CALL_RESULT
+        assert results[0].event == EventType.TOOL_RESULT
         assert results[0].data["result"] == "工具输出内容"
 
     def test_unsupported_stream_mode_messages_format(self):
@@ -1399,19 +1335,19 @@ class TestConvertEdgeCases:
 
 
 class TestAguiEventOrder:
-    """测试 AG-UI 协议要求的事件顺序
+    """测试事件顺序
 
-    根据 AG-UI 协议规范，工具调用事件的正确顺序是：
-    1. TOOL_CALL_START - 工具调用开始
-    2. TOOL_CALL_ARGS - 工具调用参数（可能多个）
-    3. TOOL_CALL_END - 参数传输完成
-    4. TOOL_CALL_RESULT - 工具执行结果
+    简化后的事件结构：
+    - TOOL_CALL_CHUNK - 工具调用（包含 id, name, args_delta）
+    - TOOL_RESULT - 工具执行结果
+
+    边界事件（如 TOOL_CALL_START/END）由协议层自动处理。
     """
 
     def test_streaming_tool_call_order(self):
         """测试流式工具调用的事件顺序
 
-        AG-UI 协议要求：TOOL_CALL_START 必须在 TOOL_CALL_ARGS 之前
+        TOOL_CALL_CHUNK 应该在 TOOL_RESULT 之前
         """
         events = [
             # 第一个 chunk：包含 id、name，无 args
@@ -1480,46 +1416,23 @@ class TestAguiEventOrder:
             r
             for r in all_results
             if isinstance(r, AgentResult)
-            and r.event
-            in [
-                EventType.TOOL_CALL_START,
-                EventType.TOOL_CALL_ARGS,
-                EventType.TOOL_CALL_END,
-                EventType.TOOL_CALL_RESULT,
-            ]
+            and r.event in [EventType.TOOL_CALL_CHUNK, EventType.TOOL_RESULT]
         ]
 
-        # 验证有4种事件
+        # 验证有这两种事件
         event_types = [e.event for e in tool_events]
-        assert EventType.TOOL_CALL_START in event_types
-        assert EventType.TOOL_CALL_ARGS in event_types
-        assert EventType.TOOL_CALL_END in event_types
-        assert EventType.TOOL_CALL_RESULT in event_types
+        assert EventType.TOOL_CALL_CHUNK in event_types
+        assert EventType.TOOL_RESULT in event_types
 
-        # 验证顺序：START 必须在所有 ARGS 之前
-        start_idx = event_types.index(EventType.TOOL_CALL_START)
-        args_indices = [
-            i
-            for i, t in enumerate(event_types)
-            if t == EventType.TOOL_CALL_ARGS
-        ]
-        for args_idx in args_indices:
-            assert start_idx < args_idx, (
-                f"TOOL_CALL_START (idx={start_idx}) must come before "
-                f"TOOL_CALL_ARGS (idx={args_idx})"
-            )
+        # 找到第一个 TOOL_CALL_CHUNK 和 TOOL_RESULT 的索引
+        chunk_idx = event_types.index(EventType.TOOL_CALL_CHUNK)
+        result_idx = event_types.index(EventType.TOOL_RESULT)
 
-        # 验证顺序：END 必须在 RESULT 之前
-        end_idx = event_types.index(EventType.TOOL_CALL_END)
-        result_idx = event_types.index(EventType.TOOL_CALL_RESULT)
-        assert end_idx < result_idx, (
-            f"TOOL_CALL_END (idx={end_idx}) must come before "
-            f"TOOL_CALL_RESULT (idx={result_idx})"
+        # 验证顺序：TOOL_CALL_CHUNK 必须在 TOOL_RESULT 之前
+        assert chunk_idx < result_idx, (
+            f"TOOL_CALL_CHUNK (idx={chunk_idx}) must come before "
+            f"TOOL_RESULT (idx={result_idx})"
         )
-
-        # 验证完整顺序：START → ARGS → END → RESULT
-        assert start_idx < end_idx, "START must come before END"
-        assert end_idx < result_idx, "END must come before RESULT"
 
     def test_streaming_tool_call_start_not_duplicated(self):
         """测试流式工具调用时 TOOL_CALL_START 不会重复发送"""
@@ -1575,7 +1488,7 @@ class TestAguiEventOrder:
             r
             for r in all_results
             if isinstance(r, AgentResult)
-            and r.event == EventType.TOOL_CALL_START
+            and r.event == EventType.TOOL_CALL_CHUNK
         ]
 
         # 应该只有一个 TOOL_CALL_START
@@ -1587,7 +1500,7 @@ class TestAguiEventOrder:
         """测试非流式场景的工具调用事件顺序
 
         在没有 on_chat_model_stream 事件的场景下，
-        事件顺序仍应正确：START → ARGS → END → RESULT
+        事件顺序仍应正确：TOOL_CALL_CHUNK → TOOL_RESULT
         """
         events = [
             # 直接工具开始（无流式事件）
@@ -1614,12 +1527,10 @@ class TestAguiEventOrder:
 
         event_types = [e.event for e in tool_events]
 
-        # 验证顺序
+        # 验证顺序：TOOL_CALL_CHUNK → TOOL_RESULT
         assert event_types == [
-            EventType.TOOL_CALL_START,
-            EventType.TOOL_CALL_ARGS,
-            EventType.TOOL_CALL_END,
-            EventType.TOOL_CALL_RESULT,
+            EventType.TOOL_CALL_CHUNK,
+            EventType.TOOL_RESULT,
         ], f"Unexpected order: {event_types}"
 
     def test_multiple_concurrent_tool_calls_order(self):
@@ -1731,32 +1642,23 @@ class TestAguiEventOrder:
             tool_events = [
                 (i, r)
                 for i, r in enumerate(all_results)
-                if isinstance(r, AgentResult)
-                and r.data.get("tool_call_id") == tool_id
+                if isinstance(r, AgentResult) and r.data.get("id") == tool_id
             ]
 
             event_types = [e.event for _, e in tool_events]
-            indices = [i for i, _ in tool_events]
 
             # 验证包含所有必需事件
             assert (
-                EventType.TOOL_CALL_START in event_types
-            ), f"Tool {tool_id} missing TOOL_CALL_START"
+                EventType.TOOL_CALL_CHUNK in event_types
+            ), f"Tool {tool_id} missing TOOL_CALL_CHUNK"
             assert (
-                EventType.TOOL_CALL_END in event_types
-            ), f"Tool {tool_id} missing TOOL_CALL_END"
-            assert (
-                EventType.TOOL_CALL_RESULT in event_types
-            ), f"Tool {tool_id} missing TOOL_CALL_RESULT"
+                EventType.TOOL_RESULT in event_types
+            ), f"Tool {tool_id} missing TOOL_RESULT"
 
-            # 验证顺序：对于每个工具，START 应该在该工具的 END 之前
-            start_pos = event_types.index(EventType.TOOL_CALL_START)
-            end_pos = event_types.index(EventType.TOOL_CALL_END)
-            result_pos = event_types.index(EventType.TOOL_CALL_RESULT)
+            # 验证顺序：TOOL_CALL_CHUNK 应该在 TOOL_RESULT 之前
+            chunk_pos = event_types.index(EventType.TOOL_CALL_CHUNK)
+            result_pos = event_types.index(EventType.TOOL_RESULT)
 
             assert (
-                start_pos < end_pos
-            ), f"Tool {tool_id}: START must come before END"
-            assert (
-                end_pos < result_pos
-            ), f"Tool {tool_id}: END must come before RESULT"
+                chunk_pos < result_pos
+            ), f"Tool {tool_id}: CHUNK must come before RESULT"

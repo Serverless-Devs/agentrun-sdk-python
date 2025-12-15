@@ -18,8 +18,8 @@ import pydash
 from ..utils.helper import merge
 from .model import (
     AdditionMode,
+    AgentEvent,
     AgentRequest,
-    AgentResult,
     EventType,
     Message,
     MessageRole,
@@ -194,6 +194,7 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
 
         # 构建 AgentRequest
         agent_request = AgentRequest(
+            protocol="openai",  # 设置协议名称
             messages=messages,
             stream=request_data.get("stream", False),
             tools=tools,
@@ -284,133 +285,122 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
 
     async def _format_stream(
         self,
-        result_stream: AsyncIterator[AgentResult],
+        event_stream: AsyncIterator[AgentEvent],
         context: Dict[str, Any],
     ) -> AsyncIterator[str]:
-        """将 AgentResult 流转换为 OpenAI SSE 格式
+        """将 AgentEvent 流转换为 OpenAI SSE 格式
+
+        自动生成边界事件：
+        - 首个 TEXT 事件前发送 role: assistant
+        - 工具调用自动追踪索引
+        - 流结束发送 finish_reason 和 [DONE]
 
         Args:
-            result_stream: AgentResult 流
+            event_stream: AgentEvent 流
             context: 上下文信息
 
         Yields:
             SSE 格式的字符串
         """
-        tool_call_index = -1  # 从 -1 开始，第一个工具调用时变为 0
+        # 状态追踪
         sent_role = False
+        has_text = False
+        tool_call_index = -1  # 从 -1 开始，第一个工具调用时变为 0
+        # 工具调用状态：{tool_id: {"started": bool, "index": int}}
+        tool_call_states: Dict[str, Dict[str, Any]] = {}
+        has_tool_calls = False
 
-        async for result in result_stream:
-            # 在格式化之前更新 tool_call_index
-            if result.event == EventType.TOOL_CALL_START:
-                tool_call_index += 1
+        async for event in event_stream:
+            # RAW 事件直接透传
+            if event.event == EventType.RAW:
+                raw = event.data.get("raw", "")
+                if raw:
+                    if not raw.endswith("\n\n"):
+                        raw = raw.rstrip("\n") + "\n\n"
+                    yield raw
+                continue
 
-            sse_data = self._format_event(
-                result, context, tool_call_index, sent_role
-            )
-
-            if sse_data:
-                # 更新状态
-                if result.event == EventType.TEXT_MESSAGE_START:
+            # TEXT 事件
+            if event.event == EventType.TEXT:
+                delta: Dict[str, Any] = {}
+                # 首个 TEXT 事件，发送 role
+                if not sent_role:
+                    delta["role"] = "assistant"
                     sent_role = True
 
-                yield sse_data
+                content = event.data.get("delta", "")
+                if content:
+                    delta["content"] = content
+                    has_text = True
 
-    def _format_event(
-        self,
-        result: AgentResult,
-        context: Dict[str, Any],
-        tool_call_index: int = 0,
-        sent_role: bool = False,
-    ) -> Optional[str]:
-        """将单个 AgentResult 转换为 OpenAI SSE 事件
+                    # 应用 addition
+                    if event.addition:
+                        delta = self._apply_addition(
+                            delta, event.addition, event.addition_mode
+                        )
 
-        Args:
-            result: AgentResult 事件
-            context: 上下文信息
-            tool_call_index: 当前工具调用索引
-            sent_role: 是否已发送 role
+                    yield self._build_chunk(context, delta)
+                continue
 
-        Returns:
-            SSE 格式的字符串，如果不需要输出则返回 None
-        """
-        # STREAM_DATA 直接输出原始数据
-        if result.event == EventType.STREAM_DATA:
-            raw = result.data.get("raw", "")
-            if not raw:
-                return None
-            # 如果已经是 SSE 格式，直接返回
-            if raw.startswith("data:"):
-                # 确保以 \n\n 结尾
-                if not raw.endswith("\n\n"):
-                    raw = raw.rstrip("\n") + "\n\n"
-                return raw
-            else:
-                # 包装为 SSE 格式
-                return f"data: {raw}\n\n"
+            # TOOL_CALL_CHUNK 事件
+            if event.event == EventType.TOOL_CALL_CHUNK:
+                tool_id = event.data.get("id", "")
+                tool_name = event.data.get("name", "")
+                args_delta = event.data.get("args_delta", "")
 
-        # RUN_FINISHED 发送 [DONE]
-        if result.event == EventType.RUN_FINISHED:
-            return "data: [DONE]\n\n"
+                delta = {}
 
-        # 忽略不支持的事件
-        if result.event not in (
-            EventType.TEXT_MESSAGE_START,
-            EventType.TEXT_MESSAGE_CONTENT,
-            EventType.TEXT_MESSAGE_END,
-            EventType.TOOL_CALL_START,
-            EventType.TOOL_CALL_ARGS,
-            EventType.TOOL_CALL_END,
-        ):
-            return None
+                # 首次见到这个工具调用
+                if tool_id and tool_id not in tool_call_states:
+                    tool_call_index += 1
+                    tool_call_states[tool_id] = {
+                        "started": True,
+                        "index": tool_call_index,
+                    }
+                    has_tool_calls = True
 
-        # 构建 delta
-        delta: Dict[str, Any] = {}
+                    # 发送工具调用开始（包含 id, name）
+                    delta["tool_calls"] = [{
+                        "index": tool_call_index,
+                        "id": tool_id,
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": ""},
+                    }]
+                    yield self._build_chunk(context, delta)
+                    delta = {}
 
-        if result.event == EventType.TEXT_MESSAGE_START:
-            delta["role"] = result.data.get("role", "assistant")
+                # 发送参数增量
+                if args_delta:
+                    current_index = tool_call_states.get(tool_id, {}).get(
+                        "index", tool_call_index
+                    )
+                    delta["tool_calls"] = [{
+                        "index": current_index,
+                        "function": {"arguments": args_delta},
+                    }]
 
-        elif result.event == EventType.TEXT_MESSAGE_CONTENT:
-            content = result.data.get("delta", "")
-            if content:
-                delta["content"] = content
-            else:
-                return None
+                    # 应用 addition
+                    if event.addition:
+                        delta = self._apply_addition(
+                            delta, event.addition, event.addition_mode
+                        )
 
-        elif result.event == EventType.TEXT_MESSAGE_END:
-            # 发送 finish_reason
-            return self._build_chunk(context, {}, finish_reason="stop")
+                    yield self._build_chunk(context, delta)
+                continue
 
-        elif result.event == EventType.TOOL_CALL_START:
-            tc_id = result.data.get("tool_call_id", "")
-            tc_name = result.data.get("tool_call_name", "")
-            delta["tool_calls"] = [{
-                "index": tool_call_index,
-                "id": tc_id,
-                "type": "function",
-                "function": {"name": tc_name, "arguments": ""},
-            }]
+            # TOOL_RESULT 事件：OpenAI 协议通常不在流中输出工具结果
+            if event.event == EventType.TOOL_RESULT:
+                continue
 
-        elif result.event == EventType.TOOL_CALL_ARGS:
-            args_delta = result.data.get("delta", "")
-            if args_delta:
-                delta["tool_calls"] = [{
-                    "index": tool_call_index,
-                    "function": {"arguments": args_delta},
-                }]
-            else:
-                return None
+            # 其他事件忽略
+            # (ERROR, STATE, CUSTOM 等不直接映射到 OpenAI 格式)
 
-        elif result.event == EventType.TOOL_CALL_END:
-            # 发送 finish_reason
-            return self._build_chunk(context, {}, finish_reason="tool_calls")
-
-        # 应用 addition
-        if result.addition:
-            delta = self._apply_addition(
-                delta, result.addition, result.addition_mode
-            )
-
-        return self._build_chunk(context, delta)
+        # 流结束后发送 finish_reason 和 [DONE]
+        if has_tool_calls:
+            yield self._build_chunk(context, {}, finish_reason="tool_calls")
+        elif has_text:
+            yield self._build_chunk(context, {}, finish_reason="stop")
+        yield "data: [DONE]\n\n"
 
     def _build_chunk(
         self,
@@ -446,54 +436,59 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
 
     def _format_non_stream(
         self,
-        results: List[AgentResult],
+        events: List[AgentEvent],
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """将 AgentResult 列表转换为 OpenAI 非流式响应
+        """将 AgentEvent 列表转换为 OpenAI 非流式响应
+
+        自动追踪工具调用状态。
 
         Args:
-            results: AgentResult 列表
+            events: AgentEvent 列表
             context: 上下文信息
 
         Returns:
             OpenAI 格式的响应字典
         """
-        content_parts = []
-        tool_calls = []
-        finish_reason = "stop"
+        content_parts: List[str] = []
+        # 工具调用状态：{tool_id: {id, name, arguments}}
+        tool_call_map: Dict[str, Dict[str, Any]] = {}
+        has_tool_calls = False
 
-        for result in results:
-            if result.event == EventType.TEXT_MESSAGE_CONTENT:
-                content_parts.append(result.data.get("delta", ""))
+        for event in events:
+            if event.event == EventType.TEXT:
+                content_parts.append(event.data.get("delta", ""))
 
-            elif result.event == EventType.TOOL_CALL_START:
-                tc_id = result.data.get("tool_call_id", "")
-                tc_name = result.data.get("tool_call_name", "")
-                tool_calls.append({
-                    "id": tc_id,
-                    "type": "function",
-                    "function": {"name": tc_name, "arguments": ""},
-                })
+            elif event.event == EventType.TOOL_CALL_CHUNK:
+                tool_id = event.data.get("id", "")
+                tool_name = event.data.get("name", "")
+                args_delta = event.data.get("args_delta", "")
 
-            elif result.event == EventType.TOOL_CALL_ARGS:
-                if tool_calls:
-                    args = result.data.get("delta", "")
-                    tool_calls[-1]["function"]["arguments"] += args
+                if tool_id:
+                    if tool_id not in tool_call_map:
+                        tool_call_map[tool_id] = {
+                            "id": tool_id,
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": ""},
+                        }
+                        has_tool_calls = True
 
-            elif result.event == EventType.TOOL_CALL_END:
-                finish_reason = "tool_calls"
+                    if args_delta:
+                        tool_call_map[tool_id]["function"][
+                            "arguments"
+                        ] += args_delta
 
         # 构建响应
         content = "".join(content_parts) if content_parts else None
+        finish_reason = "tool_calls" if has_tool_calls else "stop"
+
         message: Dict[str, Any] = {
             "role": "assistant",
             "content": content,
         }
 
-        if tool_calls:
-            message["tool_calls"] = tool_calls
-            if not content:
-                finish_reason = "tool_calls"
+        if tool_call_map:
+            message["tool_calls"] = list(tool_call_map.values())
 
         response = {
             "id": context.get(
