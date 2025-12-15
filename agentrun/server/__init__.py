@@ -77,6 +77,7 @@ Example (访问原始请求):
 ...     return "Hello, world!"
 """
 
+from .agui_normalizer import AguiEventNormalizer
 from .agui_protocol import AGUIProtocolHandler
 from .model import (
     AdditionMode,
@@ -137,4 +138,6 @@ __all__ = [
     "OpenAIProtocolHandler",
     # Protocol - AG-UI
     "AGUIProtocolHandler",
+    # Event Normalizer
+    "AguiEventNormalizer",
 ]
