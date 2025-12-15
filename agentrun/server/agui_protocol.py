@@ -3,14 +3,43 @@
 AG-UI 是一种开源、轻量级、基于事件的协议，用于标准化 AI Agent 与前端应用之间的交互。
 参考: https://docs.ag-ui.com/
 
-本实现将 AgentResult 事件转换为 AG-UI SSE 格式。
+本实现使用 ag-ui-protocol 包提供的事件类型和编码器，
+将 AgentResult 事件转换为 AG-UI SSE 格式。
 """
 
-import json
-import time
 from typing import Any, AsyncIterator, Dict, List, Optional, TYPE_CHECKING
 import uuid
 
+from ag_ui.core import AssistantMessage
+from ag_ui.core import CustomEvent as AguiCustomEvent
+from ag_ui.core import EventType as AguiEventType
+from ag_ui.core import Message as AguiMessage
+from ag_ui.core import MessagesSnapshotEvent
+from ag_ui.core import RawEvent as AguiRawEvent
+from ag_ui.core import (
+    RunErrorEvent,
+    RunFinishedEvent,
+    RunStartedEvent,
+    StateDeltaEvent,
+    StateSnapshotEvent,
+    StepFinishedEvent,
+    StepStartedEvent,
+    SystemMessage,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+)
+from ag_ui.core import Tool as AguiTool
+from ag_ui.core import ToolCall as AguiToolCall
+from ag_ui.core import (
+    ToolCallArgsEvent,
+    ToolCallEndEvent,
+    ToolCallResultEvent,
+    ToolCallStartEvent,
+)
+from ag_ui.core import ToolMessage as AguiToolMessage
+from ag_ui.core import UserMessage
+from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 import pydash
@@ -34,44 +63,6 @@ if TYPE_CHECKING:
 
 
 # ============================================================================
-# AG-UI 事件类型映射
-# ============================================================================
-
-
-# EventType 到 AG-UI 事件类型名的映射
-AGUI_EVENT_TYPE_MAP = {
-    EventType.RUN_STARTED: "RUN_STARTED",
-    EventType.RUN_FINISHED: "RUN_FINISHED",
-    EventType.RUN_ERROR: "RUN_ERROR",
-    EventType.STEP_STARTED: "STEP_STARTED",
-    EventType.STEP_FINISHED: "STEP_FINISHED",
-    EventType.TEXT_MESSAGE_START: "TEXT_MESSAGE_START",
-    EventType.TEXT_MESSAGE_CONTENT: "TEXT_MESSAGE_CONTENT",
-    EventType.TEXT_MESSAGE_END: "TEXT_MESSAGE_END",
-    EventType.TEXT_MESSAGE_CHUNK: "TEXT_MESSAGE_CHUNK",
-    EventType.TOOL_CALL_START: "TOOL_CALL_START",
-    EventType.TOOL_CALL_ARGS: "TOOL_CALL_ARGS",
-    EventType.TOOL_CALL_END: "TOOL_CALL_END",
-    EventType.TOOL_CALL_RESULT: "TOOL_CALL_RESULT",
-    EventType.TOOL_CALL_CHUNK: "TOOL_CALL_CHUNK",
-    EventType.STATE_SNAPSHOT: "STATE_SNAPSHOT",
-    EventType.STATE_DELTA: "STATE_DELTA",
-    EventType.MESSAGES_SNAPSHOT: "MESSAGES_SNAPSHOT",
-    EventType.ACTIVITY_SNAPSHOT: "ACTIVITY_SNAPSHOT",
-    EventType.ACTIVITY_DELTA: "ACTIVITY_DELTA",
-    EventType.REASONING_START: "REASONING_START",
-    EventType.REASONING_MESSAGE_START: "REASONING_MESSAGE_START",
-    EventType.REASONING_MESSAGE_CONTENT: "REASONING_MESSAGE_CONTENT",
-    EventType.REASONING_MESSAGE_END: "REASONING_MESSAGE_END",
-    EventType.REASONING_MESSAGE_CHUNK: "REASONING_MESSAGE_CHUNK",
-    EventType.REASONING_END: "REASONING_END",
-    EventType.META_EVENT: "META_EVENT",
-    EventType.RAW: "RAW",
-    EventType.CUSTOM: "CUSTOM",
-}
-
-
-# ============================================================================
 # AG-UI 协议处理器
 # ============================================================================
 
@@ -83,6 +74,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
     实现 AG-UI (Agent-User Interaction Protocol) 兼容接口。
     参考: https://docs.ag-ui.com/
+
+    使用 ag-ui-protocol 包提供的事件类型和编码器。
 
     特点:
     - 基于事件的流式通信
@@ -98,13 +91,14 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         ...     protocols=[AGUIProtocolHandler()]
         ... )
         >>> server.start(port=8000)
-        # 可访问: POST http://localhost:8000/agui/v1/run
+        # 可访问: POST http://localhost:8000/ag-ui/agent
     """
 
     name = "agui"
 
     def __init__(self, config: Optional[ServerConfig] = None):
         self.config = config.openai if config else None
+        self._encoder = EventEncoder()
 
     def get_prefix(self) -> str:
         """AG-UI 协议建议使用 /ag-ui/agent 前缀"""
@@ -140,20 +134,20 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
                 return StreamingResponse(
                     event_stream,
-                    media_type="text/event-stream",
+                    media_type=self._encoder.get_content_type(),
                     headers=sse_headers,
                 )
 
             except ValueError as e:
                 return StreamingResponse(
                     self._error_stream(str(e)),
-                    media_type="text/event-stream",
+                    media_type=self._encoder.get_content_type(),
                     headers=sse_headers,
                 )
             except Exception as e:
                 return StreamingResponse(
                     self._error_stream(f"Internal error: {str(e)}"),
-                    media_type="text/event-stream",
+                    media_type=self._encoder.get_content_type(),
                     headers=sse_headers,
                 )
 
@@ -299,202 +293,327 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             if sse_data:
                 yield sse_data
 
-    def _format_event(self, result, context):
-        # 统一将字符串或 dict 标准化为 AgentResult，后续代码可安全访问 result.event 等属性
-        if isinstance(result, str):
-            # 选择合适的文本事件类型（优先使用 TEXT_MESSAGE_CHUNK，否则回退到 TEXT_MESSAGE_START）
-            ev_key = None
-            try:
-                members = getattr(EventType, "__members__", None)
-                if members and "TEXT_MESSAGE_CHUNK" in members:
-                    ev_key = "TEXT_MESSAGE_CHUNK"
-                elif members and "TEXT_MESSAGE_START" in members:
-                    ev_key = "TEXT_MESSAGE_START"
-            except Exception:
-                ev_key = None
-
-            try:
-                ev = EventType[ev_key] if ev_key else list(EventType)[0]
-            except Exception:
-                ev = list(EventType)[0]
-
-            result = AgentResult(event=ev, data={"text": result})
-
-        elif isinstance(result, dict):
-            # 尝试从 dict 中解析 event 字段为 EventType
-            ev = None
-            evt = result.get("event")
-            try:
-                members = getattr(EventType, "__members__", None)
-                if isinstance(evt, str) and members and evt in members:
-                    ev = EventType[evt]
-                else:
-                    # 尝试按 value 匹配
-                    for e in list(EventType):
-                        if str(getattr(e, "value", e)) == str(evt):
-                            ev = e
-                            break
-            except Exception:
-                ev = None
-
-            if ev is None:
-                ev = list(EventType)[0]
-
-            result = AgentResult(event=ev, data=result.get("data", result))
-
-        # 之后的逻辑可以安全地认为 result 是 AgentResult 对象
-        timestamp = int(time.time() * 1000)
-
-        # 基础事件数据
-        event_data: Dict[str, Any] = {
-            "type": result.event,
-            "timestamp": timestamp,
-        }
-
-        # 根据事件类型添加特定字段
-        event_data = self._add_event_fields(result, event_data, context)
-
-        # 处理 addition
-        if result.addition:
-            event_data = self._apply_addition(
-                event_data, result.addition, result.addition_mode
-            )
-
-        # 转换为 SSE 格式
-        json_str = json.dumps(event_data, ensure_ascii=False)
-        return f"data: {json_str}\n\n"
-
-    def _add_event_fields(
+    def _format_event(
         self,
         result: AgentResult,
-        event_data: Dict[str, Any],
         context: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """根据事件类型添加特定字段
+    ) -> str:
+        """将 AgentResult 转换为 SSE 格式
 
         Args:
             result: AgentResult 事件
-            event_data: 基础事件数据
             context: 上下文信息
 
         Returns:
-            完整的事件数据
+            SSE 格式的字符串
+        """
+        import json
+
+        # 统一将字符串或 dict 标准化为 AgentResult
+        if isinstance(result, str):
+            result = AgentResult(
+                event=EventType.TEXT_MESSAGE_CHUNK,
+                data={"delta": result},
+            )
+        elif isinstance(result, dict):
+            ev = self._parse_event_type(result.get("event"))
+            result = AgentResult(event=ev, data=result.get("data", result))
+
+        # 特殊处理 STREAM_DATA 事件 - 直接返回原始 SSE 数据
+        if result.event == EventType.STREAM_DATA:
+            raw_data = result.data.get("raw", "")
+            if raw_data:
+                # 如果已经是 SSE 格式，直接返回
+                if raw_data.startswith("data:"):
+                    # 确保以 \n\n 结尾
+                    if not raw_data.endswith("\n\n"):
+                        raw_data = raw_data.rstrip("\n") + "\n\n"
+                    return raw_data
+                else:
+                    # 包装为 SSE 格式
+                    return f"data: {raw_data}\n\n"
+            return ""
+
+        # 创建 ag-ui-protocol 事件对象
+        agui_event = self._create_agui_event(result, context)
+
+        if agui_event is None:
+            return ""
+
+        # 处理 addition - 需要将事件转为 dict，应用 addition，然后重新序列化
+        if result.addition:
+            # ag-ui-protocol 事件是 pydantic model，需要转为 dict 处理 addition
+            # 使用 by_alias=True 确保字段名使用 camelCase（与编码器一致）
+            event_dict = agui_event.model_dump(by_alias=True, exclude_none=True)
+            event_dict = self._apply_addition(
+                event_dict, result.addition, result.addition_mode
+            )
+            # 使用与 EventEncoder 相同的格式
+            json_str = json.dumps(event_dict, ensure_ascii=False)
+            return f"data: {json_str}\n\n"
+
+        # 使用 ag-ui-protocol 的编码器
+        return self._encoder.encode(agui_event)
+
+    def _parse_event_type(self, evt: Any) -> EventType:
+        """解析事件类型
+
+        Args:
+            evt: 事件类型值
+
+        Returns:
+            EventType 枚举值
+        """
+        if isinstance(evt, EventType):
+            return evt
+
+        if isinstance(evt, str):
+            try:
+                return EventType(evt)
+            except ValueError:
+                try:
+                    return EventType[evt]
+                except KeyError:
+                    pass
+
+        return EventType.TEXT_MESSAGE_CHUNK
+
+    def _create_agui_event(
+        self,
+        result: AgentResult,
+        context: Dict[str, Any],
+    ) -> Any:
+        """根据 AgentResult 创建对应的 ag-ui-protocol 事件对象
+
+        Args:
+            result: AgentResult 事件
+            context: 上下文信息
+
+        Returns:
+            ag-ui-protocol 事件对象
         """
         data = result.data
+        event_type = result.event
 
         # 生命周期事件
-        if result.event in (EventType.RUN_STARTED, EventType.RUN_FINISHED):
-            event_data["threadId"] = data.get("thread_id") or context.get(
-                "thread_id"
+        if event_type == EventType.RUN_STARTED:
+            return RunStartedEvent(
+                thread_id=data.get("thread_id") or context.get("thread_id"),
+                run_id=data.get("run_id") or context.get("run_id"),
             )
-            event_data["runId"] = data.get("run_id") or context.get("run_id")
 
-        elif result.event == EventType.RUN_ERROR:
-            event_data["message"] = data.get("message", "")
-            event_data["code"] = data.get("code")
+        elif event_type == EventType.RUN_FINISHED:
+            return RunFinishedEvent(
+                thread_id=data.get("thread_id") or context.get("thread_id"),
+                run_id=data.get("run_id") or context.get("run_id"),
+            )
 
-        elif result.event in (EventType.STEP_STARTED, EventType.STEP_FINISHED):
-            event_data["stepName"] = data.get("step_name")
+        elif event_type == EventType.RUN_ERROR:
+            return RunErrorEvent(
+                message=data.get("message", ""),
+                code=data.get("code"),
+            )
+
+        elif event_type == EventType.STEP_STARTED:
+            return StepStartedEvent(
+                step_name=data.get("step_name", ""),
+            )
+
+        elif event_type == EventType.STEP_FINISHED:
+            return StepFinishedEvent(
+                step_name=data.get("step_name", ""),
+            )
 
         # 文本消息事件
-        elif result.event == EventType.TEXT_MESSAGE_START:
-            event_data["messageId"] = data.get("message_id", str(uuid.uuid4()))
-            event_data["role"] = data.get("role", "assistant")
-
-        elif result.event == EventType.TEXT_MESSAGE_CONTENT:
-            event_data["messageId"] = data.get("message_id", "")
-            event_data["delta"] = data.get("delta", "")
-
-        elif result.event == EventType.TEXT_MESSAGE_END:
-            event_data["messageId"] = data.get("message_id", "")
-
-        elif result.event == EventType.TEXT_MESSAGE_CHUNK:
-            event_data["messageId"] = data.get("message_id")
-            event_data["role"] = data.get("role")
-            event_data["delta"] = data.get("delta", "")
-
-        # 工具调用事件
-        elif result.event == EventType.TOOL_CALL_START:
-            event_data["toolCallId"] = data.get("tool_call_id", "")
-            event_data["toolCallName"] = data.get("tool_call_name", "")
-            if data.get("parent_message_id"):
-                event_data["parentMessageId"] = data["parent_message_id"]
-
-        elif result.event == EventType.TOOL_CALL_ARGS:
-            event_data["toolCallId"] = data.get("tool_call_id", "")
-            event_data["delta"] = data.get("delta", "")
-
-        elif result.event == EventType.TOOL_CALL_END:
-            event_data["toolCallId"] = data.get("tool_call_id", "")
-
-        elif result.event == EventType.TOOL_CALL_RESULT:
-            event_data["toolCallId"] = data.get("tool_call_id", "")
-            event_data["result"] = data.get("result", "")
-
-        elif result.event == EventType.TOOL_CALL_CHUNK:
-            event_data["toolCallId"] = data.get("tool_call_id")
-            event_data["toolCallName"] = data.get("tool_call_name")
-            event_data["delta"] = data.get("delta", "")
-            if data.get("parent_message_id"):
-                event_data["parentMessageId"] = data["parent_message_id"]
-
-        # 状态管理事件
-        elif result.event == EventType.STATE_SNAPSHOT:
-            event_data["snapshot"] = data.get("snapshot", {})
-
-        elif result.event == EventType.STATE_DELTA:
-            event_data["delta"] = data.get("delta", [])
-
-        # 消息快照事件
-        elif result.event == EventType.MESSAGES_SNAPSHOT:
-            event_data["messages"] = data.get("messages", [])
-
-        # Activity 事件
-        elif result.event == EventType.ACTIVITY_SNAPSHOT:
-            event_data["snapshot"] = data.get("snapshot", {})
-
-        elif result.event == EventType.ACTIVITY_DELTA:
-            event_data["delta"] = data.get("delta", [])
-
-        # Reasoning 事件
-        elif result.event == EventType.REASONING_START:
-            event_data["reasoningId"] = data.get(
-                "reasoning_id", str(uuid.uuid4())
+        elif event_type == EventType.TEXT_MESSAGE_START:
+            return TextMessageStartEvent(
+                message_id=data.get("message_id", str(uuid.uuid4())),
+                role=data.get("role", "assistant"),
             )
 
-        elif result.event == EventType.REASONING_MESSAGE_START:
-            event_data["messageId"] = data.get("message_id", str(uuid.uuid4()))
-            event_data["reasoningId"] = data.get("reasoning_id", "")
+        elif event_type == EventType.TEXT_MESSAGE_CONTENT:
+            return TextMessageContentEvent(
+                message_id=data.get("message_id", ""),
+                delta=data.get("delta", ""),
+            )
 
-        elif result.event == EventType.REASONING_MESSAGE_CONTENT:
-            event_data["messageId"] = data.get("message_id", "")
-            event_data["delta"] = data.get("delta", "")
+        elif event_type == EventType.TEXT_MESSAGE_END:
+            return TextMessageEndEvent(
+                message_id=data.get("message_id", ""),
+            )
 
-        elif result.event == EventType.REASONING_MESSAGE_END:
-            event_data["messageId"] = data.get("message_id", "")
+        elif event_type == EventType.TEXT_MESSAGE_CHUNK:
+            # TEXT_MESSAGE_CHUNK 需要转换为 TEXT_MESSAGE_CONTENT
+            return TextMessageContentEvent(
+                message_id=data.get("message_id", ""),
+                delta=data.get("delta", ""),
+            )
 
-        elif result.event == EventType.REASONING_MESSAGE_CHUNK:
-            event_data["messageId"] = data.get("message_id")
-            event_data["delta"] = data.get("delta", "")
+        # 工具调用事件
+        elif event_type == EventType.TOOL_CALL_START:
+            return ToolCallStartEvent(
+                tool_call_id=data.get("tool_call_id", ""),
+                tool_call_name=data.get("tool_call_name", ""),
+                parent_message_id=data.get("parent_message_id"),
+            )
 
-        elif result.event == EventType.REASONING_END:
-            event_data["reasoningId"] = data.get("reasoning_id", "")
+        elif event_type == EventType.TOOL_CALL_ARGS:
+            return ToolCallArgsEvent(
+                tool_call_id=data.get("tool_call_id", ""),
+                delta=data.get("delta", ""),
+            )
+
+        elif event_type == EventType.TOOL_CALL_END:
+            return ToolCallEndEvent(
+                tool_call_id=data.get("tool_call_id", ""),
+            )
+
+        elif event_type == EventType.TOOL_CALL_RESULT:
+            return ToolCallResultEvent(
+                message_id=data.get(
+                    "message_id", f"tool-result-{data.get('tool_call_id', '')}"
+                ),
+                tool_call_id=data.get("tool_call_id", ""),
+                content=data.get("content") or data.get("result", ""),
+                role="tool",
+            )
+
+        elif event_type == EventType.TOOL_CALL_CHUNK:
+            # TOOL_CALL_CHUNK 需要转换为 TOOL_CALL_ARGS
+            return ToolCallArgsEvent(
+                tool_call_id=data.get("tool_call_id", ""),
+                delta=data.get("delta", ""),
+            )
+
+        # 状态管理事件
+        elif event_type == EventType.STATE_SNAPSHOT:
+            return StateSnapshotEvent(
+                snapshot=data.get("snapshot", {}),
+            )
+
+        elif event_type == EventType.STATE_DELTA:
+            return StateDeltaEvent(
+                delta=data.get("delta", []),
+            )
+
+        # 消息快照事件
+        elif event_type == EventType.MESSAGES_SNAPSHOT:
+            # 需要转换消息格式
+            messages = self._convert_messages_for_snapshot(
+                data.get("messages", [])
+            )
+            return MessagesSnapshotEvent(
+                messages=messages,
+            )
+
+        # Reasoning 事件（ag-ui-protocol 使用 Thinking 命名）
+        # 这些事件在 ag-ui-protocol 中可能使用不同的名称，
+        # 需要映射到对应的事件类型或使用 CustomEvent
+        elif event_type in (
+            EventType.REASONING_START,
+            EventType.REASONING_MESSAGE_START,
+            EventType.REASONING_MESSAGE_CONTENT,
+            EventType.REASONING_MESSAGE_END,
+            EventType.REASONING_MESSAGE_CHUNK,
+            EventType.REASONING_END,
+        ):
+            # 使用 CustomEvent 来包装 Reasoning 事件
+            return AguiCustomEvent(
+                name=event_type.value,
+                value=data,
+            )
+
+        # Activity 事件 - ag-ui-protocol 有对应的事件但格式不同
+        elif event_type == EventType.ACTIVITY_SNAPSHOT:
+            return AguiCustomEvent(
+                name="ACTIVITY_SNAPSHOT",
+                value=data.get("snapshot", {}),
+            )
+
+        elif event_type == EventType.ACTIVITY_DELTA:
+            return AguiCustomEvent(
+                name="ACTIVITY_DELTA",
+                value=data.get("delta", []),
+            )
 
         # Meta 事件
-        elif result.event == EventType.META_EVENT:
-            event_data["name"] = data.get("name", "")
-            event_data["value"] = data.get("value")
+        elif event_type == EventType.META_EVENT:
+            return AguiCustomEvent(
+                name=data.get("name", "meta"),
+                value=data.get("value"),
+            )
 
         # RAW 事件
-        elif result.event == EventType.RAW:
-            event_data["event"] = data.get("event", {})
+        elif event_type == EventType.RAW:
+            return AguiRawEvent(
+                event=data.get("event", {}),
+            )
 
         # CUSTOM 事件
-        elif result.event == EventType.CUSTOM:
-            event_data["name"] = data.get("name", "")
-            event_data["value"] = data.get("value")
+        elif event_type == EventType.CUSTOM:
+            return AguiCustomEvent(
+                name=data.get("name", ""),
+                value=data.get("value"),
+            )
 
-        return event_data
+        # STREAM_DATA 在 _format_event 中已特殊处理，这里不应该到达
+        # 但如果到达了，返回 None 表示跳过
+        elif event_type == EventType.STREAM_DATA:
+            return None
+
+        # 默认使用 CustomEvent
+        return AguiCustomEvent(
+            name=event_type.value,
+            value=data,
+        )
+
+    def _convert_messages_for_snapshot(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[AguiMessage]:
+        """将消息列表转换为 ag-ui-protocol 格式
+
+        Args:
+            messages: 消息字典列表
+
+        Returns:
+            ag-ui-protocol 消息列表
+        """
+        result = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            msg_id = msg.get("id", str(uuid.uuid4()))
+
+            if role == "user":
+                result.append(
+                    UserMessage(id=msg_id, role="user", content=content)
+                )
+            elif role == "assistant":
+                result.append(
+                    AssistantMessage(
+                        id=msg_id,
+                        role="assistant",
+                        content=content,
+                    )
+                )
+            elif role == "system":
+                result.append(
+                    SystemMessage(id=msg_id, role="system", content=content)
+                )
+            elif role == "tool":
+                result.append(
+                    AguiToolMessage(
+                        id=msg_id,
+                        role="tool",
+                        content=content,
+                        tool_call_id=msg.get("tool_call_id", ""),
+                    )
+                )
+
+        return result
 
     def _apply_addition(
         self,

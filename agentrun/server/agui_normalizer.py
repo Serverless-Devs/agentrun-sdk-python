@@ -5,6 +5,8 @@
 - TOOL_CALL_END 必须在收到新的文本消息前发送
 - 重复的 TOOL_CALL_START 会被忽略
 
+使用 ag-ui-protocol 包中的事件类型定义。
+
 使用示例:
 
     >>> from agentrun.server.agui_normalizer import AguiEventNormalizer

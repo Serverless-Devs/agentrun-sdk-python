@@ -336,7 +336,17 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
         # STREAM_DATA 直接输出原始数据
         if result.event == EventType.STREAM_DATA:
             raw = result.data.get("raw", "")
-            return raw if raw else None
+            if not raw:
+                return None
+            # 如果已经是 SSE 格式，直接返回
+            if raw.startswith("data:"):
+                # 确保以 \n\n 结尾
+                if not raw.endswith("\n\n"):
+                    raw = raw.rstrip("\n") + "\n\n"
+                return raw
+            else:
+                # 包装为 SSE 格式
+                return f"data: {raw}\n\n"
 
         # RUN_FINISHED 发送 [DONE]
         if result.event == EventType.RUN_FINISHED:
