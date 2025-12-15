@@ -46,18 +46,18 @@ async def test_server():
     # 检查响应内容
     response_data = response.json()
 
-    # 替换可变的部分
-    assert response_data == {
-        "id": "chatcmpl-124525ca742f",
-        "object": "chat.completion",
-        "created": 1765525651,
-        "model": "test-model",
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": "You said: AgentRun"},
-            "finish_reason": "stop",
-        }],
-    }
+    # 验证响应结构（忽略动态生成的 id 和 created）
+    assert response_data["object"] == "chat.completion"
+    assert response_data["model"] == "test-model"
+    assert "id" in response_data
+    assert response_data["id"].startswith("chatcmpl-")
+    assert "created" in response_data
+    assert isinstance(response_data["created"], int)
+    assert response_data["choices"] == [{
+        "index": 0,
+        "message": {"role": "assistant", "content": "You said: AgentRun"},
+        "finish_reason": "stop",
+    }]
 
 
 async def test_server_streaming():
@@ -94,8 +94,20 @@ async def test_server_streaming():
     # 检查响应状态
     assert response.status_code == 200
     lines = [line async for line in response.aiter_lines()]
+
+    # 过滤空行
+    lines = [line for line in lines if line]
+
+    # OpenAI 流式格式：第一个 chunk 是 role 声明，后续是内容
+    # 格式：data: {...}
+    assert (
+        len(lines) >= 4
+    ), f"Expected at least 4 lines, got {len(lines)}: {lines}"
     assert lines[0].startswith("data: {")
-    assert "Hello, " in lines[0]
-    assert "this is " in lines[1]
-    assert "a test." in lines[2]
-    assert lines[3] == "data: [DONE]"
+
+    # 验证所有内容都在响应中（可能在不同的 chunk 中）
+    all_content = "".join(lines)
+    assert "Hello, " in all_content
+    assert "this is " in all_content
+    assert "a test." in all_content
+    assert lines[-1] == "data: [DONE]"
