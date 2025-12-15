@@ -401,6 +401,468 @@ class TestConvertAstreamEventsFormat:
         assert results[0].data["tool_call_id"] == "run_789"
         assert results[1].data["tool_call_id"] == "run_789"
 
+    def test_streaming_tool_call_id_consistency_with_map(self):
+        """测试流式工具调用的 tool_call_id 一致性（使用映射）
+
+        在流式工具调用中：
+        - 第一个 chunk 有 id 但可能没有 args（用于建立映射）
+        - 后续 chunk 有 args 但 id 为空，只有 index（从映射查找 id）
+
+        使用 tool_call_id_map 可以确保 ID 一致性。
+        """
+        # 模拟流式工具调用的多个 chunk
+        events = [
+            # 第一个 chunk: 有 id 和 name，没有 args（只用于建立映射）
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "call_abc123",
+                            "name": "browser_navigate",
+                            "args": "",
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            # 第二个 chunk: id 为空，只有 index 和 args
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "",
+                            "name": "",
+                            "args": '{"url": "https://',
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            # 第三个 chunk: id 为空，继续 args
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "",
+                            "name": "",
+                            "args": 'example.com"}',
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+        ]
+
+        # 使用 tool_call_id_map 来确保 ID 一致性
+        tool_call_id_map: Dict[int, str] = {}
+        all_results = []
+
+        for event in events:
+            results = list(convert(event, tool_call_id_map=tool_call_id_map))
+            all_results.extend(results)
+
+        # 验证映射已建立
+        assert 0 in tool_call_id_map
+        assert tool_call_id_map[0] == "call_abc123"
+
+        # 验证：所有 TOOL_CALL_ARGS 都使用相同的 tool_call_id
+        args_events = [
+            r
+            for r in all_results
+            if isinstance(r, AgentResult)
+            and r.event == EventType.TOOL_CALL_ARGS
+        ]
+
+        # 应该有 2 个 TOOL_CALL_ARGS 事件（第一个没有 args 不生成事件）
+        assert len(args_events) == 2
+
+        # 所有事件应该使用相同的 tool_call_id（从映射获取）
+        for event in args_events:
+            assert event.data["tool_call_id"] == "call_abc123"
+
+    def test_streaming_tool_call_id_without_map_uses_index(self):
+        """测试不使用映射时，后续 chunk 回退到 index"""
+        event = {
+            "event": "on_chat_model_stream",
+            "data": {
+                "chunk": MagicMock(
+                    content="",
+                    tool_call_chunks=[{
+                        "id": "",
+                        "name": "",
+                        "args": '{"url": "test"}',
+                        "index": 0,
+                    }],
+                )
+            },
+        }
+
+        # 不传入 tool_call_id_map
+        results = list(convert(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_ARGS
+        # 回退使用 index
+        assert results[0].data["tool_call_id"] == "0"
+
+    def test_streaming_multiple_concurrent_tool_calls(self):
+        """测试多个并发工具调用（不同 index）的 ID 一致性"""
+        # 模拟 LLM 同时调用两个工具
+        events = [
+            # 第一个 chunk: 两个工具调用的 ID
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[
+                            {
+                                "id": "call_tool1",
+                                "name": "search",
+                                "args": "",
+                                "index": 0,
+                            },
+                            {
+                                "id": "call_tool2",
+                                "name": "weather",
+                                "args": "",
+                                "index": 1,
+                            },
+                        ],
+                    )
+                },
+            },
+            # 后续 chunk: 只有 index 和 args
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[
+                            {
+                                "id": "",
+                                "name": "",
+                                "args": '{"q": "test"',
+                                "index": 0,
+                            },
+                        ],
+                    )
+                },
+            },
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[
+                            {
+                                "id": "",
+                                "name": "",
+                                "args": '{"city": "北京"',
+                                "index": 1,
+                            },
+                        ],
+                    )
+                },
+            },
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[
+                            {"id": "", "name": "", "args": "}", "index": 0},
+                            {"id": "", "name": "", "args": "}", "index": 1},
+                        ],
+                    )
+                },
+            },
+        ]
+
+        tool_call_id_map: Dict[int, str] = {}
+        all_results = []
+
+        for event in events:
+            results = list(convert(event, tool_call_id_map=tool_call_id_map))
+            all_results.extend(results)
+
+        # 验证映射正确建立
+        assert tool_call_id_map[0] == "call_tool1"
+        assert tool_call_id_map[1] == "call_tool2"
+
+        # 验证所有事件使用正确的 ID
+        args_events = [
+            r
+            for r in all_results
+            if isinstance(r, AgentResult)
+            and r.event == EventType.TOOL_CALL_ARGS
+        ]
+
+        # 应该有 4 个 TOOL_CALL_ARGS 事件
+        assert len(args_events) == 4
+
+        # 验证每个工具调用使用正确的 ID
+        tool1_args = [
+            e for e in args_events if e.data["tool_call_id"] == "call_tool1"
+        ]
+        tool2_args = [
+            e for e in args_events if e.data["tool_call_id"] == "call_tool2"
+        ]
+
+        assert len(tool1_args) == 2  # '{"q": "test"' 和 '}'
+        assert len(tool2_args) == 2  # '{"city": "北京"' 和 '}'
+
+    def test_agentrun_converter_class(self):
+        """测试 AgentRunConverter 类的完整功能"""
+        from agentrun.integration.langchain import AgentRunConverter
+
+        events = [
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "call_xyz",
+                            "name": "test_tool",
+                            "args": "",
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "",
+                            "name": "",
+                            "args": '{"key": "value"}',
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+        ]
+
+        converter = AgentRunConverter()
+        all_results = []
+
+        for event in events:
+            results = list(converter.convert(event))
+            all_results.extend(results)
+
+        # 验证内部映射
+        assert converter._tool_call_id_map[0] == "call_xyz"
+
+        # 验证结果
+        args_events = [
+            r
+            for r in all_results
+            if isinstance(r, AgentResult)
+            and r.event == EventType.TOOL_CALL_ARGS
+        ]
+        assert len(args_events) == 1
+        assert args_events[0].data["tool_call_id"] == "call_xyz"
+
+        # 测试 reset
+        converter.reset()
+        assert len(converter._tool_call_id_map) == 0
+
+    def test_streaming_tool_call_with_first_chunk_having_args(self):
+        """测试第一个 chunk 同时有 id 和 args 的情况"""
+        # 有些模型可能在第一个 chunk 就返回完整的工具调用
+        event = {
+            "event": "on_chat_model_stream",
+            "data": {
+                "chunk": MagicMock(
+                    content="",
+                    tool_call_chunks=[{
+                        "id": "call_complete",
+                        "name": "simple_tool",
+                        "args": '{"done": true}',
+                        "index": 0,
+                    }],
+                )
+            },
+        }
+
+        tool_call_id_map: Dict[int, str] = {}
+        results = list(convert(event, tool_call_id_map=tool_call_id_map))
+
+        # 验证映射被建立
+        assert tool_call_id_map[0] == "call_complete"
+
+        # 验证 TOOL_CALL_ARGS 使用正确的 ID
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL_ARGS
+        assert results[0].data["tool_call_id"] == "call_complete"
+
+    def test_streaming_tool_call_id_none_vs_empty_string(self):
+        """测试 id 为 None 和空字符串的不同处理"""
+        events = [
+            # id 为 None（建立映射）
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "call_from_none",
+                            "name": "tool",
+                            "args": "",
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            # id 为 None（应该从映射获取）
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": None,
+                            "name": "",
+                            "args": '{"a": 1}',
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+        ]
+
+        tool_call_id_map: Dict[int, str] = {}
+        all_results = []
+
+        for event in events:
+            results = list(convert(event, tool_call_id_map=tool_call_id_map))
+            all_results.extend(results)
+
+        args_events = [
+            r
+            for r in all_results
+            if isinstance(r, AgentResult)
+            and r.event == EventType.TOOL_CALL_ARGS
+        ]
+
+        assert len(args_events) == 1
+        # None 应该被当作 falsy，从映射获取 ID
+        assert args_events[0].data["tool_call_id"] == "call_from_none"
+
+    def test_full_tool_call_flow_id_consistency(self):
+        """测试完整工具调用流程中的 ID 一致性
+
+        模拟：
+        1. on_chat_model_stream 产生 TOOL_CALL_ARGS
+        2. on_tool_start 产生 TOOL_CALL_START
+        3. on_tool_end 产生 TOOL_CALL_RESULT 和 TOOL_CALL_END
+
+        验证所有事件使用相同的 tool_call_id
+        """
+        from agentrun.integration.langchain import AgentRunConverter
+
+        # 模拟完整的工具调用流程
+        events = [
+            # 流式工具调用参数
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "call_full_flow",
+                            "name": "test_tool",
+                            "args": "",
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": MagicMock(
+                        content="",
+                        tool_call_chunks=[{
+                            "id": "",
+                            "name": "",
+                            "args": '{"param": "value"}',
+                            "index": 0,
+                        }],
+                    )
+                },
+            },
+            # 工具开始（使用 runtime.tool_call_id）
+            {
+                "event": "on_tool_start",
+                "name": "test_tool",
+                "run_id": "run_123",
+                "data": {
+                    "input": {
+                        "param": "value",
+                        "runtime": MagicMock(tool_call_id="call_full_flow"),
+                    }
+                },
+            },
+            # 工具结束
+            {
+                "event": "on_tool_end",
+                "run_id": "run_123",
+                "data": {
+                    "input": {
+                        "param": "value",
+                        "runtime": MagicMock(tool_call_id="call_full_flow"),
+                    },
+                    "output": "success",
+                },
+            },
+        ]
+
+        converter = AgentRunConverter()
+        all_results = []
+
+        for event in events:
+            results = list(converter.convert(event))
+            all_results.extend(results)
+
+        # 获取所有工具调用相关事件
+        tool_events = [
+            r
+            for r in all_results
+            if isinstance(r, AgentResult)
+            and r.event
+            in [
+                EventType.TOOL_CALL_ARGS,
+                EventType.TOOL_CALL_START,
+                EventType.TOOL_CALL_RESULT,
+                EventType.TOOL_CALL_END,
+            ]
+        ]
+
+        # 验证所有事件都使用相同的 tool_call_id
+        for event in tool_events:
+            assert event.data["tool_call_id"] == "call_full_flow", (
+                f"Event {event.event} has wrong tool_call_id:"
+                f" {event.data['tool_call_id']}"
+            )
+
+        # 验证事件顺序
+        event_types = [e.event for e in tool_events]
+        assert EventType.TOOL_CALL_ARGS in event_types
+        assert EventType.TOOL_CALL_START in event_types
+        assert EventType.TOOL_CALL_RESULT in event_types
+        assert EventType.TOOL_CALL_END in event_types
+
     def test_on_chain_stream_model_node(self):
         """测试 on_chain_stream 事件（model 节点）"""
         msg = create_mock_ai_message("你好！有什么可以帮你的吗？")

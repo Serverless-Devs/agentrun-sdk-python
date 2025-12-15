@@ -498,11 +498,15 @@ def _convert_stream_values_event(
 
 def _convert_astream_events_event(
     event_dict: Dict[str, Any],
+    tool_call_id_map: Optional[Dict[int, str]] = None,
 ) -> Iterator[Union[AgentResult, str]]:
     """转换 astream_events 格式的单个事件
 
     Args:
         event_dict: 事件字典，格式为 {"event": "on_xxx", "data": {...}}
+        tool_call_id_map: 可选的 index -> tool_call_id 映射字典。
+                          在流式工具调用中，第一个 chunk 有 id，后续只有 index。
+                          此映射用于确保所有 chunk 使用一致的 tool_call_id。
 
     Yields:
         str (文本内容) 或 AgentResult (事件)
@@ -521,9 +525,34 @@ def _convert_astream_events_event(
 
             # 流式工具调用参数
             for tc in _extract_tool_call_chunks(chunk):
-                tc_id = tc.get("id") or str(tc.get("index", ""))
+                tc_index = tc.get("index")
+                tc_raw_id = tc.get("id")
                 tc_args = tc.get("args", "")
 
+                # 解析 tool_call_id：
+                # 1. 如果有 id 且非空，使用它并更新映射
+                # 2. 如果 id 为空但有 index，从映射中查找
+                # 3. 最后回退到使用 index 字符串
+                if tc_raw_id:
+                    tc_id = tc_raw_id
+                    # 更新映射（如果提供了映射字典）
+                    # 重要：即使这个 chunk 没有 args，也要更新映射，
+                    # 因为后续 chunk 可能只有 index 没有 id
+                    if tool_call_id_map is not None and tc_index is not None:
+                        tool_call_id_map[tc_index] = tc_id
+                elif tc_index is not None:
+                    # 从映射中查找，如果没有则使用 index
+                    if (
+                        tool_call_id_map is not None
+                        and tc_index in tool_call_id_map
+                    ):
+                        tc_id = tool_call_id_map[tc_index]
+                    else:
+                        tc_id = str(tc_index)
+                else:
+                    tc_id = ""
+
+                # 只有有 args 时才生成 TOOL_CALL_ARGS 事件
                 if tc_args and tc_id:
                     if isinstance(tc_args, (dict, list)):
                         tc_args = _safe_json_dumps(tc_args)
@@ -622,6 +651,7 @@ def _convert_astream_events_event(
 def to_agui_events(
     event: Union[Dict[str, Any], Any],
     messages_key: str = "messages",
+    tool_call_id_map: Optional[Dict[int, str]] = None,
 ) -> Iterator[Union[AgentResult, str]]:
     """将 LangGraph/LangChain 流式事件转换为 AG-UI 协议事件
 
@@ -635,12 +665,14 @@ def to_agui_events(
     Args:
         event: LangGraph/LangChain 流式事件（StreamEvent 对象或 Dict）
         messages_key: state 中消息列表的 key，默认 "messages"
+        tool_call_id_map: 可选的 index -> tool_call_id 映射字典，用于流式工具调用
+                          的 ID 一致性。如果提供，函数会自动更新此映射。
 
     Yields:
         str (文本内容) 或 AgentResult (AG-UI 事件)
 
     Example:
-        >>> # 使用 astream_events
+        >>> # 使用 astream_events（推荐使用 AguiEventConverter 类）
         >>> async for event in agent.astream_events(input, version="v2"):
         ...     for item in to_agui_events(event):
         ...         yield item
@@ -660,7 +692,7 @@ def to_agui_events(
     # 根据事件格式选择对应的转换器
     if _is_astream_events_format(event_dict):
         # astream_events 格式：{"event": "on_xxx", "data": {...}}
-        yield from _convert_astream_events_event(event_dict)
+        yield from _convert_astream_events_event(event_dict, tool_call_id_map)
 
     elif _is_stream_updates_format(event_dict):
         # stream/astream(stream_mode="updates") 格式：{node_name: state_update}
@@ -670,6 +702,56 @@ def to_agui_events(
         # stream/astream(stream_mode="values") 格式：完整 state dict
         yield from _convert_stream_values_event(event_dict, messages_key)
 
+
+class AgentRunConverter:
+    """AgentRun 事件转换器
+
+    将 LangGraph/LangChain 流式事件转换为 AG-UI 协议事件。
+    此类维护必要的状态以确保流式工具调用的 tool_call_id 一致性。
+
+    在流式工具调用中，第一个 chunk 包含 id，后续 chunk 只有 index。
+    此类维护 index -> id 的映射，确保所有相关事件使用相同的 tool_call_id。
+
+    Example:
+        >>> from agentrun.integration.langchain import AgentRunConverter
+        >>>
+        >>> async def invoke_agent(request: AgentRequest):
+        ...     converter = AgentRunConverter()
+        ...     async for event in agent.astream_events(input, version="v2"):
+        ...         for item in converter.convert(event):
+        ...             yield item
+    """
+
+    def __init__(self):
+        self._tool_call_id_map: Dict[int, str] = {}
+
+    def convert(
+        self,
+        event: Union[Dict[str, Any], Any],
+        messages_key: str = "messages",
+    ) -> Iterator[Union[AgentResult, str]]:
+        """转换单个事件为 AG-UI 协议事件
+
+        Args:
+            event: LangGraph/LangChain 流式事件（StreamEvent 对象或 Dict）
+            messages_key: state 中消息列表的 key，默认 "messages"
+
+        Yields:
+            str (文本内容) 或 AgentResult (AG-UI 事件)
+        """
+        yield from to_agui_events(event, messages_key, self._tool_call_id_map)
+
+    def reset(self):
+        """重置状态，清空 tool_call_id 映射
+
+        在处理新的请求时，建议创建新的 AgentRunConverter 实例，
+        而不是复用旧实例并调用 reset。
+        """
+        self._tool_call_id_map.clear()
+
+
+# 保留向后兼容的别名
+AguiEventConverter = AgentRunConverter
 
 # 保留 convert 作为别名，兼容旧代码
 convert = to_agui_events

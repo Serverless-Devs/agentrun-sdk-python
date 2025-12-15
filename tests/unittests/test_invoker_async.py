@@ -46,6 +46,84 @@ class TestInvokerBasic:
         assert content_events[1].data["delta"] == " world"
 
     @pytest.mark.asyncio
+    async def test_message_id_consistency_in_stream(self):
+        """测试流式输出中 message_id 保持一致"""
+
+        async def invoke_agent(req: AgentRequest) -> AsyncGenerator[str, None]:
+            yield "Hello"
+            yield " "
+            yield "World"
+
+        invoker = AgentInvoker(invoke_agent)
+        result = await invoker.invoke(AgentRequest(messages=[]))
+
+        items: List[AgentResult] = []
+        async for item in result:
+            items.append(item)
+
+        # 获取所有文本消息事件
+        text_events = [
+            item
+            for item in items
+            if item.event
+            in [
+                EventType.TEXT_MESSAGE_START,
+                EventType.TEXT_MESSAGE_CONTENT,
+                EventType.TEXT_MESSAGE_END,
+            ]
+        ]
+
+        # 应该至少有 START + CONTENT 事件
+        assert len(text_events) >= 2
+
+        # 验证所有事件使用相同的 message_id
+        message_ids = set(e.data.get("message_id") for e in text_events)
+        assert (
+            len(message_ids) == 1
+        ), f"Expected 1 unique message_id, got {message_ids}"
+
+        # message_id 不应为空
+        message_id = message_ids.pop()
+        assert message_id is not None and message_id != ""
+
+    @pytest.mark.asyncio
+    async def test_thread_id_and_run_id_consistency_in_stream(self):
+        """测试流式输出中 thread_id 和 run_id 在 RUN_STARTED 和 RUN_FINISHED 中保持一致"""
+
+        async def invoke_agent(req: AgentRequest) -> AsyncGenerator[str, None]:
+            yield "test"
+
+        invoker = AgentInvoker(invoke_agent)
+
+        # 使用请求中指定的 thread_id 和 run_id
+        request = AgentRequest(
+            messages=[],
+            body={"threadId": "test-thread-123", "runId": "test-run-456"},
+        )
+
+        # 使用 invoke_stream 获取流式结果
+        items: List[AgentResult] = []
+        async for item in invoker.invoke_stream(request):
+            items.append(item)
+
+        # 查找 RUN_STARTED 和 RUN_FINISHED 事件
+        run_started = next(
+            (e for e in items if e.event == EventType.RUN_STARTED), None
+        )
+        run_finished = next(
+            (e for e in items if e.event == EventType.RUN_FINISHED), None
+        )
+
+        assert run_started is not None, "RUN_STARTED event not found"
+        assert run_finished is not None, "RUN_FINISHED event not found"
+
+        # 验证 ID 一致性
+        assert run_started.data["thread_id"] == "test-thread-123"
+        assert run_started.data["run_id"] == "test-run-456"
+        assert run_finished.data["thread_id"] == "test-thread-123"
+        assert run_finished.data["run_id"] == "test-run-456"
+
+    @pytest.mark.asyncio
     async def test_async_coroutine_returns_list(self):
         """测试异步协程返回列表结果"""
 
