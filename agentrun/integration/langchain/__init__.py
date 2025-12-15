@@ -1,13 +1,13 @@
 """LangChain 集成模块
 
-使用 to_agui_events 将 LangChain 事件转换为 AG-UI 协议事件：
+使用 AgentRunConverter 将 LangChain 事件转换为 AG-UI 协议事件：
 
-    >>> from agentrun.integration.langchain import to_agui_events
+    >>> from agentrun.integration.langchain import AgentRunConverter
     >>>
     >>> async def invoke_agent(request: AgentRequest):
-    ...     input_data = {"messages": [...]}
+    ...     converter = AgentRunConverter()
     ...     async for event in agent.astream_events(input_data, version="v2"):
-    ...         for item in to_agui_events(event):
+    ...         for item in converter.convert(event):
     ...             yield item
 
 支持多种调用方式：
@@ -17,6 +17,10 @@
 """
 
 from agentrun.integration.langgraph.agent_converter import (
+    AguiEventConverter,
+)  # 向后兼容
+from agentrun.integration.langgraph.agent_converter import (
+    AgentRunConverter,
     convert,
     to_agui_events,
 )
@@ -24,8 +28,10 @@ from agentrun.integration.langgraph.agent_converter import (
 from .builtin import model, sandbox_toolset, toolset
 
 __all__ = [
-    "to_agui_events",
-    "convert",  # 兼容旧代码
+    "AgentRunConverter",
+    "AguiEventConverter",  # 向后兼容
+    "to_agui_events",  # 向后兼容
+    "convert",  # 向后兼容
     "model",
     "toolset",
     "sandbox_toolset",
