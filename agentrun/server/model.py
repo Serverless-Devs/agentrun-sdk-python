@@ -14,10 +14,14 @@ from typing import (
     Iterator,
     List,
     Optional,
+    TYPE_CHECKING,
     Union,
 )
 
 from ..utils.model import BaseModel, Field
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 # ============================================================================
 # 协议配置
@@ -224,8 +228,7 @@ class AgentRequest(BaseModel):
         messages: 对话历史消息列表（标准化格式）
         stream: 是否使用流式输出
         tools: 可用的工具列表
-        body: 原始 HTTP 请求体
-        headers: 原始 HTTP 请求头
+        raw_request: 原始 HTTP 请求对象（Starlette Request）
 
     Example (基本使用):
         >>> def invoke_agent(request: AgentRequest):
@@ -275,6 +278,17 @@ class AgentRequest(BaseModel):
         ...     elif request.protocol == "agui":
         ...         # AG-UI 特定处理
         ...         pass
+
+    Example (访问原始请求):
+        >>> async def invoke_agent(request: AgentRequest):
+        ...     # 访问原始请求头
+        ...     auth = request.raw_request.headers.get("Authorization")
+        ...     # 访问原始请求体（已解析的 JSON）
+        ...     body = await request.raw_request.json()
+        ...     # 访问查询参数
+        ...     params = request.raw_request.query_params
+        ...     # 访问客户端 IP
+        ...     client_ip = request.raw_request.client.host
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -289,12 +303,9 @@ class AgentRequest(BaseModel):
     stream: bool = Field(False, description="是否使用流式输出")
     tools: Optional[List[Tool]] = Field(None, description="可用的工具列表")
 
-    # 原始请求信息
-    body: Dict[str, Any] = Field(
-        default_factory=dict, description="原始 HTTP 请求体"
-    )
-    headers: Dict[str, str] = Field(
-        default_factory=dict, description="原始 HTTP 请求头"
+    # 原始请求对象
+    raw_request: Optional[Any] = Field(
+        None, description="原始 HTTP 请求对象（Starlette Request）"
     )
 
 

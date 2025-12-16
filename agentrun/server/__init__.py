@@ -59,15 +59,18 @@ Example (工具调用事件):
 ...     yield f"当前时间: {result}"
 
 Example (访问原始请求):
->>> def invoke_agent(request: AgentRequest):
+>>> async def invoke_agent(request: AgentRequest):
 ...     # 访问当前协议
 ...     protocol = request.protocol  # "openai" 或 "agui"
 ...
 ...     # 访问原始请求头
-...     auth = request.headers.get("Authorization")
+...     auth = request.raw_request.headers.get("Authorization")
 ...
-...     # 访问原始请求体
-...     custom_field = request.body.get("custom_field")
+...     # 访问查询参数
+...     params = request.raw_request.query_params
+...
+...     # 访问客户端 IP
+...     client_ip = request.raw_request.client.host if request.raw_request.client else None
 ...
 ...     return "Hello, world!"
 """

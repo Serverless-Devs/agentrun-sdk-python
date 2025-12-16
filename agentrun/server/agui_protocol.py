@@ -192,17 +192,13 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         # 解析工具列表
         tools = self._parse_tools(request_data.get("tools"))
 
-        # 提取原始请求头
-        raw_headers = dict(request.headers)
-
         # 构建 AgentRequest
         agent_request = AgentRequest(
             protocol="agui",  # 设置协议名称
             messages=messages,
             stream=True,  # AG-UI 总是流式
             tools=tools,
-            body=request_data,
-            headers=raw_headers,
+            raw_request=request,  # 保留原始请求对象
         )
 
         return agent_request, context
@@ -295,6 +291,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         - TEXT_MESSAGE_START / TEXT_MESSAGE_END（文本边界）
         - TOOL_CALL_START / TOOL_CALL_END（工具调用边界）
 
+        注意：RUN_ERROR 之后不能再发送任何事件（包括 RUN_FINISHED）
+
         Args:
             event_stream: AgentEvent 流
             context: 上下文信息
@@ -302,12 +300,17 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         Yields:
             SSE 格式的字符串
         """
-        message_id = str(uuid.uuid4())
-
-        # 状态追踪
-        text_started = False
+        # 状态追踪（使用可变容器以便在 _process_event_with_boundaries 中更新）
+        # text_state: {"started": bool, "ended": bool, "message_id": str}
+        text_state: Dict[str, Any] = {
+            "started": False,
+            "ended": False,
+            "message_id": str(uuid.uuid4()),
+        }
         # 工具调用状态：{tool_id: {"started": bool, "ended": bool}}
         tool_call_states: Dict[str, Dict[str, bool]] = {}
+        # 错误状态：RUN_ERROR 后不能再发送任何事件
+        run_errored = False
 
         # 发送 RUN_STARTED
         yield self._encoder.encode(
@@ -318,24 +321,24 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         )
 
         async for event in event_stream:
+            # RUN_ERROR 后不再处理任何事件
+            if run_errored:
+                continue
+
+            # 检查是否是错误事件
+            if event.event == EventType.ERROR:
+                run_errored = True
+
             # 处理边界事件注入
             for sse_data in self._process_event_with_boundaries(
-                event, context, message_id, text_started, tool_call_states
+                event, context, text_state, tool_call_states
             ):
                 if sse_data:
                     yield sse_data
 
-            # 更新状态
-            if event.event == EventType.TEXT:
-                text_started = True
-            elif event.event == EventType.TOOL_CALL_CHUNK:
-                tool_id = event.data.get("id", "")
-                if tool_id:
-                    if tool_id not in tool_call_states:
-                        tool_call_states[tool_id] = {
-                            "started": True,
-                            "ended": False,
-                        }
+        # RUN_ERROR 后不发送任何清理事件
+        if run_errored:
+            return
 
         # 结束所有未结束的工具调用
         for tool_id, state in tool_call_states.items():
@@ -344,10 +347,10 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                     ToolCallEndEvent(tool_call_id=tool_id)
                 )
 
-        # 发送 TEXT_MESSAGE_END（如果有文本消息）
-        if text_started:
+        # 发送 TEXT_MESSAGE_END（如果有文本消息且未结束）
+        if text_state["started"] and not text_state["ended"]:
             yield self._encoder.encode(
-                TextMessageEndEvent(message_id=message_id)
+                TextMessageEndEvent(message_id=text_state["message_id"])
             )
 
         # 发送 RUN_FINISHED
@@ -362,8 +365,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         self,
         event: AgentEvent,
         context: Dict[str, Any],
-        message_id: str,
-        text_started: bool,
+        text_state: Dict[str, Any],
         tool_call_states: Dict[str, Dict[str, bool]],
     ) -> Iterator[str]:
         """处理事件并注入边界事件
@@ -371,8 +373,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         Args:
             event: 用户事件
             context: 上下文
-            message_id: 消息 ID
-            text_started: 文本是否已开始
+            text_state: 文本状态 {"started": bool, "ended": bool, "message_id": str}
             tool_call_states: 工具调用状态
 
         Yields:
@@ -391,17 +392,31 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
         # TEXT 事件：在首个 TEXT 前注入 TEXT_MESSAGE_START
         if event.event == EventType.TEXT:
-            if not text_started:
+            # AG-UI 协议要求：发送 TEXT_MESSAGE_START 前必须先结束所有未结束的 TOOL_CALL
+            for tool_id, state in tool_call_states.items():
+                if state["started"] and not state["ended"]:
+                    yield self._encoder.encode(
+                        ToolCallEndEvent(tool_call_id=tool_id)
+                    )
+                    state["ended"] = True
+
+            # 如果文本消息未开始，或者之前已结束（需要重新开始新消息）
+            if not text_state["started"] or text_state["ended"]:
+                # 每个新文本消息需要新的 messageId
+                if text_state["ended"]:
+                    text_state["message_id"] = str(uuid.uuid4())
                 yield self._encoder.encode(
                     TextMessageStartEvent(
-                        message_id=message_id,
+                        message_id=text_state["message_id"],
                         role="assistant",
                     )
                 )
+                text_state["started"] = True
+                text_state["ended"] = False
 
             # 发送 TEXT_MESSAGE_CONTENT
             agui_event = TextMessageContentEvent(
-                message_id=message_id,
+                message_id=text_state["message_id"],
                 delta=event.data.get("delta", ""),
             )
             if event.addition:
@@ -421,6 +436,14 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         if event.event == EventType.TOOL_CALL_CHUNK:
             tool_id = event.data.get("id", "")
             tool_name = event.data.get("name", "")
+
+            # 如果文本消息未结束，先结束文本消息
+            # AG-UI 协议要求：发送 TOOL_CALL_START 前必须先结束 TEXT_MESSAGE
+            if text_state["started"] and not text_state["ended"]:
+                yield self._encoder.encode(
+                    TextMessageEndEvent(message_id=text_state["message_id"])
+                )
+                text_state["ended"] = True
 
             if tool_id and tool_id not in tool_call_states:
                 # 首次见到这个工具调用，发送 TOOL_CALL_START
@@ -444,6 +467,14 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         # TOOL_RESULT 事件：确保工具调用已结束
         if event.event == EventType.TOOL_RESULT:
             tool_id = event.data.get("id", "")
+
+            # 如果文本消息未结束，先结束文本消息
+            # AG-UI 协议要求：发送 TOOL_CALL_START 前必须先结束 TEXT_MESSAGE
+            if text_state["started"] and not text_state["ended"]:
+                yield self._encoder.encode(
+                    TextMessageEndEvent(message_id=text_state["message_id"])
+                )
+                text_state["ended"] = True
 
             # 如果工具调用未开始，先补充 START
             if tool_id and tool_id not in tool_call_states:
@@ -482,6 +513,21 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
         # ERROR 事件
         if event.event == EventType.ERROR:
+            # AG-UI 协议要求：发送 RUN_ERROR 前必须先结束所有未结束的 TOOL_CALL
+            for tool_id, state in tool_call_states.items():
+                if state["started"] and not state["ended"]:
+                    yield self._encoder.encode(
+                        ToolCallEndEvent(tool_call_id=tool_id)
+                    )
+                    state["ended"] = True
+
+            # AG-UI 协议要求：发送 RUN_ERROR 前必须先结束文本消息
+            if text_state["started"] and not text_state["ended"]:
+                yield self._encoder.encode(
+                    TextMessageEndEvent(message_id=text_state["message_id"])
+                )
+                text_state["ended"] = True
+
             yield self._encoder.encode(
                 RunErrorEvent(
                     message=event.data.get("message", ""),
