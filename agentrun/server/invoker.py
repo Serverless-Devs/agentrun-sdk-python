@@ -307,19 +307,3 @@ class AgentInvoker:
         if isinstance(obj, (str, bytes, dict, list, AgentEvent)):
             return False
         return hasattr(obj, "__iter__") or hasattr(obj, "__aiter__")
-
-    def _get_thread_id(self, request: AgentRequest) -> str:
-        """获取 thread ID"""
-        return (
-            request.body.get("threadId")
-            or request.body.get("thread_id")
-            or str(uuid.uuid4())
-        )
-
-    def _get_run_id(self, request: AgentRequest) -> str:
-        """获取 run ID"""
-        return (
-            request.body.get("runId")
-            or request.body.get("run_id")
-            or str(uuid.uuid4())
-        )

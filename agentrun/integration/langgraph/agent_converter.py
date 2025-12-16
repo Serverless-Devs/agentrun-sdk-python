@@ -689,6 +689,109 @@ def _convert_astream_events_event(
         # 无状态模式下不处理，避免重复
         pass
 
+    # 6. 工具错误
+    elif event_type == "on_tool_error":
+        run_id = event_dict.get("run_id", "")
+        error = data.get("error")
+        tool_input_raw = data.get("input", {})
+        tool_name = event_dict.get("name", "")
+        # 优先使用 runtime 中的原始 tool_call_id
+        tool_call_id = _extract_tool_call_id(tool_input_raw) or run_id
+
+        # 格式化错误信息
+        error_message = ""
+        if error is not None:
+            if isinstance(error, Exception):
+                error_message = f"{type(error).__name__}: {str(error)}"
+            elif isinstance(error, str):
+                error_message = error
+            else:
+                error_message = str(error)
+
+        # 发送 ERROR 事件
+        yield AgentResult(
+            event=EventType.ERROR,
+            data={
+                "message": (
+                    f"Tool '{tool_name}' error: {error_message}"
+                    if tool_name
+                    else error_message
+                ),
+                "code": "TOOL_ERROR",
+                "tool_call_id": tool_call_id,
+            },
+        )
+
+    # 7. LLM 错误
+    elif event_type == "on_llm_error":
+        error = data.get("error")
+        error_message = ""
+        if error is not None:
+            if isinstance(error, Exception):
+                error_message = f"{type(error).__name__}: {str(error)}"
+            elif isinstance(error, str):
+                error_message = error
+            else:
+                error_message = str(error)
+
+        yield AgentResult(
+            event=EventType.ERROR,
+            data={
+                "message": f"LLM error: {error_message}",
+                "code": "LLM_ERROR",
+            },
+        )
+
+    # 8. Chain 错误
+    elif event_type == "on_chain_error":
+        error = data.get("error")
+        chain_name = event_dict.get("name", "")
+        error_message = ""
+        if error is not None:
+            if isinstance(error, Exception):
+                error_message = f"{type(error).__name__}: {str(error)}"
+            elif isinstance(error, str):
+                error_message = error
+            else:
+                error_message = str(error)
+
+        yield AgentResult(
+            event=EventType.ERROR,
+            data={
+                "message": (
+                    f"Chain '{chain_name}' error: {error_message}"
+                    if chain_name
+                    else error_message
+                ),
+                "code": "CHAIN_ERROR",
+            },
+        )
+
+    # 9. Retriever 错误
+    elif event_type == "on_retriever_error":
+        error = data.get("error")
+        retriever_name = event_dict.get("name", "")
+        error_message = ""
+        if error is not None:
+            if isinstance(error, Exception):
+                error_message = f"{type(error).__name__}: {str(error)}"
+            elif isinstance(error, str):
+                error_message = error
+            else:
+                error_message = str(error)
+
+        yield AgentResult(
+            event=EventType.ERROR,
+            data={
+                "message": (
+                    f"Retriever '{retriever_name}' error: {error_message}"
+                    if retriever_name
+                    else error_message
+                ),
+                "code": "RETRIEVER_ERROR",
+            },
+        )
+
 
 # =============================================================================
 # 主要 API

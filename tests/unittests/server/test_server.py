@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from agentrun.server.model import AgentRequest, MessageRole
 from agentrun.server.server import AgentRunServer
 
@@ -682,3 +684,277 @@ class TestServer:
         assert line5["type"] == "RUN_FINISHED"
         assert line5["threadId"] == thread_id
         assert line5["runId"] == run_id
+
+    @pytest.mark.asyncio
+    async def test_server_text_then_tool_call_agui(self):
+        """测试 AG-UI 协议中先文本后工具调用的事件序列
+
+        AG-UI 协议要求：发送 TOOL_CALL_START 前必须先发送 TEXT_MESSAGE_END
+        """
+        from agentrun.server import (
+            AgentEvent,
+            AgentRequest,
+            AgentRunServer,
+            EventType,
+        )
+
+        async def streaming_invoke_agent(request: AgentRequest):
+            # 先发送文本
+            yield "思考中..."
+            # 然后发送工具调用
+            yield AgentEvent(
+                event=EventType.TOOL_CALL_CHUNK,
+                data={
+                    "id": "tc-1",
+                    "name": "search_tool",
+                    "args_delta": '{"query": "test"}',
+                },
+            )
+            yield AgentEvent(
+                event=EventType.TOOL_RESULT,
+                data={"id": "tc-1", "result": "搜索结果"},
+            )
+
+        server = AgentRunServer(invoke_agent=streaming_invoke_agent)
+        app = server.as_fastapi_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app)
+
+        response = client.post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "搜索一下"}]},
+        )
+
+        assert response.status_code == 200
+        lines = [line async for line in response.aiter_lines()]
+        lines = [line for line in lines if line]
+
+        # 预期事件序列：
+        # 1. RUN_STARTED
+        # 2. TEXT_MESSAGE_START
+        # 3. TEXT_MESSAGE_CONTENT
+        # 4. TEXT_MESSAGE_END  <-- 必须在 TOOL_CALL_START 之前
+        # 5. TOOL_CALL_START
+        # 6. TOOL_CALL_ARGS
+        # 7. TOOL_CALL_END
+        # 8. TOOL_CALL_RESULT
+        # 9. RUN_FINISHED
+        assert len(lines) == 9
+
+        line0 = self.parse_streaming_line(lines[0])
+        assert line0["type"] == "RUN_STARTED"
+
+        line1 = self.parse_streaming_line(lines[1])
+        assert line1["type"] == "TEXT_MESSAGE_START"
+        message_id = line1["messageId"]
+
+        line2 = self.parse_streaming_line(lines[2])
+        assert line2["type"] == "TEXT_MESSAGE_CONTENT"
+        assert line2["delta"] == "思考中..."
+
+        # 关键验证：TEXT_MESSAGE_END 必须在 TOOL_CALL_START 之前
+        line3 = self.parse_streaming_line(lines[3])
+        assert line3["type"] == "TEXT_MESSAGE_END"
+        assert line3["messageId"] == message_id
+
+        line4 = self.parse_streaming_line(lines[4])
+        assert line4["type"] == "TOOL_CALL_START"
+        assert line4["toolCallId"] == "tc-1"
+        assert line4["toolCallName"] == "search_tool"
+
+        line5 = self.parse_streaming_line(lines[5])
+        assert line5["type"] == "TOOL_CALL_ARGS"
+        assert line5["toolCallId"] == "tc-1"
+
+        line6 = self.parse_streaming_line(lines[6])
+        assert line6["type"] == "TOOL_CALL_END"
+        assert line6["toolCallId"] == "tc-1"
+
+        line7 = self.parse_streaming_line(lines[7])
+        assert line7["type"] == "TOOL_CALL_RESULT"
+        assert line7["toolCallId"] == "tc-1"
+
+        line8 = self.parse_streaming_line(lines[8])
+        assert line8["type"] == "RUN_FINISHED"
+
+    @pytest.mark.asyncio
+    async def test_server_text_tool_text_agui(self):
+        """测试 AG-UI 协议中 文本->工具调用->文本 的事件序列
+
+        场景：先输出思考内容，然后调用工具，最后输出结果
+        AG-UI 协议要求：
+        1. 发送 TOOL_CALL_START 前必须先发送 TEXT_MESSAGE_END
+        2. 工具调用后的新文本需要新的 TEXT_MESSAGE_START
+        """
+        from agentrun.server import (
+            AgentEvent,
+            AgentRequest,
+            AgentRunServer,
+            EventType,
+        )
+
+        async def streaming_invoke_agent(request: AgentRequest):
+            # 第一段文本
+            yield "让我搜索一下..."
+            # 工具调用
+            yield AgentEvent(
+                event=EventType.TOOL_CALL_CHUNK,
+                data={
+                    "id": "tc-1",
+                    "name": "search",
+                    "args_delta": '{"q": "天气"}',
+                },
+            )
+            yield AgentEvent(
+                event=EventType.TOOL_RESULT,
+                data={"id": "tc-1", "result": "晴天"},
+            )
+            # 第二段文本（工具调用后）
+            yield "根据搜索结果，今天是晴天。"
+
+        server = AgentRunServer(invoke_agent=streaming_invoke_agent)
+        app = server.as_fastapi_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app)
+
+        response = client.post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "今天天气如何"}]},
+        )
+
+        assert response.status_code == 200
+        lines = [line async for line in response.aiter_lines()]
+        lines = [line for line in lines if line]
+
+        # 预期事件序列：
+        # 1. RUN_STARTED
+        # 2. TEXT_MESSAGE_START (第一个文本消息)
+        # 3. TEXT_MESSAGE_CONTENT
+        # 4. TEXT_MESSAGE_END   <-- 工具调用前必须结束
+        # 5. TOOL_CALL_START
+        # 6. TOOL_CALL_ARGS
+        # 7. TOOL_CALL_END
+        # 8. TOOL_CALL_RESULT
+        # 9. TEXT_MESSAGE_START (第二个文本消息，新的 messageId)
+        # 10. TEXT_MESSAGE_CONTENT
+        # 11. TEXT_MESSAGE_END
+        # 12. RUN_FINISHED
+        assert len(lines) == 12
+
+        line0 = self.parse_streaming_line(lines[0])
+        assert line0["type"] == "RUN_STARTED"
+
+        # 第一个文本消息
+        line1 = self.parse_streaming_line(lines[1])
+        assert line1["type"] == "TEXT_MESSAGE_START"
+        first_message_id = line1["messageId"]
+
+        line2 = self.parse_streaming_line(lines[2])
+        assert line2["type"] == "TEXT_MESSAGE_CONTENT"
+        assert line2["messageId"] == first_message_id
+        assert line2["delta"] == "让我搜索一下..."
+
+        line3 = self.parse_streaming_line(lines[3])
+        assert line3["type"] == "TEXT_MESSAGE_END"
+        assert line3["messageId"] == first_message_id
+
+        # 工具调用
+        line4 = self.parse_streaming_line(lines[4])
+        assert line4["type"] == "TOOL_CALL_START"
+
+        line5 = self.parse_streaming_line(lines[5])
+        assert line5["type"] == "TOOL_CALL_ARGS"
+
+        line6 = self.parse_streaming_line(lines[6])
+        assert line6["type"] == "TOOL_CALL_END"
+
+        line7 = self.parse_streaming_line(lines[7])
+        assert line7["type"] == "TOOL_CALL_RESULT"
+
+        # 第二个文本消息（新的 messageId）
+        line8 = self.parse_streaming_line(lines[8])
+        assert line8["type"] == "TEXT_MESSAGE_START"
+        second_message_id = line8["messageId"]
+        # 验证是新的 messageId
+        assert second_message_id != first_message_id
+
+        line9 = self.parse_streaming_line(lines[9])
+        assert line9["type"] == "TEXT_MESSAGE_CONTENT"
+        assert line9["messageId"] == second_message_id
+        assert line9["delta"] == "根据搜索结果，今天是晴天。"
+
+        line10 = self.parse_streaming_line(lines[10])
+        assert line10["type"] == "TEXT_MESSAGE_END"
+        assert line10["messageId"] == second_message_id
+
+        line11 = self.parse_streaming_line(lines[11])
+        assert line11["type"] == "RUN_FINISHED"
+
+    @pytest.mark.asyncio
+    async def test_agent_request_raw_request(self):
+        """测试 AgentRequest.raw_request 可以访问原始请求对象
+
+        验证：
+        1. raw_request 包含完整的 Starlette Request 对象
+        2. 可以访问 headers, query_params, client 等属性
+        """
+        from agentrun.server import AgentRequest, AgentRunServer
+
+        captured_request: dict = {}
+
+        async def invoke_agent(request: AgentRequest):
+            # 捕获请求信息
+            captured_request["protocol"] = request.protocol
+            captured_request["has_raw_request"] = (
+                request.raw_request is not None
+            )
+            if request.raw_request:
+                captured_request["headers"] = dict(request.raw_request.headers)
+                captured_request["path"] = request.raw_request.url.path
+                captured_request["method"] = request.raw_request.method
+            return "Hello"
+
+        server = AgentRunServer(invoke_agent=invoke_agent)
+        app = server.as_fastapi_app()
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app)
+
+        # 测试 AG-UI 协议
+        response = client.post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "test"}]},
+            headers={"X-Custom-Header": "custom-value"},
+        )
+        assert response.status_code == 200
+
+        # 验证捕获的请求信息
+        assert captured_request["protocol"] == "agui"
+        assert captured_request["has_raw_request"] is True
+        assert captured_request["path"] == "/ag-ui/agent"
+        assert captured_request["method"] == "POST"
+        assert (
+            captured_request["headers"].get("x-custom-header") == "custom-value"
+        )
+
+        # 重置
+        captured_request.clear()
+
+        # 测试 OpenAI 协议
+        response = client.post(
+            "/openai/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "test"}]},
+            headers={"Authorization": "Bearer test-token"},
+        )
+        assert response.status_code == 200
+
+        # 验证捕获的请求信息
+        assert captured_request["protocol"] == "openai"
+        assert captured_request["has_raw_request"] is True
+        assert captured_request["path"] == "/openai/v1/chat/completions"
+        assert (
+            captured_request["headers"].get("authorization")
+            == "Bearer test-token"
+        )

@@ -189,17 +189,13 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
         # 解析工具列表
         tools = self._parse_tools(request_data.get("tools"))
 
-        # 提取原始请求头
-        raw_headers = dict(request.headers)
-
         # 构建 AgentRequest
         agent_request = AgentRequest(
             protocol="openai",  # 设置协议名称
             messages=messages,
             stream=request_data.get("stream", False),
             tools=tools,
-            body=request_data,
-            headers=raw_headers,
+            raw_request=request,  # 保留原始请求对象
         )
 
         return agent_request, context

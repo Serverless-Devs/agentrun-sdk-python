@@ -775,3 +775,180 @@ class TestCompleteFlow:
         chunk_idx = all_results.index(chunk_events[0])
         result_idx = all_results.index(result_events[0])
         assert chunk_idx < result_idx
+
+
+# =============================================================================
+# 测试错误事件
+# =============================================================================
+
+
+class TestErrorEvents:
+    """测试 LangChain 错误事件的转换"""
+
+    def test_on_tool_error(self):
+        """测试 on_tool_error 事件
+
+        输入: on_tool_error with error
+        输出: ERROR 事件
+        """
+        event = {
+            "event": "on_tool_error",
+            "name": "weather_tool",
+            "run_id": "run_123",
+            "data": {
+                "error": ValueError("Invalid city name"),
+                "input": {"city": "invalid"},
+            },
+        }
+
+        results = list(to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert "weather_tool" in results[0].data["message"]
+        assert "ValueError" in results[0].data["message"]
+        assert results[0].data["code"] == "TOOL_ERROR"
+        assert results[0].data["tool_call_id"] == "run_123"
+
+    def test_on_tool_error_with_runtime_tool_call_id(self):
+        """测试 on_tool_error 使用 runtime 中的 tool_call_id"""
+
+        class FakeRuntime:
+            tool_call_id = "call_original_id"
+
+        event = {
+            "event": "on_tool_error",
+            "name": "search_tool",
+            "run_id": "run_456",
+            "data": {
+                "error": Exception("API timeout"),
+                "input": {"query": "test", "runtime": FakeRuntime()},
+            },
+        }
+
+        results = list(to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].data["tool_call_id"] == "call_original_id"
+
+    def test_on_tool_error_with_string_error(self):
+        """测试 on_tool_error 使用字符串错误"""
+        event = {
+            "event": "on_tool_error",
+            "name": "calc_tool",
+            "run_id": "run_789",
+            "data": {
+                "error": "Division by zero",
+                "input": {},
+            },
+        }
+
+        results = list(to_agui_events(event))
+
+        assert len(results) == 1
+        assert "Division by zero" in results[0].data["message"]
+
+    def test_on_llm_error(self):
+        """测试 on_llm_error 事件
+
+        输入: on_llm_error with error
+        输出: ERROR 事件
+        """
+        event = {
+            "event": "on_llm_error",
+            "run_id": "run_llm",
+            "data": {
+                "error": RuntimeError("API rate limit exceeded"),
+            },
+        }
+
+        results = list(to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert "LLM error" in results[0].data["message"]
+        assert "RuntimeError" in results[0].data["message"]
+        assert results[0].data["code"] == "LLM_ERROR"
+
+    def test_on_chain_error(self):
+        """测试 on_chain_error 事件
+
+        输入: on_chain_error with error
+        输出: ERROR 事件
+        """
+        event = {
+            "event": "on_chain_error",
+            "name": "agent_chain",
+            "run_id": "run_chain",
+            "data": {
+                "error": KeyError("missing_key"),
+            },
+        }
+
+        results = list(to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert "agent_chain" in results[0].data["message"]
+        assert "KeyError" in results[0].data["message"]
+        assert results[0].data["code"] == "CHAIN_ERROR"
+
+    def test_on_retriever_error(self):
+        """测试 on_retriever_error 事件
+
+        输入: on_retriever_error with error
+        输出: ERROR 事件
+        """
+        event = {
+            "event": "on_retriever_error",
+            "name": "vector_store",
+            "run_id": "run_retriever",
+            "data": {
+                "error": ConnectionError("Database connection failed"),
+            },
+        }
+
+        results = list(to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert "vector_store" in results[0].data["message"]
+        assert "ConnectionError" in results[0].data["message"]
+        assert results[0].data["code"] == "RETRIEVER_ERROR"
+
+    def test_tool_error_in_complete_flow(self):
+        """测试完整流程中的工具错误
+
+        流程:
+        1. on_tool_start (TOOL_CALL_CHUNK)
+        2. on_tool_error (ERROR)
+        """
+        events = [
+            {
+                "event": "on_tool_start",
+                "name": "risky_tool",
+                "run_id": "run_risky",
+                "data": {"input": {"param": "test"}},
+            },
+            {
+                "event": "on_tool_error",
+                "name": "risky_tool",
+                "run_id": "run_risky",
+                "data": {
+                    "error": RuntimeError("Tool execution failed"),
+                    "input": {"param": "test"},
+                },
+            },
+        ]
+
+        all_results = convert_and_collect(events)
+
+        chunk_events = filter_agent_events(
+            all_results, EventType.TOOL_CALL_CHUNK
+        )
+        error_events = filter_agent_events(all_results, EventType.ERROR)
+
+        assert len(chunk_events) == 1
+        assert len(error_events) == 1
+        assert chunk_events[0].data["id"] == "run_risky"
+        assert error_events[0].data["tool_call_id"] == "run_risky"
