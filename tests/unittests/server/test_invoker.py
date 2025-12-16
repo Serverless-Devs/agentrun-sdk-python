@@ -20,7 +20,11 @@ class TestInvokerBasic:
     @pytest.fixture
     def req(self):
         return AgentRequest(
-            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+            messages=[],
+            tools=[],
+            stream=False,
+            raw_request=None,
+            protocol="unknown",
         )
 
     @pytest.mark.asyncio
@@ -45,7 +49,9 @@ class TestInvokerBasic:
         # 应该有 2 个 TEXT 事件（不再有边界事件）
         assert len(items) == 2
 
-        content_events = [item for item in items if item.event == EventType.TEXT]
+        content_events = [
+            item for item in items if item.event == EventType.TEXT
+        ]
         assert len(content_events) == 2
         assert content_events[0].data["delta"] == "hello"
         assert content_events[1].data["delta"] == " world"
@@ -99,7 +105,11 @@ class TestInvokerStream:
     @pytest.fixture
     def req(self):
         return AgentRequest(
-            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+            messages=[],
+            tools=[],
+            stream=False,
+            raw_request=None,
+            protocol="unknown",
         )
 
     @pytest.mark.asyncio
@@ -172,7 +182,9 @@ class TestInvokerStream:
         assert EventType.ERROR in event_types
 
         # 检查错误信息
-        error_event = next(item for item in items if item.event == EventType.ERROR)
+        error_event = next(
+            item for item in items if item.event == EventType.ERROR
+        )
         assert "Test error" in error_event.data["message"]
         assert error_event.data["code"] == "ValueError"
 
@@ -183,7 +195,11 @@ class TestInvokerSync:
     @pytest.fixture
     def req(self):
         return AgentRequest(
-            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+            messages=[],
+            tools=[],
+            stream=False,
+            raw_request=None,
+            protocol="unknown",
         )
 
     @pytest.mark.asyncio
@@ -204,7 +220,9 @@ class TestInvokerSync:
         async for item in result:
             items.append(item)
 
-        content_events = [item for item in items if item.event == EventType.TEXT]
+        content_events = [
+            item for item in items if item.event == EventType.TEXT
+        ]
         assert len(content_events) == 2
 
     @pytest.mark.asyncio
@@ -232,7 +250,11 @@ class TestInvokerMixed:
     @pytest.fixture
     def req(self):
         return AgentRequest(
-            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+            messages=[],
+            tools=[],
+            stream=False,
+            raw_request=None,
+            protocol="unknown",
         )
 
     @pytest.mark.asyncio
@@ -288,7 +310,9 @@ class TestInvokerMixed:
         async for item in invoker.invoke_stream(req):
             items.append(item)
 
-        content_events = [item for item in items if item.event == EventType.TEXT]
+        content_events = [
+            item for item in items if item.event == EventType.TEXT
+        ]
         # 只有两个非空字符串
         assert len(content_events) == 2
         assert content_events[0].data["delta"] == "hello"
@@ -301,7 +325,11 @@ class TestInvokerNone:
     @pytest.fixture
     def req(self):
         return AgentRequest(
-            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+            messages=[],
+            tools=[],
+            stream=False,
+            raw_request=None,
+            protocol="unknown",
         )
 
     @pytest.mark.asyncio
@@ -333,7 +361,9 @@ class TestInvokerNone:
         async for item in invoker.invoke_stream(req):
             items.append(item)
 
-        content_events = [item for item in items if item.event == EventType.TEXT]
+        content_events = [
+            item for item in items if item.event == EventType.TEXT
+        ]
         assert len(content_events) == 2
 
 
@@ -343,7 +373,11 @@ class TestInvokerToolCall:
     @pytest.fixture
     def req(self):
         return AgentRequest(
-            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+            messages=[],
+            tools=[],
+            stream=False,
+            raw_request=None,
+            protocol="unknown",
         )
 
     @pytest.mark.asyncio
