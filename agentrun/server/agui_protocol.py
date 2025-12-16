@@ -102,15 +102,19 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         # 可访问: POST http://localhost:8000/ag-ui/agent
     """
 
-    name = "agui"
+    name = "ag-ui"
 
     def __init__(self, config: Optional[ServerConfig] = None):
-        self.config = config.openai if config else None
+        self._config = config.agui if config else None
         self._encoder = EventEncoder()
+        # 是否串行化工具调用（兼容 CopilotKit 等前端）
+        self._copilotkit_compatibility = pydash.get(
+            self._config, "copilotkit_compatibility", False
+        )
 
     def get_prefix(self) -> str:
         """AG-UI 协议建议使用 /ag-ui/agent 前缀"""
-        return pydash.get(self.config, "prefix", DEFAULT_PREFIX)
+        return pydash.get(self._config, "prefix", DEFAULT_PREFIX)
 
     def as_fastapi_router(self, agent_invoker: "AgentInvoker") -> APIRouter:
         """创建 AG-UI 协议的 FastAPI Router"""
@@ -307,10 +311,16 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             "ended": False,
             "message_id": str(uuid.uuid4()),
         }
-        # 工具调用状态：{tool_id: {"started": bool, "ended": bool}}
-        tool_call_states: Dict[str, Dict[str, bool]] = {}
+        # 工具调用状态：{tool_id: {"started": bool, "ended": bool, "name": str, "has_result": bool}}
+        tool_call_states: Dict[str, Dict[str, Any]] = {}
         # 错误状态：RUN_ERROR 后不能再发送任何事件
         run_errored = False
+        # 当前活跃的工具调用 ID（仅在 copilotkit_compatibility=True 时使用）
+        # 用于实现严格的工具调用序列化
+        active_tool_id: Optional[str] = None
+        # 待发送的事件队列（仅在 copilotkit_compatibility=True 时使用）
+        # 当一个工具调用正在进行时，其他工具的事件会被放入队列
+        pending_events: List[AgentEvent] = []
 
         # 发送 RUN_STARTED
         yield self._encoder.encode(
@@ -319,6 +329,40 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 run_id=context.get("run_id"),
             )
         )
+
+        # 辅助函数：处理队列中的所有事件
+        def process_pending_queue() -> Iterator[str]:
+            """处理队列中的所有待处理事件"""
+            nonlocal active_tool_id
+            while pending_events:
+                pending_event = pending_events.pop(0)
+                pending_tool_id = (
+                    pending_event.data.get("id", "")
+                    if pending_event.data
+                    else ""
+                )
+
+                # 如果是新的工具调用，设置为活跃
+                if (
+                    pending_event.event == EventType.TOOL_CALL_CHUNK
+                    and active_tool_id is None
+                ):
+                    active_tool_id = pending_tool_id
+
+                for sse_data in self._process_event_with_boundaries(
+                    pending_event,
+                    context,
+                    text_state,
+                    tool_call_states,
+                    self._copilotkit_compatibility,
+                ):
+                    if sse_data:
+                        yield sse_data
+
+                # 如果处理的是 TOOL_RESULT，检查是否需要继续处理队列
+                if pending_event.event == EventType.TOOL_RESULT:
+                    if pending_tool_id == active_tool_id:
+                        active_tool_id = None
 
         async for event in event_stream:
             # RUN_ERROR 后不再处理任何事件
@@ -329,9 +373,88 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             if event.event == EventType.ERROR:
                 run_errored = True
 
+            # 在 copilotkit_compatibility=True 模式下，实现严格的工具调用序列化
+            # 当一个工具调用正在进行时，其他工具的事件会被放入队列
+            if self._copilotkit_compatibility and not run_errored:
+                tool_id = event.data.get("id", "") if event.data else ""
+
+                # 处理 TOOL_CALL_CHUNK 事件
+                if event.event == EventType.TOOL_CALL_CHUNK:
+                    if active_tool_id is None:
+                        # 没有活跃的工具调用，直接处理
+                        active_tool_id = tool_id
+                    elif tool_id != active_tool_id:
+                        # 有其他活跃的工具调用，放入队列
+                        pending_events.append(event)
+                        continue
+                    # 如果是同一个工具调用，继续处理
+
+                # 处理 TOOL_RESULT 事件
+                elif event.event == EventType.TOOL_RESULT:
+                    # 检查是否是 UUID 格式的 ID，如果是，尝试映射到 call_xxx ID
+                    actual_tool_id = tool_id
+                    tool_name = event.data.get("name", "") if event.data else ""
+                    is_uuid_format = (
+                        tool_id
+                        and not tool_id.startswith("call_")
+                        and "-" in tool_id
+                    )
+                    if is_uuid_format:
+                        # 尝试找到一个已存在的、相同工具名称的调用（使用 call_xxx ID）
+                        for existing_id, state in tool_call_states.items():
+                            if existing_id.startswith("call_") and (
+                                state.get("name") == tool_name or not tool_name
+                            ):
+                                actual_tool_id = existing_id
+                                break
+
+                    # 如果不是当前活跃工具的结果，放入队列
+                    if (
+                        active_tool_id is not None
+                        and actual_tool_id != active_tool_id
+                    ):
+                        pending_events.append(event)
+                        continue
+
+                    # 标记工具调用已有结果
+                    if actual_tool_id and actual_tool_id in tool_call_states:
+                        tool_call_states[actual_tool_id]["has_result"] = True
+
+                    # 处理当前事件
+                    for sse_data in self._process_event_with_boundaries(
+                        event,
+                        context,
+                        text_state,
+                        tool_call_states,
+                        self._copilotkit_compatibility,
+                    ):
+                        if sse_data:
+                            yield sse_data
+
+                    # 如果这是当前活跃工具的结果，处理队列中的事件
+                    if actual_tool_id == active_tool_id:
+                        active_tool_id = None
+                        # 处理队列中的事件
+                        for sse_data in process_pending_queue():
+                            yield sse_data
+                    continue
+
+                # 处理非工具相关事件（如 TEXT）
+                # 需要先处理队列中的所有事件
+                elif event.event == EventType.TEXT:
+                    # 先处理队列中的所有事件
+                    for sse_data in process_pending_queue():
+                        yield sse_data
+                    # 清除活跃工具 ID（因为我们要处理文本了）
+                    active_tool_id = None
+
             # 处理边界事件注入
             for sse_data in self._process_event_with_boundaries(
-                event, context, text_state, tool_call_states
+                event,
+                context,
+                text_state,
+                tool_call_states,
+                self._copilotkit_compatibility,
             ):
                 if sse_data:
                     yield sse_data
@@ -367,6 +490,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         context: Dict[str, Any],
         text_state: Dict[str, Any],
         tool_call_states: Dict[str, Dict[str, bool]],
+        copilotkit_compatibility: bool = False,
     ) -> Iterator[str]:
         """处理事件并注入边界事件
 
@@ -375,6 +499,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             context: 上下文
             text_state: 文本状态 {"started": bool, "ended": bool, "message_id": str}
             tool_call_states: 工具调用状态
+            copilotkit_compatibility: CopilotKit 兼容模式（启用工具调用串行化）
 
         Yields:
             SSE 格式的字符串
@@ -391,8 +516,9 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             return
 
         # TEXT 事件：在首个 TEXT 前注入 TEXT_MESSAGE_START
+        # AG-UI 协议要求：发送 TEXT_MESSAGE_START 前必须先结束所有未结束的 TOOL_CALL
         if event.event == EventType.TEXT:
-            # AG-UI 协议要求：发送 TEXT_MESSAGE_START 前必须先结束所有未结束的 TOOL_CALL
+            # 结束所有未结束的工具调用
             for tool_id, state in tool_call_states.items():
                 if state["started"] and not state["ended"]:
                     yield self._encoder.encode(
@@ -401,9 +527,9 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                     state["ended"] = True
 
             # 如果文本消息未开始，或者之前已结束（需要重新开始新消息）
-            if not text_state["started"] or text_state["ended"]:
+            if not text_state["started"] or text_state.get("ended", False):
                 # 每个新文本消息需要新的 messageId
-                if text_state["ended"]:
+                if text_state.get("ended", False):
                     text_state["message_id"] = str(uuid.uuid4())
                 yield self._encoder.encode(
                     TextMessageStartEvent(
@@ -433,27 +559,97 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             return
 
         # TOOL_CALL_CHUNK 事件：在首个 CHUNK 前注入 TOOL_CALL_START
+        # 注意：
+        # 1. AG-UI 协议要求在 TOOL_CALL_START 前必须先结束 TEXT_MESSAGE
+        # 2. 当 copilotkit_compatibility=True 时，某些前端实现（如 CopilotKit）
+        #    要求串行化工具调用，即在发送新的 TOOL_CALL_START 前必须先结束其他所有
+        #    活跃的工具调用
+        # 3. 如果一个工具调用已经结束，但收到了它的 ARGS 事件（LangChain 交错输出），
+        #    需要重新开始该工具调用
+        # 4. LangChain 的 on_tool_start 事件使用 run_id（UUID 格式），而流式 chunk
+        #    使用 call_xxx ID。如果收到一个 UUID 格式的 ID，且已有相同工具名称的
+        #    调用正在进行，则认为这是重复事件，使用已有的 ID
         if event.event == EventType.TOOL_CALL_CHUNK:
             tool_id = event.data.get("id", "")
             tool_name = event.data.get("name", "")
 
             # 如果文本消息未结束，先结束文本消息
-            # AG-UI 协议要求：发送 TOOL_CALL_START 前必须先结束 TEXT_MESSAGE
-            if text_state["started"] and not text_state["ended"]:
+            if text_state["started"] and not text_state.get("ended", False):
                 yield self._encoder.encode(
                     TextMessageEndEvent(message_id=text_state["message_id"])
                 )
                 text_state["ended"] = True
 
-            if tool_id and tool_id not in tool_call_states:
-                # 首次见到这个工具调用，发送 TOOL_CALL_START
+            # 检查是否是 LangChain on_tool_start 的重复事件
+            # 仅在 copilotkit_compatibility=True（兼容模式）下启用此检测
+            # LangChain 的流式 chunk 使用 call_xxx ID，on_tool_start 使用 UUID
+            # 如果收到 UUID 格式的 ID，且已有相同工具名称的调用（使用 call_xxx ID），
+            # 则认为是重复事件
+            # 注意：UUID 格式通常是 8-4-4-4-12 的格式，或者其他非 call_ 开头的长字符串
+            # 我们只检测那些看起来像 UUID 的 ID（包含 - 且不是 call_ 开头）
+            if copilotkit_compatibility:
+                is_uuid_format = (
+                    tool_id
+                    and not tool_id.startswith("call_")
+                    and "-" in tool_id
+                )
+                if is_uuid_format and tool_name:
+                    for existing_id, state in tool_call_states.items():
+                        # 只有当已有的调用使用 call_xxx ID 时，才认为是重复
+                        if (
+                            existing_id.startswith("call_")
+                            and state.get("name") == tool_name
+                            and state["started"]
+                        ):
+                            # 已有相同工具名称的调用（使用 call_xxx ID），这是重复事件
+                            # 如果工具调用未结束，使用已有的 ID 发送 ARGS
+                            # 如果工具调用已结束，忽略这个事件（ARGS 已经发送过了）
+                            if not state["ended"]:
+                                args_delta = event.data.get("args_delta", "")
+                                if args_delta:
+                                    yield self._encoder.encode(
+                                        ToolCallArgsEvent(
+                                            tool_call_id=existing_id,
+                                            delta=args_delta,
+                                        )
+                                    )
+                            # 无论是否结束，都认为这是重复事件，直接返回
+                            return
+
+            # 检查是否需要发送 TOOL_CALL_START
+            need_start = False
+            if tool_id:
+                if tool_id not in tool_call_states:
+                    # 首次见到这个工具调用
+                    need_start = True
+                elif tool_call_states[tool_id].get("ended", False):
+                    # 工具调用已结束，但收到了新的 ARGS 事件
+                    # 这种情况在 LangChain 交错输出时可能发生
+                    # 需要重新开始该工具调用
+                    need_start = True
+
+            if need_start:
+                # 当 copilotkit_compatibility=True 时，先结束所有其他活跃的工具调用
+                if copilotkit_compatibility:
+                    for other_tool_id, state in tool_call_states.items():
+                        if state["started"] and not state["ended"]:
+                            yield self._encoder.encode(
+                                ToolCallEndEvent(tool_call_id=other_tool_id)
+                            )
+                            state["ended"] = True
+
+                # 发送 TOOL_CALL_START
                 yield self._encoder.encode(
                     ToolCallStartEvent(
                         tool_call_id=tool_id,
                         tool_call_name=tool_name,
                     )
                 )
-                tool_call_states[tool_id] = {"started": True, "ended": False}
+                tool_call_states[tool_id] = {
+                    "started": True,
+                    "ended": False,
+                    "name": tool_name,  # 存储工具名称，用于检测重复
+                }
 
             # 发送 TOOL_CALL_ARGS
             yield self._encoder.encode(
@@ -464,46 +660,83 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             )
             return
 
-        # TOOL_RESULT 事件：确保工具调用已结束
+        # TOOL_RESULT 事件：确保当前工具调用已结束
         if event.event == EventType.TOOL_RESULT:
             tool_id = event.data.get("id", "")
+            tool_name = event.data.get("name", "")
 
             # 如果文本消息未结束，先结束文本消息
-            # AG-UI 协议要求：发送 TOOL_CALL_START 前必须先结束 TEXT_MESSAGE
-            if text_state["started"] and not text_state["ended"]:
+            if text_state["started"] and not text_state.get("ended", False):
                 yield self._encoder.encode(
                     TextMessageEndEvent(message_id=text_state["message_id"])
                 )
                 text_state["ended"] = True
 
+            # 检查是否是 LangChain on_tool_end 的事件（使用 UUID 格式的 ID）
+            # 仅在 copilotkit_compatibility=True（兼容模式）下启用此检测
+            # 如果是，尝试找到对应的 call_xxx ID
+            # UUID 格式通常是 8-4-4-4-12 的格式，或者其他非 call_ 开头且包含 - 的字符串
+            actual_tool_id = tool_id
+            if copilotkit_compatibility:
+                is_uuid_format = (
+                    tool_id
+                    and not tool_id.startswith("call_")
+                    and "-" in tool_id
+                )
+                if is_uuid_format:
+                    # 尝试找到一个已存在的、相同工具名称的调用（使用 call_xxx ID）
+                    for existing_id, state in tool_call_states.items():
+                        if existing_id.startswith("call_") and (
+                            state.get("name") == tool_name or not tool_name
+                        ):
+                            actual_tool_id = existing_id
+                            break
+
+            # 当 serialize_tool_calls=True 时，先结束所有其他活跃的工具调用
+            if copilotkit_compatibility:
+                for other_tool_id, state in tool_call_states.items():
+                    if (
+                        other_tool_id != actual_tool_id
+                        and state["started"]
+                        and not state["ended"]
+                    ):
+                        yield self._encoder.encode(
+                            ToolCallEndEvent(tool_call_id=other_tool_id)
+                        )
+                        state["ended"] = True
+
             # 如果工具调用未开始，先补充 START
-            if tool_id and tool_id not in tool_call_states:
+            if actual_tool_id and actual_tool_id not in tool_call_states:
                 yield self._encoder.encode(
                     ToolCallStartEvent(
-                        tool_call_id=tool_id,
-                        tool_call_name="",
+                        tool_call_id=actual_tool_id,
+                        tool_call_name=tool_name or "",
                     )
                 )
-                tool_call_states[tool_id] = {"started": True, "ended": False}
+                tool_call_states[actual_tool_id] = {
+                    "started": True,
+                    "ended": False,
+                    "name": tool_name,
+                }
 
-            # 如果工具调用未结束，先补充 END
+            # 如果当前工具调用未结束，先补充 END
             if (
-                tool_id
-                and tool_call_states.get(tool_id, {}).get("started")
-                and not tool_call_states.get(tool_id, {}).get("ended")
+                actual_tool_id
+                and tool_call_states.get(actual_tool_id, {}).get("started")
+                and not tool_call_states.get(actual_tool_id, {}).get("ended")
             ):
                 yield self._encoder.encode(
-                    ToolCallEndEvent(tool_call_id=tool_id)
+                    ToolCallEndEvent(tool_call_id=actual_tool_id)
                 )
-                tool_call_states[tool_id]["ended"] = True
+                tool_call_states[actual_tool_id]["ended"] = True
 
             # 发送 TOOL_CALL_RESULT
             yield self._encoder.encode(
                 ToolCallResultEvent(
                     message_id=event.data.get(
-                        "message_id", f"tool-result-{tool_id}"
+                        "message_id", f"tool-result-{actual_tool_id}"
                     ),
-                    tool_call_id=tool_id,
+                    tool_call_id=actual_tool_id,
                     content=event.data.get("content")
                     or event.data.get("result", ""),
                     role="tool",
@@ -512,22 +745,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             return
 
         # ERROR 事件
+        # 注意：AG-UI 协议允许 RUN_ERROR 在任何时候发送，不需要先结束其他事件
         if event.event == EventType.ERROR:
-            # AG-UI 协议要求：发送 RUN_ERROR 前必须先结束所有未结束的 TOOL_CALL
-            for tool_id, state in tool_call_states.items():
-                if state["started"] and not state["ended"]:
-                    yield self._encoder.encode(
-                        ToolCallEndEvent(tool_call_id=tool_id)
-                    )
-                    state["ended"] = True
-
-            # AG-UI 协议要求：发送 RUN_ERROR 前必须先结束文本消息
-            if text_state["started"] and not text_state["ended"]:
-                yield self._encoder.encode(
-                    TextMessageEndEvent(message_id=text_state["message_id"])
-                )
-                text_state["ended"] = True
-
             yield self._encoder.encode(
                 RunErrorEvent(
                     message=event.data.get("message", ""),
@@ -563,9 +782,15 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             return
 
         # 其他未知事件
+        # 注意：event.event 可能是字符串（Pydantic 序列化后）或枚举对象
+        event_name = (
+            event.event.value
+            if hasattr(event.event, "value")
+            else str(event.event)
+        )
         yield self._encoder.encode(
             AguiCustomEvent(
-                name=event.event.value,
+                name=event_name,
                 value=event.data,
             )
         )
@@ -642,7 +867,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             # 深度合并
             event_data = merge(event_data, addition)
 
-        elif mode == AdditionMode.PROTOCOL_ONLY:
+        else:  # AdditionMode.PROTOCOL_ONLY
             # 仅覆盖原有字段
             event_data = merge(event_data, addition, no_new_field=True)
 
