@@ -13,8 +13,9 @@ import pytest
 
 from agentrun.integration.langgraph.agent_converter import AgentRunConverter
 from agentrun.server.model import AgentResult, EventType
-# 使用 conftest.py 中的公共 mock 函数
-from tests.unittests.integration.conftest import (
+
+# 使用 helpers.py 中的公共 mock 函数
+from .helpers import (
     create_mock_ai_message,
     create_mock_ai_message_chunk,
     create_mock_tool_message,
@@ -894,6 +895,101 @@ class TestConvertAstreamEventsFormat:
 
         results = list(AgentRunConverter.to_agui_events(event))
         assert len(results) == 0
+
+    def test_on_chain_stream_tool_call_no_duplicate_with_on_tool_start(self):
+        """测试 on_chain_stream 中的 tool call 不会与 on_tool_start 重复
+
+        这个测试验证：当 on_chain_stream 已经发送了 TOOL_CALL_CHUNK 后，
+        后续的 on_tool_start 事件不应该再次发送 TOOL_CALL_CHUNK。
+        """
+        tool_call_id = "call_abc123"
+        tool_name = "get_user_name"
+
+        # 使用 converter 实例来维护状态
+        converter = AgentRunConverter()
+
+        # 1. 首先是 on_chain_stream 事件，包含 tool call
+        msg = create_mock_ai_message(
+            content="",
+            tool_calls=[{"id": tool_call_id, "name": tool_name, "args": {}}],
+        )
+        chain_stream_event = {
+            "event": "on_chain_stream",
+            "name": "model",
+            "data": {"chunk": {"messages": [msg]}},
+        }
+
+        results1 = list(converter.convert(chain_stream_event))
+
+        # 应该产生一个 TOOL_CALL_CHUNK
+        assert len(results1) == 1
+        assert results1[0].event == EventType.TOOL_CALL_CHUNK
+        assert results1[0].data["id"] == tool_call_id
+        assert results1[0].data["name"] == tool_name
+
+        # 2. 然后是 on_tool_start 事件（使用不同的 run_id，模拟真实场景）
+        run_id = "run_xyz789"
+        tool_start_event = {
+            "event": "on_tool_start",
+            "run_id": run_id,
+            "name": tool_name,
+            "data": {"input": {}},
+        }
+
+        results2 = list(converter.convert(tool_start_event))
+
+        # 不应该产生 TOOL_CALL_CHUNK（因为已经在 on_chain_stream 中发送过了）
+        # 通过 tool_name_to_call_ids 映射，on_tool_start 应该使用相同的 tool_call_id
+        assert len(results2) == 0
+
+    def test_on_chain_stream_tool_call_with_on_tool_end(self):
+        """测试 on_chain_stream 中的 tool call 与 on_tool_end 的 ID 一致性
+
+        这个测试验证：当 on_chain_stream 发送 TOOL_CALL_CHUNK 后，
+        on_tool_end 应该使用相同的 tool_call_id 发送 TOOL_RESULT。
+        """
+        tool_call_id = "call_abc123"
+        tool_name = "get_user_name"
+        run_id = "run_xyz789"
+
+        # 使用 converter 实例来维护状态
+        converter = AgentRunConverter()
+
+        # 1. on_chain_stream 事件
+        msg = create_mock_ai_message(
+            content="",
+            tool_calls=[{"id": tool_call_id, "name": tool_name, "args": {}}],
+        )
+        chain_stream_event = {
+            "event": "on_chain_stream",
+            "name": "model",
+            "data": {"chunk": {"messages": [msg]}},
+        }
+        list(converter.convert(chain_stream_event))
+
+        # 2. on_tool_start 事件
+        tool_start_event = {
+            "event": "on_tool_start",
+            "run_id": run_id,
+            "name": tool_name,
+            "data": {"input": {}},
+        }
+        list(converter.convert(tool_start_event))
+
+        # 3. on_tool_end 事件
+        tool_end_event = {
+            "event": "on_tool_end",
+            "run_id": run_id,
+            "name": tool_name,
+            "data": {"output": '{"user_name": "张三"}'},
+        }
+        results3 = list(converter.convert(tool_end_event))
+
+        # 应该产生一个 TOOL_RESULT，使用原始的 tool_call_id
+        assert len(results3) == 1
+        assert results3[0].event == EventType.TOOL_RESULT
+        assert results3[0].data["id"] == tool_call_id
+        assert results3[0].data["result"] == '{"user_name": "张三"}'
 
 
 # =============================================================================

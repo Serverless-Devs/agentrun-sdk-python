@@ -524,7 +524,7 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
         elif mode == AdditionMode.MERGE:
             delta = merge(delta, addition)
 
-        elif mode == AdditionMode.PROTOCOL_ONLY:
+        else:  # AdditionMode.PROTOCOL_ONLY
             delta = merge(delta, addition, no_new_field=True)
 
         return delta

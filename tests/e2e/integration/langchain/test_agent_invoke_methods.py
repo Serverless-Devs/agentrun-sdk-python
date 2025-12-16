@@ -14,7 +14,6 @@ AgentRunServer 集成测试 - 测试不同的 LangChain/LangGraph 调用方式
 2. 工具调用场景
 """
 
-from collections import Counter
 import json
 import socket
 import threading
@@ -29,7 +28,7 @@ import pytest
 import uvicorn
 
 from agentrun.integration.langchain import model
-from agentrun.integration.langgraph import to_agui_events
+from agentrun.integration.langgraph import AgentRunConverter
 from agentrun.model import ModelService, ModelType, ProviderSettings
 from agentrun.server import AgentRequest, AgentRunServer
 
@@ -823,11 +822,13 @@ def server_app_astream_events(agent_model):
             ]
         }
 
+        converter = AgentRunConverter()
+
         async def generator():
             async for event in agent.astream_events(
                 cast(Any, input_data), version="v2"
             ):
-                for item in to_agui_events(event):
+                for item in converter.convert(event):
                     yield item
 
         return generator()
@@ -890,13 +891,14 @@ class TestAstreamUpdates:
                 ]
             }
 
+            converter = AgentRunConverter()
             if request.stream:
 
                 async def generator():
                     async for event in agent.astream(
                         cast(Any, input_data), stream_mode="updates"
                     ):
-                        for item in to_agui_events(event):
+                        for item in converter.convert(event):
                             yield item
 
                 return generator()
@@ -950,13 +952,14 @@ class TestStreamUpdates:
                 ]
             }
 
+            converter = AgentRunConverter()
             if request.stream:
 
                 def generator():
                     for event in agent.stream(
                         cast(Any, input_data), stream_mode="updates"
                     ):
-                        for item in to_agui_events(event):
+                        for item in converter.convert(event):
                             yield item
 
                 return generator()
@@ -1010,11 +1013,13 @@ class TestInvoke:
                 ]
             }
 
+            converter = AgentRunConverter()
+
             async def generator():
                 async for event in agent.astream_events(
                     cast(Any, input_data), version="v2"
                 ):
-                    for item in to_agui_events(event):
+                    for item in converter.convert(event):
                         yield item
 
             return generator()
@@ -1042,11 +1047,13 @@ class TestInvoke:
                 ]
             }
 
+            converter = AgentRunConverter()
+
             async def generator():
                 async for event in agent.astream_events(
                     cast(Any, input_data), version="v2"
                 ):
-                    for item in to_agui_events(event):
+                    for item in converter.convert(event):
                         yield item
 
             return generator()

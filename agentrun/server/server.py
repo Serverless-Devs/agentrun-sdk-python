@@ -6,7 +6,7 @@
 - 支持多协议同时运行（OpenAI + AG-UI）
 """
 
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from fastapi import FastAPI
 import uvicorn
@@ -116,7 +116,10 @@ class AgentRunServer:
 
         # 默认使用 OpenAI 和 AG-UI 协议
         if protocols is None:
-            protocols = [OpenAIProtocolHandler(config), AGUIProtocolHandler()]
+            protocols = [
+                OpenAIProtocolHandler(config),
+                AGUIProtocolHandler(config),
+            ]
 
         # 挂载所有协议的 Router
         self._mount_protocols(protocols)

@@ -187,6 +187,50 @@ class TestAguiEventNormalizer:
 
         assert len(results) == 0
 
+    def test_dict_with_invalid_event_type_value(self):
+        """测试字典中无效的事件类型值"""
+        normalizer = AguiEventNormalizer()
+
+        # 事件类型既不是有效的 EventType 值也不是有效的枚举名称
+        event_dict = {
+            "event": "INVALID_EVENT_TYPE",
+            "data": {"delta": "Hello"},
+        }
+        results = list(normalizer.normalize(event_dict))
+
+        # 无效事件类型应该返回空
+        assert len(results) == 0
+
+    def test_dict_with_invalid_event_type_key(self):
+        """测试字典中无效的事件类型键（尝试通过枚举名称）"""
+        normalizer = AguiEventNormalizer()
+
+        # 尝试使用无效的枚举名称
+        event_dict = {
+            "event": "NONEXISTENT",
+            "data": {"delta": "Hello"},
+        }
+        results = list(normalizer.normalize(event_dict))
+
+        # 无效事件类型应该返回空
+        assert len(results) == 0
+
+    def test_normalize_with_non_standard_input(self):
+        """测试非标准输入类型"""
+        normalizer = AguiEventNormalizer()
+
+        # 传入整数
+        results = list(normalizer.normalize(123))
+        assert len(results) == 0
+
+        # 传入 None
+        results = list(normalizer.normalize(None))
+        assert len(results) == 0
+
+        # 传入列表
+        results = list(normalizer.normalize([1, 2, 3]))
+        assert len(results) == 0
+
     def test_reset_clears_state(self):
         """测试 reset 清空状态"""
         normalizer = AguiEventNormalizer()
@@ -206,6 +250,115 @@ class TestAguiEventNormalizer:
         # 状态应该清空
         assert len(normalizer.get_active_tool_calls()) == 0
         assert len(normalizer.get_seen_tool_calls()) == 0
+
+    def test_tool_call_with_empty_id(self):
+        """测试空 tool_call_id 的 TOOL_CALL 事件"""
+        normalizer = AguiEventNormalizer()
+
+        event = AgentEvent(
+            event=EventType.TOOL_CALL,
+            data={"id": "", "name": "test", "args": "{}"},  # 空 id
+        )
+        results = list(normalizer.normalize(event))
+
+        assert len(results) == 1
+        # 空 id 不会被添加到追踪列表
+        assert len(normalizer.get_seen_tool_calls()) == 0
+        assert len(normalizer.get_active_tool_calls()) == 0
+
+    def test_tool_call_chunk_with_empty_id(self):
+        """测试空 tool_call_id 的 TOOL_CALL_CHUNK 事件"""
+        normalizer = AguiEventNormalizer()
+
+        event = AgentEvent(
+            event=EventType.TOOL_CALL_CHUNK,
+            data={"id": "", "name": "test", "args_delta": "{}"},  # 空 id
+        )
+        results = list(normalizer.normalize(event))
+
+        assert len(results) == 1
+        # 空 id 不会被添加到追踪列表
+        assert len(normalizer.get_seen_tool_calls()) == 0
+
+    def test_tool_call_chunk_without_name(self):
+        """测试没有 name 的 TOOL_CALL_CHUNK 事件"""
+        normalizer = AguiEventNormalizer()
+
+        event = AgentEvent(
+            event=EventType.TOOL_CALL_CHUNK,
+            data={"id": "call_1", "args_delta": "{}"},  # 没有 name
+        )
+        results = list(normalizer.normalize(event))
+
+        assert len(results) == 1
+        # id 会被追踪，但没有 name
+        assert "call_1" in normalizer.get_seen_tool_calls()
+        # 没有 name 时不会添加到 active_tool_calls 的名称映射
+        assert "call_1" not in normalizer.get_active_tool_calls()
+
+    def test_tool_result_with_empty_id(self):
+        """测试空 tool_call_id 的 TOOL_RESULT 事件"""
+        normalizer = AguiEventNormalizer()
+
+        # 先添加一个工具调用
+        chunk_event = AgentEvent(
+            event=EventType.TOOL_CALL_CHUNK,
+            data={"id": "call_1", "name": "test", "args_delta": "{}"},
+        )
+        list(normalizer.normalize(chunk_event))
+        assert "call_1" in normalizer.get_active_tool_calls()
+
+        # 发送空 id 的结果
+        result_event = AgentEvent(
+            event=EventType.TOOL_RESULT,
+            data={"id": "", "result": "done"},  # 空 id
+        )
+        results = list(normalizer.normalize(result_event))
+
+        assert len(results) == 1
+        # call_1 仍然是活跃的（因为结果的 id 为空）
+        assert "call_1" in normalizer.get_active_tool_calls()
+
+    def test_dict_with_event_type_enum(self):
+        """测试字典中直接使用 EventType 枚举（覆盖 106->115 分支）"""
+        normalizer = AguiEventNormalizer()
+
+        event_dict = {
+            "event": EventType.TEXT,  # 直接使用枚举，不是字符串
+            "data": {"delta": "Hello"},
+        }
+        results = list(normalizer.normalize(event_dict))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.TEXT
+        assert results[0].data["delta"] == "Hello"
+
+    def test_dict_with_event_type_enum_custom(self):
+        """测试字典中直接使用 EventType.CUSTOM 枚举"""
+        normalizer = AguiEventNormalizer()
+
+        event_dict = {
+            "event": EventType.CUSTOM,  # 直接使用枚举
+            "data": {"name": "test_event", "value": {"key": "value"}},
+        }
+        results = list(normalizer.normalize(event_dict))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.CUSTOM
+        assert results[0].data["name"] == "test_event"
+
+    def test_dict_with_event_type_enum_tool_call(self):
+        """测试字典中直接使用 EventType.TOOL_CALL 枚举"""
+        normalizer = AguiEventNormalizer()
+
+        event_dict = {
+            "event": EventType.TOOL_CALL,  # 直接使用枚举
+            "data": {"id": "tc-1", "name": "test", "args": "{}"},
+        }
+        results = list(normalizer.normalize(event_dict))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.TOOL_CALL
 
     def test_complete_tool_call_sequence(self):
         """测试完整的工具调用序列追踪"""
@@ -286,7 +439,7 @@ class TestAguiEventNormalizerWithAguiProtocol:
         # 验证 TOOL_CALL_CHUNK 可以映射到 ag-ui
         chunk_result = all_results[0]
         args_event = ToolCallArgsEvent(
-            toolCallId=chunk_result.data["id"],
+            tool_call_id=chunk_result.data["id"],
             delta=chunk_result.data["args_delta"],
         )
         assert args_event.tool_call_id == "call_1"
@@ -294,8 +447,8 @@ class TestAguiEventNormalizerWithAguiProtocol:
         # 验证 TOOL_RESULT 可以映射到 ag-ui
         result_result = all_results[1]
         result_event = ToolCallResultEvent(
-            messageId="msg_1",
-            toolCallId=result_result.data["id"],
+            message_id="msg_1",
+            tool_call_id=result_result.data["id"],
             content=result_result.data["result"],
         )
         assert result_event.tool_call_id == "call_1"

@@ -17,8 +17,14 @@ from agentrun.server.model import AgentEvent, AgentRequest, EventType
 class TestInvokerBasic:
     """基本调用测试"""
 
+    @pytest.fixture
+    def req(self):
+        return AgentRequest(
+            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+        )
+
     @pytest.mark.asyncio
-    async def test_async_generator_returns_stream(self):
+    async def test_async_generator_returns_stream(self, req):
         """测试异步生成器返回流式结果"""
 
         async def invoke_agent(req: AgentRequest) -> AsyncGenerator[str, None]:
@@ -26,7 +32,7 @@ class TestInvokerBasic:
             yield " world"
 
         invoker = AgentInvoker(invoke_agent)
-        result = await invoker.invoke(AgentRequest(messages=[]))
+        result = await invoker.invoke(req)
 
         # 结果应该是异步生成器
         assert hasattr(result, "__aiter__")
@@ -39,15 +45,13 @@ class TestInvokerBasic:
         # 应该有 2 个 TEXT 事件（不再有边界事件）
         assert len(items) == 2
 
-        content_events = [
-            item for item in items if item.event == EventType.TEXT
-        ]
+        content_events = [item for item in items if item.event == EventType.TEXT]
         assert len(content_events) == 2
         assert content_events[0].data["delta"] == "hello"
         assert content_events[1].data["delta"] == " world"
 
     @pytest.mark.asyncio
-    async def test_text_events_structure(self):
+    async def test_text_events_structure(self, req):
         """测试 TEXT 事件结构正确"""
 
         async def invoke_agent(req: AgentRequest) -> AsyncGenerator[str, None]:
@@ -56,7 +60,7 @@ class TestInvokerBasic:
             yield "World"
 
         invoker = AgentInvoker(invoke_agent)
-        result = await invoker.invoke(AgentRequest(messages=[]))
+        result = await invoker.invoke(req)
 
         items: List[AgentEvent] = []
         async for item in result:
@@ -71,14 +75,14 @@ class TestInvokerBasic:
         assert deltas == ["Hello", " ", "World"]
 
     @pytest.mark.asyncio
-    async def test_async_coroutine_returns_list(self):
+    async def test_async_coroutine_returns_list(self, req):
         """测试异步协程返回列表结果"""
 
         async def invoke_agent(req: AgentRequest) -> str:
             return "world"
 
         invoker = AgentInvoker(invoke_agent)
-        result = await invoker.invoke(AgentRequest(messages=[]))
+        result = await invoker.invoke(req)
 
         # 非流式返回应该是列表
         assert isinstance(result, list)
@@ -92,8 +96,14 @@ class TestInvokerBasic:
 class TestInvokerStream:
     """invoke_stream 方法测试"""
 
+    @pytest.fixture
+    def req(self):
+        return AgentRequest(
+            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+        )
+
     @pytest.mark.asyncio
-    async def test_invoke_stream_with_string(self):
+    async def test_invoke_stream_with_string(self, req):
         """测试 invoke_stream 返回核心事件"""
 
         async def invoke_agent(req: AgentRequest) -> str:
@@ -102,7 +112,7 @@ class TestInvokerStream:
         invoker = AgentInvoker(invoke_agent)
 
         items: List[AgentEvent] = []
-        async for item in invoker.invoke_stream(AgentRequest(messages=[])):
+        async for item in invoker.invoke_stream(req):
             items.append(item)
 
         # 应该只包含 TEXT 事件（边界事件由协议层生成）
@@ -111,7 +121,7 @@ class TestInvokerStream:
         assert len(items) == 1
 
     @pytest.mark.asyncio
-    async def test_invoke_stream_with_agent_event(self):
+    async def test_invoke_stream_with_agent_event(self, req):
         """测试返回 AgentEvent 事件"""
 
         async def invoke_agent(
@@ -133,7 +143,7 @@ class TestInvokerStream:
         invoker = AgentInvoker(invoke_agent)
 
         items: List[AgentEvent] = []
-        async for item in invoker.invoke_stream(AgentRequest(messages=[])):
+        async for item in invoker.invoke_stream(req):
             items.append(item)
 
         event_types = [item.event for item in items]
@@ -144,7 +154,7 @@ class TestInvokerStream:
         assert len(items) == 3
 
     @pytest.mark.asyncio
-    async def test_invoke_stream_error_handling(self):
+    async def test_invoke_stream_error_handling(self, req):
         """测试错误处理"""
 
         async def invoke_agent(req: AgentRequest) -> str:
@@ -153,7 +163,7 @@ class TestInvokerStream:
         invoker = AgentInvoker(invoke_agent)
 
         items: List[AgentEvent] = []
-        async for item in invoker.invoke_stream(AgentRequest(messages=[])):
+        async for item in invoker.invoke_stream(req):
             items.append(item)
 
         event_types = [item.event for item in items]
@@ -162,9 +172,7 @@ class TestInvokerStream:
         assert EventType.ERROR in event_types
 
         # 检查错误信息
-        error_event = next(
-            item for item in items if item.event == EventType.ERROR
-        )
+        error_event = next(item for item in items if item.event == EventType.ERROR)
         assert "Test error" in error_event.data["message"]
         assert error_event.data["code"] == "ValueError"
 
@@ -172,8 +180,14 @@ class TestInvokerStream:
 class TestInvokerSync:
     """同步调用测试"""
 
+    @pytest.fixture
+    def req(self):
+        return AgentRequest(
+            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+        )
+
     @pytest.mark.asyncio
-    async def test_sync_generator(self):
+    async def test_sync_generator(self, req):
         """测试同步生成器"""
 
         def invoke_agent(req: AgentRequest):
@@ -181,7 +195,7 @@ class TestInvokerSync:
             yield " world"
 
         invoker = AgentInvoker(invoke_agent)
-        result = await invoker.invoke(AgentRequest(messages=[]))
+        result = await invoker.invoke(req)
 
         # 结果应该是异步生成器
         assert hasattr(result, "__aiter__")
@@ -190,9 +204,7 @@ class TestInvokerSync:
         async for item in result:
             items.append(item)
 
-        content_events = [
-            item for item in items if item.event == EventType.TEXT
-        ]
+        content_events = [item for item in items if item.event == EventType.TEXT]
         assert len(content_events) == 2
 
     @pytest.mark.asyncio
@@ -217,8 +229,14 @@ class TestInvokerSync:
 class TestInvokerMixed:
     """混合内容测试"""
 
+    @pytest.fixture
+    def req(self):
+        return AgentRequest(
+            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+        )
+
     @pytest.mark.asyncio
-    async def test_mixed_string_and_events(self):
+    async def test_mixed_string_and_events(self, req):
         """测试混合字符串和事件"""
 
         async def invoke_agent(req: AgentRequest):
@@ -232,7 +250,7 @@ class TestInvokerMixed:
         invoker = AgentInvoker(invoke_agent)
 
         items: List[AgentEvent] = []
-        async for item in invoker.invoke_stream(AgentRequest(messages=[])):
+        async for item in invoker.invoke_stream(req):
             items.append(item)
 
         event_types = [item.event for item in items]
@@ -254,7 +272,7 @@ class TestInvokerMixed:
         assert tool_events[0].data["name"] == "test"
 
     @pytest.mark.asyncio
-    async def test_empty_string_ignored(self):
+    async def test_empty_string_ignored(self, req):
         """测试空字符串被忽略"""
 
         async def invoke_agent(req: AgentRequest):
@@ -267,12 +285,10 @@ class TestInvokerMixed:
         invoker = AgentInvoker(invoke_agent)
 
         items: List[AgentEvent] = []
-        async for item in invoker.invoke_stream(AgentRequest(messages=[])):
+        async for item in invoker.invoke_stream(req):
             items.append(item)
 
-        content_events = [
-            item for item in items if item.event == EventType.TEXT
-        ]
+        content_events = [item for item in items if item.event == EventType.TEXT]
         # 只有两个非空字符串
         assert len(content_events) == 2
         assert content_events[0].data["delta"] == "hello"
@@ -282,21 +298,27 @@ class TestInvokerMixed:
 class TestInvokerNone:
     """None 值处理测试"""
 
+    @pytest.fixture
+    def req(self):
+        return AgentRequest(
+            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+        )
+
     @pytest.mark.asyncio
-    async def test_none_return(self):
+    async def test_none_return(self, req):
         """测试返回 None"""
 
         async def invoke_agent(req: AgentRequest):
             return None
 
         invoker = AgentInvoker(invoke_agent)
-        result = await invoker.invoke(AgentRequest(messages=[]))
+        result = await invoker.invoke(req)
 
         assert isinstance(result, list)
         assert len(result) == 0
 
     @pytest.mark.asyncio
-    async def test_none_in_stream(self):
+    async def test_none_in_stream(self, req):
         """测试流中的 None 被忽略"""
 
         async def invoke_agent(req: AgentRequest):
@@ -308,20 +330,24 @@ class TestInvokerNone:
         invoker = AgentInvoker(invoke_agent)
 
         items: List[AgentEvent] = []
-        async for item in invoker.invoke_stream(AgentRequest(messages=[])):
+        async for item in invoker.invoke_stream(req):
             items.append(item)
 
-        content_events = [
-            item for item in items if item.event == EventType.TEXT
-        ]
+        content_events = [item for item in items if item.event == EventType.TEXT]
         assert len(content_events) == 2
 
 
 class TestInvokerToolCall:
     """工具调用测试"""
 
+    @pytest.fixture
+    def req(self):
+        return AgentRequest(
+            messages=[], tools=[], stream=False, raw_request=None, protocol="unknown"
+        )
+
     @pytest.mark.asyncio
-    async def test_tool_call_expansion(self):
+    async def test_tool_call_expansion(self, req):
         """测试 TOOL_CALL 被展开为 TOOL_CALL_CHUNK"""
 
         async def invoke_agent(req: AgentRequest):
@@ -337,7 +363,7 @@ class TestInvokerToolCall:
         invoker = AgentInvoker(invoke_agent)
 
         items: List[AgentEvent] = []
-        async for item in invoker.invoke_stream(AgentRequest(messages=[])):
+        async for item in invoker.invoke_stream(req):
             items.append(item)
 
         # TOOL_CALL 被展开为 TOOL_CALL_CHUNK
@@ -348,7 +374,7 @@ class TestInvokerToolCall:
         assert items[0].data["args_delta"] == '{"city": "Beijing"}'
 
     @pytest.mark.asyncio
-    async def test_tool_call_chunk_passthrough(self):
+    async def test_tool_call_chunk_passthrough(self, req):
         """测试 TOOL_CALL_CHUNK 直接透传"""
 
         async def invoke_agent(req: AgentRequest):
@@ -371,7 +397,7 @@ class TestInvokerToolCall:
         invoker = AgentInvoker(invoke_agent)
 
         items: List[AgentEvent] = []
-        async for item in invoker.invoke_stream(AgentRequest(messages=[])):
+        async for item in invoker.invoke_stream(req):
             items.append(item)
 
         assert len(items) == 2

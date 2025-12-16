@@ -85,6 +85,7 @@ from .model import (
     AgentResult,
     AgentResultItem,
     AgentReturnType,
+    AGUIProtocolConfig,
     AsyncAgentEventGenerator,
     AsyncAgentResultGenerator,
     EventType,
@@ -115,6 +116,7 @@ __all__ = [
     "ServerConfig",
     "ProtocolConfig",
     "OpenAIProtocolConfig",
+    "AGUIProtocolConfig",
     # Request/Response Models
     "AgentRequest",
     "AgentEvent",
