@@ -39,7 +39,7 @@ class AGUIProtocolConfig(ProtocolConfig):
     Attributes:
         prefix: 协议路由前缀，默认 "/ag-ui/agent"
         enable: 是否启用协议
-        copilotkit_compatibility: CopilotKit 兼容模式。
+        copilotkit_compatibility: 旧版本 CopilotKit 兼容模式。
             默认 False，遵循标准 AG-UI 协议，支持并行工具调用。
             设置为 True 时，启用以下兼容行为：
             - 在发送新的 TOOL_CALL_START 前自动结束其他活跃的工具调用
@@ -134,9 +134,15 @@ class EventType(str, Enum):
     TEXT = "TEXT"  # 文本内容块
     TOOL_CALL = "TOOL_CALL"  # 完整工具调用（含 id, name, args）
     TOOL_CALL_CHUNK = "TOOL_CALL_CHUNK"  # 工具调用参数片段（流式场景）
-    TOOL_RESULT = "TOOL_RESULT"  # 工具执行结果
+    TOOL_RESULT = "TOOL_RESULT"  # 工具执行结果（最终结果，标识流式输出结束）
+    TOOL_RESULT_CHUNK = "TOOL_RESULT_CHUNK"  # 工具执行结果片段（流式输出场景）
     ERROR = "ERROR"  # 错误事件
     STATE = "STATE"  # 状态更新（快照或增量）
+
+    # =========================================================================
+    # 人机交互事件
+    # =========================================================================
+    HITL = "HITL"  # Human-in-the-Loop，请求人类介入
 
     # =========================================================================
     # 扩展事件
@@ -209,6 +215,65 @@ class AgentEvent(BaseModel):
         ...     event=EventType.TOOL_RESULT,
         ...     data={"id": "tc-1", "result": "Sunny, 25°C"}
         ... )
+
+    Example (流式工具执行结果):
+        流式工具输出的使用流程：
+        1. TOOL_RESULT_CHUNK 事件会被缓存，不会立即发送
+        2. 必须发送 TOOL_RESULT 事件来标识流式输出结束
+        3. TOOL_RESULT 会将缓存的 chunks 拼接到最终结果前面
+
+        >>> # 工具执行过程中流式输出（这些会被缓存）
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_RESULT_CHUNK,
+        ...     data={"id": "tc-1", "delta": "Executing step 1...\n"}
+        ... )
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_RESULT_CHUNK,
+        ...     data={"id": "tc-1", "delta": "Step 1 complete.\n"}
+        ... )
+        >>> # 最终结果（必须发送，标识流式输出结束）
+        >>> # 发送后会拼接为: "Executing step 1...\nStep 1 complete.\nAll steps completed."
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_RESULT,
+        ...     data={"id": "tc-1", "result": "All steps completed."}
+        ... )
+        >>> # 如果只有流式输出，result 可以为空字符串
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_RESULT,
+        ...     data={"id": "tc-1", "result": ""}  # 只使用缓存的 chunks
+        ... )
+
+    Example (HITL - Human-in-the-Loop，请求人类介入):
+        HITL 有两种使用方式：
+        1. 关联已存在的工具调用：设置 tool_call_id，复用现有工具
+        2. 创建独立的 HITL 工具调用：只设置 id
+
+        >>> # 方式 1：关联已存在的工具调用（先发送 TOOL_CALL，再发送 HITL）
+        >>> yield AgentEvent(
+        ...     event=EventType.TOOL_CALL,
+        ...     data={"id": "tc-delete", "name": "delete_file", "args": '{"file": "a.txt"}'}
+        ... )
+        >>> yield AgentEvent(
+        ...     event=EventType.HITL,
+        ...     data={
+        ...         "id": "hitl-1",
+        ...         "tool_call_id": "tc-delete",  # 关联已存在的工具调用
+        ...         "type": "confirmation",
+        ...         "prompt": "确认删除文件 a.txt?"
+        ...     }
+        ... )
+        >>> # 方式 2：创建独立的 HITL 工具调用
+        >>> yield AgentEvent(
+        ...     event=EventType.HITL,
+        ...     data={
+        ...         "id": "hitl-2",
+        ...         "type": "input",
+        ...         "prompt": "请输入密码：",
+        ...         "options": ["确认", "取消"],  # 可选
+        ...         "schema": {"type": "string", "minLength": 8}  # 可选
+        ...     }
+        ... )
+        >>> # 用户响应将通过下一轮对话的 messages 中的 tool message 传回
 
     Example (自定义事件):
         >>> yield AgentEvent(

@@ -1018,11 +1018,12 @@ class TestAGUIProtocolUnknownEventType:
         context = {"thread_id": "test-thread", "run_id": "test-run"}
         text_state = {"started": False, "ended": False, "message_id": "msg-1"}
         tool_call_states = {}
+        tool_result_chunks = {}
 
         # 调用方法
         results = list(
             handler._process_event_with_boundaries(
-                event, context, text_state, tool_call_states
+                event, context, text_state, tool_call_states, tool_result_chunks
             )
         )
 

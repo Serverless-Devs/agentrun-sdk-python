@@ -388,6 +388,14 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
             if event.event == EventType.TOOL_RESULT:
                 continue
 
+            # TOOL_RESULT_CHUNK 事件：OpenAI 协议不支持流式工具输出
+            if event.event == EventType.TOOL_RESULT_CHUNK:
+                continue
+
+            # HITL 事件：OpenAI 协议不支持
+            if event.event == EventType.HITL:
+                continue
+
             # 其他事件忽略
             # (ERROR, STATE, CUSTOM 等不直接映射到 OpenAI 格式)
 

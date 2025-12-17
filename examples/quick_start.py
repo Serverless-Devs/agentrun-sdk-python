@@ -11,13 +11,11 @@ from typing import Any
 from langchain.agents import create_agent
 import pydash
 
-from agentrun.integration.langchain import (
-    model,
-    sandbox_toolset,
-    to_agui_events,
-)
+from agentrun.integration.langchain import model, sandbox_toolset
+from agentrun.integration.langgraph.agent_converter import AgentRunConverter
 from agentrun.sandbox import TemplateType
 from agentrun.server import AgentRequest, AgentRunServer
+from agentrun.server.model import ServerConfig
 from agentrun.utils.log import logger
 
 # 请替换为您已经创建的 模型 和 沙箱 名称
@@ -66,15 +64,12 @@ async def invoke_agent(request: AgentRequest):
         ]
     }
 
+    converter = AgentRunConverter()
     if request.stream:
 
         async def async_generator():
-            # to_agui_events 函数支持多种调用方式：
-            # - agent.astream_events(input, version="v2") - 支持 token by token
-            # - agent.astream(input, stream_mode="updates") - 按节点输出
-            # - agent.stream(input, stream_mode="updates") - 同步版本
             async for event in agent.astream(input, stream_mode="updates"):
-                for item in to_agui_events(event):
+                for item in converter.convert(event):
                     yield item
 
         return async_generator()
@@ -83,4 +78,11 @@ async def invoke_agent(request: AgentRequest):
         return pydash.get(result, "messages[-1].content", "")
 
 
-AgentRunServer(invoke_agent=invoke_agent).start()
+AgentRunServer(
+    invoke_agent=invoke_agent,
+    config=ServerConfig(
+        cors_origins=[
+            "*"
+        ]  # 部署在 AgentRun 上时，AgentRun 已经自动为你处理了跨域问题，可以省略这一行
+    ),
+).start()

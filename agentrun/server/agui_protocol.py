@@ -311,8 +311,10 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             "ended": False,
             "message_id": str(uuid.uuid4()),
         }
-        # 工具调用状态：{tool_id: {"started": bool, "ended": bool, "name": str, "has_result": bool}}
+        # 工具调用状态：{tool_id: {"started": bool, "ended": bool, "name": str, "has_result": bool, "is_hitl": bool}}
         tool_call_states: Dict[str, Dict[str, Any]] = {}
+        # 工具结果流式输出缓存：{tool_id: [chunk1, chunk2, ...]}
+        tool_result_chunks: Dict[str, List[str]] = {}
         # 错误状态：RUN_ERROR 后不能再发送任何事件
         run_errored = False
         # 当前活跃的工具调用 ID（仅在 copilotkit_compatibility=True 时使用）
@@ -354,6 +356,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                     context,
                     text_state,
                     tool_call_states,
+                    tool_result_chunks,
                     self._copilotkit_compatibility,
                 ):
                     if sse_data:
@@ -426,6 +429,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                         context,
                         text_state,
                         tool_call_states,
+                        tool_result_chunks,
                         self._copilotkit_compatibility,
                     ):
                         if sse_data:
@@ -454,6 +458,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 context,
                 text_state,
                 tool_call_states,
+                tool_result_chunks,
                 self._copilotkit_compatibility,
             ):
                 if sse_data:
@@ -489,7 +494,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         event: AgentEvent,
         context: Dict[str, Any],
         text_state: Dict[str, Any],
-        tool_call_states: Dict[str, Dict[str, bool]],
+        tool_call_states: Dict[str, Dict[str, Any]],
+        tool_result_chunks: Dict[str, List[str]],
         copilotkit_compatibility: bool = False,
     ) -> Iterator[str]:
         """处理事件并注入边界事件
@@ -499,6 +505,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             context: 上下文
             text_state: 文本状态 {"started": bool, "ended": bool, "message_id": str}
             tool_call_states: 工具调用状态
+            tool_result_chunks: 工具结果流式输出缓存
             copilotkit_compatibility: CopilotKit 兼容模式（启用工具调用串行化）
 
         Yields:
@@ -660,6 +667,109 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             )
             return
 
+        # TOOL_RESULT_CHUNK 事件：工具执行过程中的流式输出
+        # 缓存结果片段，直到收到 TOOL_RESULT 时拼接完整结果
+        if event.event == EventType.TOOL_RESULT_CHUNK:
+            tool_id = event.data.get("id", "")
+            delta = event.data.get("delta", "")
+
+            # 缓存结果片段
+            if tool_id:
+                if tool_id not in tool_result_chunks:
+                    tool_result_chunks[tool_id] = []
+                if delta:
+                    tool_result_chunks[tool_id].append(delta)
+            return
+
+        # HITL 事件：请求人类介入
+        # AG-UI HITL 标准：工具调用正常结束但不发送 RESULT
+        # 前端会在用户交互后将结果作为 tool message 发送回来
+        #
+        # 两种使用方式：
+        # 1. 关联已存在的工具调用：设置 tool_call_id
+        # 2. 创建独立的 HITL 工具调用：只设置 id
+        if event.event == EventType.HITL:
+            hitl_id = event.data.get("id", "")
+            tool_call_id = event.data.get("tool_call_id", "")
+            hitl_type = event.data.get("type", "confirmation")
+            prompt = event.data.get("prompt", "")
+            options = event.data.get("options")
+            default = event.data.get("default")
+            timeout = event.data.get("timeout")
+            schema = event.data.get("schema")
+
+            # 如果文本消息未结束，先结束文本消息
+            if text_state["started"] and not text_state.get("ended", False):
+                yield self._encoder.encode(
+                    TextMessageEndEvent(message_id=text_state["message_id"])
+                )
+                text_state["ended"] = True
+
+            # 情况 1：关联已存在的工具调用
+            if tool_call_id and tool_call_id in tool_call_states:
+                state = tool_call_states[tool_call_id]
+                # 如果工具调用还未结束，先结束它
+                if state["started"] and not state["ended"]:
+                    yield self._encoder.encode(
+                        ToolCallEndEvent(tool_call_id=tool_call_id)
+                    )
+                    state["ended"] = True
+                # 标记为 HITL（不发送 RESULT）
+                state["is_hitl"] = True
+                state["has_result"] = False
+                return
+
+            # 情况 2：创建独立的 HITL 工具调用
+            # 构建工具调用参数
+            import json as json_module
+
+            args_dict: Dict[str, Any] = {
+                "type": hitl_type,
+                "prompt": prompt,
+            }
+            if options:
+                args_dict["options"] = options
+            if default is not None:
+                args_dict["default"] = default
+            if timeout is not None:
+                args_dict["timeout"] = timeout
+            if schema:
+                args_dict["schema"] = schema
+
+            args_json = json_module.dumps(args_dict, ensure_ascii=False)
+
+            # 使用 tool_call_id 如果提供了（但不在 states 中），否则使用 hitl_id
+            actual_id = tool_call_id or hitl_id
+
+            # 发送 TOOL_CALL_START
+            yield self._encoder.encode(
+                ToolCallStartEvent(
+                    tool_call_id=actual_id,
+                    tool_call_name=f"hitl_{hitl_type}",
+                )
+            )
+
+            # 发送 TOOL_CALL_ARGS
+            yield self._encoder.encode(
+                ToolCallArgsEvent(
+                    tool_call_id=actual_id,
+                    delta=args_json,
+                )
+            )
+
+            # 发送 TOOL_CALL_END
+            yield self._encoder.encode(ToolCallEndEvent(tool_call_id=actual_id))
+
+            # 标记为 HITL 工具调用（已结束，无 RESULT）
+            tool_call_states[actual_id] = {
+                "started": True,
+                "ended": True,
+                "name": f"hitl_{hitl_type}",
+                "has_result": False,  # HITL 不发送 RESULT
+                "is_hitl": True,
+            }
+            return
+
         # TOOL_RESULT 事件：确保当前工具调用已结束
         if event.event == EventType.TOOL_RESULT:
             tool_id = event.data.get("id", "")
@@ -730,6 +840,18 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 )
                 tool_call_states[actual_tool_id]["ended"] = True
 
+            # 拼接缓存的流式输出片段和最终结果
+            final_result = event.data.get("content") or event.data.get(
+                "result", ""
+            )
+            if actual_tool_id and actual_tool_id in tool_result_chunks:
+                # 将缓存的片段拼接到最终结果前面
+                cached_chunks = "".join(tool_result_chunks[actual_tool_id])
+                if cached_chunks:
+                    final_result = cached_chunks + final_result
+                # 清理缓存
+                del tool_result_chunks[actual_tool_id]
+
             # 发送 TOOL_CALL_RESULT
             yield self._encoder.encode(
                 ToolCallResultEvent(
@@ -737,8 +859,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                         "message_id", f"tool-result-{actual_tool_id}"
                     ),
                     tool_call_id=actual_tool_id,
-                    content=event.data.get("content")
-                    or event.data.get("result", ""),
+                    content=final_result,
                     role="tool",
                 )
             )

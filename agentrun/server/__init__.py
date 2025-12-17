@@ -58,6 +58,45 @@ Example (工具调用事件):
 ...
 ...     yield f"当前时间: {result}"
 
+Example (流式工具输出):
+>>> async def invoke_agent(request: AgentRequest):
+...     # 发起工具调用
+...     yield AgentEvent(
+...         event=EventType.TOOL_CALL,
+...         data={"id": "call_1", "name": "run_code", "args": '{"code": "..."}'}
+...     )
+...
+...     # 流式输出执行过程
+...     yield AgentEvent(
+...         event=EventType.TOOL_RESULT_CHUNK,
+...         data={"id": "call_1", "delta": "Step 1: Compiling...\\n"}
+...     )
+...     yield AgentEvent(
+...         event=EventType.TOOL_RESULT_CHUNK,
+...         data={"id": "call_1", "delta": "Step 2: Running...\\n"}
+...     )
+...
+...     # 最终结果（标识流式输出结束）
+...     yield AgentEvent(
+...         event=EventType.TOOL_RESULT,
+...         data={"id": "call_1", "result": "Execution completed."}
+...     )
+
+Example (HITL - 请求人类介入):
+>>> async def invoke_agent(request: AgentRequest):
+...     # 请求用户确认
+...     yield AgentEvent(
+...         event=EventType.HITL,
+...         data={
+...             "id": "hitl_1",
+...             "tool_call_id": "call_delete",  # 可选
+...             "type": "confirmation",
+...             "prompt": "确认删除文件?",
+...             "options": ["确认", "取消"]
+...         }
+...     )
+...     # 用户响应将通过下一轮对话的 messages 传回
+
 Example (访问原始请求):
 >>> async def invoke_agent(request: AgentRequest):
 ...     # 访问当前协议
