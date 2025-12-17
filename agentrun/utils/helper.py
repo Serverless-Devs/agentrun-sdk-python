@@ -4,10 +4,9 @@
 This module provides general utility functions.
 """
 
-from typing import Any, Optional, TypedDict
+from typing import Any, Optional
 
-import pydash
-from typing_extensions import NotRequired, Unpack
+from typing_extensions import NotRequired, TypedDict, Unpack
 
 
 def mask_password(password: Optional[str]) -> str:

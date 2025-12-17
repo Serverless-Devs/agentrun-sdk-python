@@ -449,12 +449,7 @@ class TestServer(ProtocolValidator):
 
     async def test_server_addition_merge(self):
         """测试 addition 字段的合并功能"""
-        from agentrun.server import (
-            AdditionMode,
-            AgentEvent,
-            AgentRequest,
-            EventType,
-        )
+        from agentrun.server import AgentEvent, AgentRequest, EventType
 
         async def streaming_invoke_agent(request: AgentRequest):
             yield AgentEvent(
@@ -464,7 +459,6 @@ class TestServer(ProtocolValidator):
                     "model": "custom_model",
                     "custom_field": "custom_value",
                 },
-                addition_mode=AdditionMode.MERGE,
             )
 
         client = self.get_client(streaming_invoke_agent)

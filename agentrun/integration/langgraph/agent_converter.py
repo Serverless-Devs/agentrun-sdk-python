@@ -210,8 +210,8 @@ class AgentRunConverter:
             # 跳过内部字段
             if key in _TOOL_INPUT_INTERNAL_KEYS:
                 continue
-            # 跳过以 __ 开头的字段（Python 内部属性）
-            if key.startswith("__"):
+            # 跳过所有下划线前缀的内部字段（包含单下划线与双下划线）
+            if key.startswith("_"):
                 continue
             filtered[key] = value
 

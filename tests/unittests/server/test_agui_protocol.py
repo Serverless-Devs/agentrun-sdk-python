@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 import pytest
 
 from agentrun.server import (
-    AdditionMode,
     AgentEvent,
     AgentRequest,
     AgentRunServer,
@@ -422,15 +421,14 @@ class TestAGUIProtocolEndpoints:
         assert found_custom
 
     @pytest.mark.asyncio
-    async def test_addition_replace_mode(self):
-        """测试 addition REPLACE 模式"""
+    async def test_addition_merge_overrides(self):
+        """测试 addition 默认合并覆盖字段"""
 
         async def invoke_agent(request: AgentRequest):
             yield AgentEvent(
                 event=EventType.TEXT,
                 data={"delta": "Hello"},
                 addition={"custom": "value", "delta": "overwritten"},
-                addition_mode=AdditionMode.REPLACE,
             )
 
         client = self.get_client(invoke_agent)
@@ -463,7 +461,7 @@ class TestAGUIProtocolEndpoints:
                     "delta": "overwritten",  # 已存在的字段会被覆盖
                     "new_field": "ignored",  # 新字段会被忽略
                 },
-                addition_mode=AdditionMode.PROTOCOL_ONLY,
+                addition_merge_options={"no_new_field": True},
             )
 
         client = self.get_client(invoke_agent)
@@ -710,30 +708,32 @@ class TestAGUIProtocolErrorStream:
 class TestAGUIProtocolApplyAddition:
     """测试 _apply_addition 方法"""
 
-    def test_apply_addition_replace_mode(self):
-        """测试 REPLACE 模式"""
+    def test_apply_addition_default_merge(self):
+        """默认合并应覆盖已有字段"""
         handler = AGUIProtocolHandler()
 
         event_data = {"delta": "Hello", "type": "TEXT_MESSAGE_CONTENT"}
         addition = {"delta": "overwritten", "new_field": "added"}
 
         result = handler._apply_addition(
-            event_data.copy(), addition.copy(), AdditionMode.REPLACE
+            event_data.copy(),
+            addition.copy(),
         )
 
         assert result["delta"] == "overwritten"
         assert result["new_field"] == "added"
         assert result["type"] == "TEXT_MESSAGE_CONTENT"
 
-    def test_apply_addition_merge_mode(self):
-        """测试 MERGE 模式"""
+    def test_apply_addition_merge_options_none(self):
+        """显式传入 merge_options=None 仍按默认合并"""
         handler = AGUIProtocolHandler()
 
         event_data = {"delta": "Hello", "type": "TEXT_MESSAGE_CONTENT"}
         addition = {"delta": "overwritten", "new_field": "added"}
 
         result = handler._apply_addition(
-            event_data.copy(), addition.copy(), AdditionMode.MERGE
+            event_data.copy(),
+            addition.copy(),
         )
 
         assert result["delta"] == "overwritten"
@@ -747,7 +747,9 @@ class TestAGUIProtocolApplyAddition:
         addition = {"delta": "overwritten", "new_field": "ignored"}
 
         result = handler._apply_addition(
-            event_data.copy(), addition.copy(), AdditionMode.PROTOCOL_ONLY
+            event_data.copy(),
+            addition.copy(),
+            {"no_new_field": True},
         )
 
         # delta 被覆盖
@@ -1016,25 +1018,34 @@ class TestAGUIProtocolUnknownEventType:
         )
 
         context = {"thread_id": "test-thread", "run_id": "test-run"}
-        text_state = {"started": False, "ended": False, "message_id": "msg-1"}
-        tool_call_states = {}
-        tool_result_chunks = {}
+
+        # 创建 StreamStateMachine 对象
+        from agentrun.server.agui_protocol import StreamStateMachine
+
+        state = StreamStateMachine(copilotkit_compatibility=False)
 
         # 调用方法
         results = list(
-            handler._process_event_with_boundaries(
-                event, context, text_state, tool_call_states, tool_result_chunks
-            )
+            handler._process_event_with_boundaries(event, context, state)
         )
 
-        # TOOL_CALL 应该被转换为 CUSTOM 事件
-        assert len(results) == 1
-        # 解析 SSE 数据
-        sse_data = results[0]
-        assert sse_data.startswith("data: ")
-        data = json.loads(sse_data[6:].strip())
-        assert data["type"] == "CUSTOM"
-        assert data["name"] == "TOOL_CALL"
+        # TOOL_CALL 现在被实际处理，生成 TOOL_CALL_START 和 TOOL_CALL_ARGS 事件
+        assert len(results) == 2
+        # 解析第一个 SSE 数据 (TOOL_CALL_START)
+        sse_data_1 = results[0]
+        assert sse_data_1.startswith("data: ")
+        data_1 = json.loads(sse_data_1[6:].strip())
+        assert data_1["type"] == "TOOL_CALL_START"
+        assert data_1["toolCallId"] == "tc-1"
+        assert data_1["toolCallName"] == "test_tool"
+
+        # 解析第二个 SSE 数据 (TOOL_CALL_ARGS)
+        sse_data_2 = results[1]
+        assert sse_data_2.startswith("data: ")
+        data_2 = json.loads(sse_data_2[6:].strip())
+        assert data_2["type"] == "TOOL_CALL_ARGS"
+        assert data_2["toolCallId"] == "tc-1"
+        assert data_2["delta"] == '{"x": 1}'
 
     @pytest.mark.asyncio
     async def test_tool_call_event_expanded_by_invoker(self):

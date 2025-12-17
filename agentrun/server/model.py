@@ -21,6 +21,7 @@ from typing import (
 # 导入 Request 类，用于类型提示和运行时使用
 from starlette.requests import Request
 
+from ..utils.helper import MergeOptions
 from ..utils.model import BaseModel, Field
 
 # ============================================================================
@@ -152,19 +153,12 @@ class EventType(str, Enum):
 
 
 # ============================================================================
-# Addition Mode（附加字段合并模式）
+# Addition 合并参数（使用 MergeOptions）
 # ============================================================================
-
-
-class AdditionMode(str, Enum):
-    """附加字段合并模式
-
-    控制 AgentResult.addition 如何与协议默认字段合并。
-    """
-
-    REPLACE = "replace"  # 完全覆盖协议默认值
-    MERGE = "merge"  # 深度合并（使用 helper.merge）
-    PROTOCOL_ONLY = "protocol_only"  # 仅覆盖协议原有字段，不添加新字段
+# 使用 MergeOptions（来自 utils.helper.merge）控制 addition 的合并行为:
+# - 默认 (None): 深度合并，允许新增字段
+# - no_new_field=True: 仅覆盖已有字段（等价于原 PROTOCOL_ONLY）
+# - concat_list / ignore_empty_list: 透传给 merge 控制列表合并策略
 
 
 # ============================================================================
@@ -182,7 +176,7 @@ class AgentEvent(BaseModel):
         event: 事件类型
         data: 事件数据
         addition: 额外附加字段（可选，用于协议特定扩展）
-        addition_mode: 附加字段合并模式
+        addition_merge_options: 合并选项（透传给 utils.helper.merge，默认深度合并）
 
     Example (文本消息):
         >>> yield AgentEvent(
@@ -291,7 +285,7 @@ class AgentEvent(BaseModel):
     event: EventType
     data: Dict[str, Any] = Field(default_factory=dict)
     addition: Optional[Dict[str, Any]] = None
-    addition_mode: AdditionMode = AdditionMode.MERGE
+    addition_merge_options: Optional[MergeOptions] = None
 
 
 # 兼容别名

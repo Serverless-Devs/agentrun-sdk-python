@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 import pytest
 
 from agentrun.server import (
-    AdditionMode,
     AgentEvent,
     AgentRequest,
     AgentRunServer,
@@ -343,15 +342,14 @@ class TestOpenAIProtocolEndpoints:
         assert captured_request["tools"] is None
 
     @pytest.mark.asyncio
-    async def test_addition_replace_mode(self):
-        """测试 addition REPLACE 模式"""
+    async def test_addition_merge_overrides(self):
+        """测试 addition 默认合并覆盖字段"""
 
         async def invoke_agent(request: AgentRequest):
             yield AgentEvent(
                 event=EventType.TEXT,
                 data={"delta": "Hello"},
                 addition={"custom": "value"},
-                addition_mode=AdditionMode.REPLACE,
             )
 
         client = self.get_client(invoke_agent)
@@ -384,7 +382,7 @@ class TestOpenAIProtocolEndpoints:
                     "content": "overwritten",  # 已存在的字段会被覆盖
                     "new_field": "ignored",  # 新字段会被忽略
                 },
-                addition_mode=AdditionMode.PROTOCOL_ONLY,
+                addition_merge_options={"no_new_field": True},
             )
 
         client = self.get_client(invoke_agent)
@@ -416,7 +414,6 @@ class TestOpenAIProtocolEndpoints:
                 event=EventType.TOOL_CALL_CHUNK,
                 data={"id": "tc-1", "name": "test", "args_delta": "{}"},
                 addition={"custom_tool_field": "value"},
-                addition_mode=AdditionMode.MERGE,
             )
 
         client = self.get_client(invoke_agent)
@@ -792,30 +789,32 @@ class TestOpenAIProtocolNonStreamBranches:
 class TestOpenAIProtocolApplyAddition:
     """测试 _apply_addition 方法"""
 
-    def test_apply_addition_replace_mode(self):
-        """测试 REPLACE 模式"""
+    def test_apply_addition_default_merge(self):
+        """默认合并应覆盖已有字段并保留原字段"""
         handler = OpenAIProtocolHandler()
 
         delta = {"content": "Hello", "role": "assistant"}
         addition = {"content": "overwritten", "new_field": "added"}
 
         result = handler._apply_addition(
-            delta.copy(), addition.copy(), AdditionMode.REPLACE
+            delta.copy(),
+            addition.copy(),
         )
 
         assert result["content"] == "overwritten"
         assert result["new_field"] == "added"
         assert result["role"] == "assistant"
 
-    def test_apply_addition_merge_mode(self):
-        """测试 MERGE 模式"""
+    def test_apply_addition_merge_options_none(self):
+        """显式传入 merge_options=None 仍按默认合并"""
         handler = OpenAIProtocolHandler()
 
         delta = {"content": "Hello", "role": "assistant"}
         addition = {"content": "overwritten", "new_field": "added"}
 
         result = handler._apply_addition(
-            delta.copy(), addition.copy(), AdditionMode.MERGE
+            delta.copy(),
+            addition.copy(),
         )
 
         assert result["content"] == "overwritten"
@@ -829,7 +828,9 @@ class TestOpenAIProtocolApplyAddition:
         addition = {"content": "overwritten", "new_field": "ignored"}
 
         result = handler._apply_addition(
-            delta.copy(), addition.copy(), AdditionMode.PROTOCOL_ONLY
+            delta.copy(),
+            addition.copy(),
+            {"no_new_field": True},
         )
 
         # content 被覆盖

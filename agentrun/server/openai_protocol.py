@@ -15,9 +15,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import pydash
 
-from ..utils.helper import merge
+from ..utils.helper import merge, MergeOptions
 from .model import (
-    AdditionMode,
     AgentEvent,
     AgentRequest,
     EventType,
@@ -332,7 +331,9 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
                     # 应用 addition
                     if event.addition:
                         delta = self._apply_addition(
-                            delta, event.addition, event.addition_mode
+                            delta,
+                            event.addition,
+                            event.addition_merge_options,
                         )
 
                     yield self._build_chunk(context, delta)
@@ -378,7 +379,9 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
                     # 应用 addition
                     if event.addition:
                         delta = self._apply_addition(
-                            delta, event.addition, event.addition_mode
+                            delta,
+                            event.addition,
+                            event.addition_merge_options,
                         )
 
                     yield self._build_chunk(context, delta)
@@ -513,26 +516,20 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
     def _apply_addition(
         self,
         delta: Dict[str, Any],
-        addition: Dict[str, Any],
-        mode: AdditionMode,
+        addition: Optional[Dict[str, Any]],
+        merge_options: Optional[MergeOptions] = None,
     ) -> Dict[str, Any]:
         """应用 addition 字段
 
         Args:
             delta: 原始 delta 数据
             addition: 附加字段
-            mode: 合并模式
+            merge_options: 合并选项，透传给 utils.helper.merge
 
         Returns:
             合并后的 delta 数据
         """
-        if mode == AdditionMode.REPLACE:
-            delta.update(addition)
+        if not addition:
+            return delta
 
-        elif mode == AdditionMode.MERGE:
-            delta = merge(delta, addition)
-
-        else:  # AdditionMode.PROTOCOL_ONLY
-            delta = merge(delta, addition, no_new_field=True)
-
-        return delta
+        return merge(delta, addition, **(merge_options or {}))

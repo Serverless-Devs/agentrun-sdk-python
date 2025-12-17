@@ -114,10 +114,10 @@ Example (访问原始请求):
 ...     return "Hello, world!"
 """
 
+from ..utils.helper import MergeOptions
 from .agui_normalizer import AguiEventNormalizer
 from .agui_protocol import AGUIProtocolHandler
 from .model import (
-    AdditionMode,
     AgentEvent,
     AgentEventItem,
     AgentRequest,
@@ -166,7 +166,6 @@ __all__ = [
     "ToolCall",
     # Event Types
     "EventType",
-    "AdditionMode",
     # Type Aliases
     "AgentEventItem",
     "AgentResultItem",  # 兼容别名
@@ -187,4 +186,6 @@ __all__ = [
     "AGUIProtocolHandler",
     # Event Normalizer
     "AguiEventNormalizer",
+    # Helpers
+    "MergeOptions",
 ]
