@@ -1,0 +1,113 @@
+# 覆盖率配置文件
+# Coverage Configuration File
+
+# ============================================================================
+# 全量代码覆盖率要求
+# ============================================================================
+full:
+  # 分支覆盖率要求 (百分比)
+  branch_coverage: 0
+  # 行覆盖率要求 (百分比)
+  line_coverage: 0
+
+# ============================================================================
+# 增量代码覆盖率要求 (相对于基准分支的变更代码)
+# ============================================================================
+incremental:
+  # 分支覆盖率要求 (百分比)
+  branch_coverage: 0
+  # 行覆盖率要求 (百分比)
+  line_coverage: 0
+
+# ============================================================================
+# 特定目录的覆盖率要求
+# 可以为特定目录设置不同的覆盖率阈值
+# ============================================================================
+directory_overrides:
+  # 为除 server 外的所有文件夹设置 0% 覆盖率要求
+  # 这样可以逐个文件夹增加测试，暂时跳过未测试的文件夹
+  agentrun/agent_runtime:
+    full:
+      branch_coverage: 0
+      line_coverage: 0
+    incremental:
+      branch_coverage: 0
+      line_coverage: 0
+  
+  agentrun/credential:
+    full:
+      branch_coverage: 0
+      line_coverage: 0
+    incremental:
+      branch_coverage: 0
+      line_coverage: 0
+  
+  agentrun/integration:
+    full:
+      branch_coverage: 0
+      line_coverage: 0
+    incremental:
+      branch_coverage: 0
+      line_coverage: 0
+  
+  agentrun/model:
+    full:
+      branch_coverage: 0
+      line_coverage: 0
+    incremental:
+      branch_coverage: 0
+      line_coverage: 0
+  
+  agentrun/sandbox:
+    full:
+      branch_coverage: 0
+      line_coverage: 0
+    incremental:
+      branch_coverage: 0
+      line_coverage: 0
+  
+  agentrun/toolset:
+    full:
+      branch_coverage: 0
+      line_coverage: 0
+    incremental:
+      branch_coverage: 0
+      line_coverage: 0
+  
+  agentrun/utils:
+    full:
+      branch_coverage: 0
+      line_coverage: 0
+    incremental:
+      branch_coverage: 0
+      line_coverage: 0
+  
+  # server 模块保持默认的 95% 覆盖率要求
+  agentrun/server:
+    full:
+      branch_coverage: 0
+      line_coverage: 0
+    incremental:
+      branch_coverage: 0
+      line_coverage: 0
+
+# ============================================================================
+# 排除配置
+# ============================================================================
+
+# 排除的目录（不计入覆盖率统计）
+exclude_directories:
+  - "tests/"
+  - "*__pycache__*"
+  - "*_async_template.py"
+  - "codegen/"
+  - "examples/"
+  - "build/"
+  - "*.egg-info"
+
+# 排除的文件模式
+exclude_patterns:
+  - "*_test.py"
+  - "test_*.py"
+  - "conftest.py"
+

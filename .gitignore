@@ -103,3 +103,5 @@ dmypy.json
 .env
 
 uv.lock
+coverage.json
+coverage.json

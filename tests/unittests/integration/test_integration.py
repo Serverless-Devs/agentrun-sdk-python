@@ -68,6 +68,19 @@ class MockLLMTransport:
         monkeypatch.setattr("litellm.completion", fake_completion)
         monkeypatch.setattr("litellm.acompletion", fake_acompletion)
 
+        # Also patch the module-level imports in google.adk.models.lite_llm
+        # Google ADK imports acompletion at module level, so we need to patch
+        # there as well to ensure the mock is used in all contexts
+        try:
+            import google.adk.models.lite_llm as lite_llm_module
+
+            monkeypatch.setattr(
+                lite_llm_module, "acompletion", fake_acompletion
+            )
+            monkeypatch.setattr(lite_llm_module, "completion", fake_completion)
+        except ImportError:
+            pass  # google.adk not installed, skip patching
+
     def _setup_respx(self):
         """Setup respx to intercept all httpx requests to mock base URL"""
 

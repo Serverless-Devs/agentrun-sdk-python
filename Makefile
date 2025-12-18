@@ -122,3 +122,29 @@ install-deps:
 		--dev \
 		--all-extras \
 		-i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+
+# ============================================================================
+# 测试和覆盖率
+# ============================================================================
+
+.PHONY: test
+test: ## 运行所有测试
+	@uv run pytest tests/
+
+.PHONY: test-unit
+test-unit: ## 运行单元测试
+	@uv run pytest tests/unittests/
+
+.PHONY: test-e2e
+test-e2e: ## 运行端到端测试
+	@uv run pytest tests/e2e/
+
+.PHONY: mypy-check
+mypy-check: ## 运行 mypy 类型检查
+	@uv run mypy --config-file mypy.ini .
+
+.PHONY: coverage
+coverage: ## 运行测试并显示覆盖率报告（全量代码 + 增量代码）
+	@echo "📊 运行覆盖率测试..."
+	@uv run python scripts/check_coverage.py
+

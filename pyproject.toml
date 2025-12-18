@@ -70,6 +70,7 @@ dev = [
     "pyyaml>=6.0.3",
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
+    "langchain_mcp_adapters>=0.2.1",
 ]
 
 [tool.pyink]
@@ -101,7 +102,7 @@ known_third_party = ["alibabacloud_tea_openapi", "alibabacloud_devs20230714", "a
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
 [tool.mypy]
-python_version = "0.0.8"
+python_version = "3.10"
 exclude = "tests/"
 plugins = ["pydantic.mypy"]
 # Start with non-strict mode, and switch to strict mode later.

@@ -1,46 +1,66 @@
-name: Release Test Package
+name: CI
 
 on:
-  # 支持手动触发，用户可以在 GitHub Actions 页面点击 "Run workflow"
-  workflow_dispatch:
-    inputs:
-      version_bump:
-        description: '版本递增类型'
-        required: true
-        default: 'patch'
-        type: choice
-        options:
-          - patch   # 0.0.1 -> 0.0.2
-          - minor   # 0.0.1 -> 0.1.0
-          - major   # 0.0.1 -> 1.0.0
-  
-  # 支持被其他工作流调用（CI 测试通过后自动触发）
-  workflow_call:
-    inputs:
-      version_bump:
-        description: '版本递增类型'
-        required: false
-        default: 'patch'
-        type: string
+  # 仅在 push 时触发测试
+  push:
 
 jobs:
-  release-test:
+  test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
+    strategy:
+      matrix:
+        python-version: ['3.10']
+    
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # 获取所有历史和 tags
+        fetch-depth: 0  # 获取完整历史用于增量覆盖率检查
 
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: ${{ matrix.python-version }}
 
+    - name: Install dependencies
+      run: |
+        make setup PYTHON_VERSION=${{ matrix.python-version }}
+
+    - name: Run type check (mypy)
+      run: |
+        make mypy-check
+
+    - name: Run unit tests
+      run: |
+        make test-unit
+
+    - name: Run coverage
+      run: |
+        make coverage
+
+    # 检测文件更改并决定是否构建测试包
+    - name: Check for changes in agentrun directory
+      id: changes
+      run: |
+        echo "Checking if agentrun directory has changes..."
+        # 获取最近两次提交之间的差异
+        git diff --name-only HEAD^ HEAD > changed_files.txt || echo "Cannot get diff, checking all files" > changed_files.txt
+        echo "Changed files:"
+        cat changed_files.txt || echo "No changed files detected"
+        
+        # 检查是否有任何以 agentrun/ 开头的文件
+        if grep -q "^agentrun/" changed_files.txt 2>/dev/null; then
+          echo "agentrun directory has changes"
+          echo "agentrun_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "agentrun directory has no changes"
+          echo "agentrun_changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    # 测试通过后自动构建测试包（仅在 agentrun 目录有变化时触发）
     - name: Get latest version from PyPI and calculate next version
       id: version
+      if: steps.changes.outputs.agentrun_changed == 'true'
       run: |
         # 从 PyPI 获取 agentrun-inner-test 的最新版本
         PYPI_RESPONSE=$(curl -s https://pypi.org/pypi/agentrun-inner-test/json 2>/dev/null || echo "")
@@ -58,8 +78,8 @@ jobs:
         # 解析版本号
         IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
         
-        # 根据用户选择递增版本（默认为 patch）
-        BUMP_TYPE="${{ inputs.version_bump || 'patch' }}"
+        # 默认为 patch
+        BUMP_TYPE="patch"
         case "$BUMP_TYPE" in
           major)
             MAJOR=$((MAJOR + 1))
@@ -84,6 +104,7 @@ jobs:
         echo "New tag: ${NEW_TAG}"
 
     - name: Update package name and version in pyproject.toml
+      if: steps.changes.outputs.agentrun_changed == 'true'
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
         # 修改包名为 agentrun-inner-test
@@ -94,6 +115,7 @@ jobs:
         head -10 pyproject.toml
 
     - name: Update __version__ in __init__.py
+      if: steps.changes.outputs.agentrun_changed == 'true'
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
         if grep -q "__version__" agentrun/__init__.py; then
@@ -105,6 +127,7 @@ jobs:
         grep "__version__" agentrun/__init__.py
 
     - name: Build package
+      if: steps.changes.outputs.agentrun_changed == 'true'
       run: |
         python -m pip install --upgrade pip
         pip install build twine
@@ -113,17 +136,20 @@ jobs:
         ls -la dist/
 
     - name: Verify package
+      if: steps.changes.outputs.agentrun_changed == 'true'
       run: |
         python -m twine check dist/*
         echo "Package verification completed"
 
     - name: Publish to PyPI
+      if: steps.changes.outputs.agentrun_changed == 'true'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
         verify-metadata: false
 
     - name: Create and push tag
+      if: steps.changes.outputs.agentrun_changed == 'true'
       run: |
         TAG="${{ steps.version.outputs.TAG }}"
         git config --local user.email "action@github.com"
@@ -133,6 +159,7 @@ jobs:
         echo "Created and pushed tag: $TAG"
 
     - name: Summary
+      if: steps.changes.outputs.agentrun_changed == 'true'
       run: |
         echo "## 🎉 Test Package Released!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
@@ -142,3 +169,4 @@ jobs:
         echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "Install with: \`pip install agentrun-inner-test==${{ steps.version.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+
