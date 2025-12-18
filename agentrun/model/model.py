@@ -149,7 +149,6 @@ class ProxyConfig(BaseModel):
     endpoints: Optional[List[ProxyConfigEndpoint]] = None
     """代理端点列表"""
     policies: Optional[ProxyConfigPolicies] = None
-    # token_rate_limiter:
 
 
 class CommonModelMutableProps(BaseModel):
