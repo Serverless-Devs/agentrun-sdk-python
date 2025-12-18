@@ -122,18 +122,33 @@ class ProxyConfigFallback(BaseModel):
     model_service_name: Optional[str] = None
 
 
+class ProxyConfigTokenRateLimiter(BaseModel):
+    tps: Optional[int] = None
+    tpm: Optional[int] = None
+    tph: Optional[int] = None
+    tpd: Optional[int] = None
+
+
+class ProxyConfigAIGuardrailConfig(BaseModel):
+    """AI 防护配置"""
+    check_request: Optional[bool] = None
+    check_response: Optional[bool] = None
+
+
 class ProxyConfigPolicies(BaseModel):
     cache: Optional[bool] = None
     concurrency_limit: Optional[int] = None
-    fallbacks: Optional[ProxyConfigFallback] = None
+    fallbacks: Optional[List[ProxyConfigFallback]] = None
     num_retries: Optional[int] = None
     request_timeout: Optional[int] = None
+    ai_guardrail_config: Optional[ProxyConfigAIGuardrailConfig] = None
+    token_rate_limiter: Optional[ProxyConfigTokenRateLimiter] = None
 
 
 class ProxyConfig(BaseModel):
     endpoints: Optional[List[ProxyConfigEndpoint]] = None
     """代理端点列表"""
-    policies: Optional[Dict[str, Any]] = None
+    policies: Optional[ProxyConfigPolicies] = None
 
 
 class CommonModelMutableProps(BaseModel):
@@ -174,6 +189,7 @@ class ModelProxyMutableProps(CommonModelMutableProps):
     proxy_mode: Optional[ProxyMode] = None
     service_region_id: Optional[str] = None
     proxy_config: Optional[ProxyConfig] = None
+    execution_role_arn: Optional[str] = None
 
 
 class ModelProxyImmutableProps(CommonModelImmutableProps):
