@@ -40,18 +40,10 @@ class AGUIProtocolConfig(ProtocolConfig):
     Attributes:
         prefix: 协议路由前缀，默认 "/ag-ui/agent"
         enable: 是否启用协议
-        copilotkit_compatibility: 旧版本 CopilotKit 兼容模式。
-            默认 False，遵循标准 AG-UI 协议，支持并行工具调用。
-            设置为 True 时，启用以下兼容行为：
-            - 在发送新的 TOOL_CALL_START 前自动结束其他活跃的工具调用
-            - 将 LangChain 的 UUID 格式 ID 映射到 call_xxx ID
-            - 将其他工具的事件放入队列，等待当前工具完成后再处理
-            这是为了兼容 CopilotKit 等前端的严格验证。
     """
 
     enable: bool = True
     prefix: Optional[str] = "/ag-ui/agent"
-    copilotkit_compatibility: bool = False
 
 
 class ServerConfig(BaseModel):

@@ -321,7 +321,14 @@ def get_user_token(user_name: str):
 
 
 class MockChatModel(BaseChatModel):
-    """模拟 ChatOpenAI 的行为"""
+    """模拟 ChatOpenAI 的行为
+
+    通过 use_mcp_tools 参数控制是否使用 MCP 工具：
+    - use_mcp_tools=True: 使用 MCP 工具（get_current_time, maps_weather）+ 本地工具
+    - use_mcp_tools=False: 仅使用本地工具（get_user_name, get_user_token）
+    """
+
+    use_mcp_tools: bool = True  # 是否使用 MCP 工具
 
     def _generate(
         self,
@@ -330,6 +337,16 @@ class MockChatModel(BaseChatModel):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> ChatResult:
+        if self.use_mcp_tools:
+            return self._generate_with_mcp_tools(messages)
+        else:
+            return self._generate_local_tools_only(messages)
+
+    def _generate_with_mcp_tools(
+        self,
+        messages: List[BaseMessage],
+    ) -> ChatResult:
+        """使用 MCP 工具 + 本地工具的场景"""
         tool_outputs = [m for m in messages if isinstance(m, ToolMessage)]
 
         # Round 1: Call MCP time + Local name
@@ -409,6 +426,66 @@ class MockChatModel(BaseChatModel):
             ]
         )
 
+    def _generate_local_tools_only(
+        self,
+        messages: List[BaseMessage],
+    ) -> ChatResult:
+        """仅使用本地工具的场景"""
+        tool_outputs = [m for m in messages if isinstance(m, ToolMessage)]
+
+        # Round 1: Call Local name
+        if len(tool_outputs) == 0:
+            return ChatResult(
+                generations=[
+                    ChatGeneration(
+                        message=AIMessage(
+                            content="我需要获取您的用户名和密钥信息。",
+                            tool_calls=[
+                                {
+                                    "name": "get_user_name",
+                                    "args": {},
+                                    "id": "call_name",
+                                },
+                            ],
+                        )
+                    )
+                ]
+            )
+
+        # Round 2: Call Local token
+        if len(tool_outputs) == 1:
+            return ChatResult(
+                generations=[
+                    ChatGeneration(
+                        message=AIMessage(
+                            content="现在我已获取到您的用户名。接下来获取密钥：",
+                            tool_calls=[
+                                {
+                                    "name": "get_user_token",
+                                    "args": {"user_name": "张三"},
+                                    "id": "call_token",
+                                },
+                            ],
+                        )
+                    )
+                ]
+            )
+
+        # Round 3: Finish
+        return ChatResult(
+            generations=[
+                ChatGeneration(
+                    message=AIMessage(
+                        content=(
+                            "您的用户名是：张三\n"
+                            "您的密钥是：ak_1234asd12341\n"
+                            "请注意妥善保管您的密钥信息。"
+                        ),
+                    )
+                )
+            ]
+        )
+
     @property
     def _llm_type(self) -> str:
         return "mock-chat-model"
@@ -424,64 +501,7 @@ class MockChatModel(BaseChatModel):
 
 class TestLangChainAguiIntegration(ProtocolValidator):
 
-    async def test_multi_tool_query(self, mock_mcp_server):
-        """测试多工具查询场景 (MCP + Local + MockLLM)"""
-
-        mcp_client = MultiServerMCPClient(
-            {
-                "tools": {
-                    "url": f"{mock_mcp_server}/sse",
-                    "transport": "sse",
-                }
-            }
-        )
-        mcp_tools = await mcp_client.get_tools()
-
-        async def invoke_agent(request: AgentRequest):
-            llm = MockChatModel()
-            tools = [*mcp_tools, get_user_name, get_user_token]
-
-            agent = create_agent(
-                model=llm,
-                system_prompt="You are a helpful assistant",
-                tools=tools,
-            )
-
-            input_data = {
-                "messages": [{
-                    "role": "user",
-                    "content": (
-                        "查询当前的时间，并获取天气信息，同时输出我的密钥信息"
-                    ),
-                }]
-            }
-
-            converter = AgentRunConverter()
-            async for event in agent.astream_events(input_data, version="v2"):
-                for item in converter.convert(event):
-                    yield item
-
-        app = AgentRunServer(invoke_agent=invoke_agent).app
-
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            response = await client.post(
-                "/ag-ui/agent",
-                json={
-                    "messages": [{
-                        "role": "user",
-                        "content": "查询当前的时间，并获取天气信息，同时输出我的密钥信息",
-                    }],
-                    "stream": True,
-                },
-                timeout=60.0,
-            )
-
-        assert response.status_code == 200
-
-        events = [line for line in response.text.split("\n") if line]
+    def check_result(self, events: List[Any]):
         expected = [
             (
                 "data:"
@@ -595,3 +615,243 @@ class TestLangChainAguiIntegration(ProtocolValidator):
         self.all_field_equal("messageId", events[1:4])
         self.all_field_equal("messageId", events[12:15])
         self.all_field_equal("messageId", events[24:27])
+
+    async def test_astream_events(self, mock_mcp_server):
+        """测试多工具查询场景 (MCP + Local + MockLLM)"""
+
+        mcp_client = MultiServerMCPClient(
+            {
+                "tools": {
+                    "url": f"{mock_mcp_server}/sse",
+                    "transport": "sse",
+                }
+            }
+        )
+        mcp_tools = await mcp_client.get_tools()
+
+        async def invoke_agent(request: AgentRequest):
+            llm = MockChatModel()
+            tools = [*mcp_tools, get_user_name, get_user_token]
+
+            agent = create_agent(
+                model=llm,
+                system_prompt="You are a helpful assistant",
+                tools=tools,
+            )
+
+            input_data = {
+                "messages": [{
+                    "role": "user",
+                    "content": (
+                        "查询当前的时间，并获取天气信息，同时输出我的密钥信息"
+                    ),
+                }]
+            }
+
+            converter = AgentRunConverter()
+            async for event in agent.astream_events(input_data, version="v2"):
+                for item in converter.convert(event):
+                    yield item
+
+        app = AgentRunServer(invoke_agent=invoke_agent).app
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/ag-ui/agent",
+                json={
+                    "messages": [{
+                        "role": "user",
+                        "content": "查询当前的时间，并获取天气信息，同时输出我的密钥信息",
+                    }],
+                    "stream": True,
+                },
+                timeout=60.0,
+            )
+
+        assert response.status_code == 200
+
+        events = [line for line in response.text.split("\n") if line]
+        self.check_result(events)
+
+    async def test_astream(self, mock_mcp_server):
+        """测试多工具查询场景 (MCP + Local + MockLLM)"""
+
+        mcp_client = MultiServerMCPClient(
+            {
+                "tools": {
+                    "url": f"{mock_mcp_server}/sse",
+                    "transport": "sse",
+                }
+            }
+        )
+        mcp_tools = await mcp_client.get_tools()
+
+        async def invoke_agent(request: AgentRequest):
+            llm = MockChatModel()
+            tools = [*mcp_tools, get_user_name, get_user_token]
+
+            agent = create_agent(
+                model=llm,
+                system_prompt="You are a helpful assistant",
+                tools=tools,
+            )
+
+            input_data: Any = {
+                "messages": [{
+                    "role": "user",
+                    "content": (
+                        "查询当前的时间，并获取天气信息，同时输出我的密钥信息"
+                    ),
+                }]
+            }
+
+            converter = AgentRunConverter()
+            async for event in agent.astream(input_data):
+                for item in converter.convert(event):
+                    yield item
+
+        app = AgentRunServer(invoke_agent=invoke_agent).app
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/ag-ui/agent",
+                json={
+                    "messages": [{
+                        "role": "user",
+                        "content": "查询当前的时间，并获取天气信息，同时输出我的密钥信息",
+                    }],
+                    "stream": True,
+                },
+                timeout=60.0,
+            )
+
+        assert response.status_code == 200
+
+        events = [line for line in response.text.split("\n") if line]
+        self.check_result(events)
+
+    async def test_stream_local_tools_only(self):
+        """测试仅使用本地工具的同步流场景 (Local + MockLLM)"""
+
+        def invoke_agent(request: AgentRequest):
+            llm = MockChatModel(use_mcp_tools=False)
+            tools = [get_user_name, get_user_token]
+
+            agent = create_agent(
+                model=llm,
+                system_prompt="You are a helpful assistant",
+                tools=tools,
+            )
+
+            input_data: Any = {
+                "messages": [{
+                    "role": "user",
+                    "content": "获取我的用户名和密钥信息",
+                }]
+            }
+
+            converter = AgentRunConverter()
+            for event in agent.stream(input_data):
+                for item in converter.convert(event):
+                    yield item
+
+        app = AgentRunServer(invoke_agent=invoke_agent).app
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/ag-ui/agent",
+                json={
+                    "messages": [{
+                        "role": "user",
+                        "content": "获取我的用户名和密钥信息",
+                    }],
+                    "stream": True,
+                },
+                timeout=60.0,
+            )
+
+        assert response.status_code == 200
+
+        events = [line for line in response.text.split("\n") if line]
+
+        # 验证事件序列
+        expected = [
+            (
+                "data:"
+                ' {"type":"RUN_STARTED","threadId":"mock-placeholder","runId":"mock-placeholder"}'
+            ),
+            (
+                "data:"
+                ' {"type":"TEXT_MESSAGE_START","messageId":"mock-placeholder","role":"assistant"}'
+            ),
+            (
+                "data:"
+                ' {"type":"TEXT_MESSAGE_CONTENT","messageId":"mock-placeholder","delta":"我需要获取您的用户名和密钥信息。"}'
+            ),
+            'data: {"type":"TEXT_MESSAGE_END","messageId":"mock-placeholder"}',
+            (
+                "data:"
+                ' {"type":"TOOL_CALL_START","toolCallId":"call_name","toolCallName":"get_user_name"}'
+            ),
+            (
+                "data:"
+                ' {"type":"TOOL_CALL_ARGS","toolCallId":"call_name","delta":""}'
+            ),
+            'data: {"type":"TOOL_CALL_END","toolCallId":"call_name"}',
+            (
+                "data:"
+                ' {"type":"TOOL_CALL_RESULT","messageId":"tool-result-call_name","toolCallId":"call_name","content":"{\\"user_name\\":'
+                ' \\"张三\\"}","role":"tool"}'
+            ),
+            (
+                "data:"
+                ' {"type":"TEXT_MESSAGE_START","messageId":"mock-placeholder","role":"assistant"}'
+            ),
+            (
+                "data:"
+                ' {"type":"TEXT_MESSAGE_CONTENT","messageId":"mock-placeholder","delta":"现在我已获取到您的用户名。'
+                '接下来获取密钥："}'
+            ),
+            'data: {"type":"TEXT_MESSAGE_END","messageId":"mock-placeholder"}',
+            (
+                "data:"
+                ' {"type":"TOOL_CALL_START","toolCallId":"call_token","toolCallName":"get_user_token"}'
+            ),
+            (
+                "data:"
+                ' {"type":"TOOL_CALL_ARGS","toolCallId":"call_token","delta":"{\\"user_name\\":'
+                ' \\"张三\\"}"}'
+            ),
+            'data: {"type":"TOOL_CALL_END","toolCallId":"call_token"}',
+            (
+                "data:"
+                ' {"type":"TOOL_CALL_RESULT","messageId":"tool-result-call_token","toolCallId":"call_token","content":"ak_1234asd12341","role":"tool"}'
+            ),
+            (
+                "data:"
+                ' {"type":"TEXT_MESSAGE_START","messageId":"mock-placeholder","role":"assistant"}'
+            ),
+            (
+                "data:"
+                ' {"type":"TEXT_MESSAGE_CONTENT","messageId":"mock-placeholder","delta":"您的用户名是：张三\\n您的密钥是：ak_1234asd12341\\n请注意妥善保管您的密钥信息。"}'
+            ),
+            'data: {"type":"TEXT_MESSAGE_END","messageId":"mock-placeholder"}',
+            (
+                "data:"
+                ' {"type":"RUN_FINISHED","threadId":"mock-placeholder","runId":"mock-placeholder"}'
+            ),
+        ]
+
+        self.valid_json(events, expected)
+
+        self.all_field_equal("runId", events)
+        self.all_field_equal("threadId", events)
