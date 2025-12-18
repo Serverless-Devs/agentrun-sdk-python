@@ -43,8 +43,13 @@ jobs:
       id: changes
       run: |
         echo "Checking if agentrun directory has changes..."
-        # 获取最近两次提交之间的差异
-        git diff --name-only HEAD^ HEAD > changed_files.txt || echo "Cannot get diff, checking all files" > changed_files.txt
+        # 获取最近两次提交之间的差异；如果没有父提交，则将所有跟踪文件视为已更改
+        if git rev-parse HEAD^ >/dev/null 2>&1; then
+          git diff --name-only HEAD^ HEAD > changed_files.txt
+        else
+          echo "No parent commit; treating all tracked files as changed."
+          git ls-files > changed_files.txt
+        fi
         echo "Changed files:"
         cat changed_files.txt || echo "No changed files detected"
         
