@@ -1022,7 +1022,7 @@ class TestAGUIProtocolUnknownEventType:
         # 创建 StreamStateMachine 对象
         from agentrun.server.agui_protocol import StreamStateMachine
 
-        state = StreamStateMachine(copilotkit_compatibility=False)
+        state = StreamStateMachine()
 
         # 调用方法
         results = list(

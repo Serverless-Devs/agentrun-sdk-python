@@ -757,19 +757,15 @@ class TestAguiEventSequence:
         """测试多个并行工具调用后输出文本
 
         场景：同时开始多个工具调用，然后输出文本
-        在 copilotkit_compatibility=True（默认）模式下，第二个工具的事件会被放入队列，
-        等到第一个工具调用收到 RESULT 后再处理。
-
-        由于没有 RESULT 事件，队列中的 tc-b 不会被处理，直到文本事件到来时
-        需要先结束 tc-a，然后处理队列中的 tc-b，再结束 tc-b，最后输出文本。
 
         输入事件：
         - tc-a CHUNK (START)
-        - tc-b CHUNK (放入队列，等待 tc-a 完成)
+        - tc-b CHUNK (START)
         - TEXT "工具已触发"
 
         预期输出：
-        - tc-a START -> tc-a ARGS -> tc-a END -> tc-b START -> tc-b ARGS -> tc-b END
+        - tc-a START -> tc-a ARGS -> tc-b START -> tc-b ARGS
+        - tc-a END -> tc-b END（文本前结束所有工具调用）
         - TEXT_MESSAGE_START -> TEXT_MESSAGE_CONTENT -> TEXT_MESSAGE_END
         """
 
@@ -1064,79 +1060,6 @@ class TestAguiEventSequence:
         # 验证只有一个工具调用（错误后的不应该出现）
         assert types.count("TOOL_CALL_START") == 1
 
-    @pytest.mark.asyncio
-    async def test_tool_calls_serialized_copilotkit_mode(self):
-        """测试工具调用串行化（CopilotKit 兼容模式）
-
-        场景：发送 tc-1 的 CHUNK，然后发送 tc-2 的 CHUNK（没有显式结束 tc-1）
-        预期：在 copilotkit_compatibility=True 模式下，发送 tc-2 START 前会自动结束 tc-1
-
-        注意：AG-UI 协议本身支持并行工具调用，但某些前端实现（如 CopilotKit）
-        强制要求串行化。为了兼容性，我们提供 copilotkit_compatibility 模式。
-        """
-        from agentrun.server import AGUIProtocolConfig, ServerConfig
-
-        async def invoke_agent(request: AgentRequest):
-            # 第一个工具调用开始
-            yield AgentEvent(
-                event=EventType.TOOL_CALL_CHUNK,
-                data={"id": "tc-1", "name": "tool1", "args_delta": '{"a": 1}'},
-            )
-            # 第二个工具调用开始（会自动先结束 tc-1）
-            yield AgentEvent(
-                event=EventType.TOOL_CALL_CHUNK,
-                data={"id": "tc-2", "name": "tool2", "args_delta": '{"b": 2}'},
-            )
-            # 结果（顺序返回）
-            yield AgentEvent(
-                event=EventType.TOOL_RESULT,
-                data={"id": "tc-1", "result": "result1"},
-            )
-            yield AgentEvent(
-                event=EventType.TOOL_RESULT,
-                data={"id": "tc-2", "result": "result2"},
-            )
-
-        # 启用 CopilotKit 兼容模式
-        config = ServerConfig(
-            agui=AGUIProtocolConfig(copilotkit_compatibility=True)
-        )
-        server = AgentRunServer(invoke_agent=invoke_agent, config=config)
-        app = server.as_fastapi_app()
-        from fastapi.testclient import TestClient
-
-        client = TestClient(app)
-        response = client.post(
-            "/ag-ui/agent",
-            json={"messages": [{"role": "user", "content": "parallel"}]},
-        )
-
-        lines = [line async for line in response.aiter_lines() if line]
-        types = get_event_types(lines)
-
-        # 验证两个工具调用都存在
-        assert types.count("TOOL_CALL_START") == 2
-        assert types.count("TOOL_CALL_END") == 2
-        assert types.count("TOOL_CALL_RESULT") == 2
-
-        # 验证串行化工具调用的顺序：
-        # tc-1 START -> tc-1 ARGS -> tc-1 END -> tc-2 START -> tc-2 ARGS -> tc-1 RESULT -> tc-2 END -> tc-2 RESULT
-        # 关键验证：tc-1 END 在 tc-2 START 之前（串行化）
-        tc1_end_idx = None
-        tc2_start_idx = None
-        for i, line in enumerate(lines):
-            if "TOOL_CALL_END" in line and "tc-1" in line:
-                tc1_end_idx = i
-            if "TOOL_CALL_START" in line and "tc-2" in line:
-                tc2_start_idx = i
-
-        assert tc1_end_idx is not None, "tc-1 TOOL_CALL_END not found"
-        assert tc2_start_idx is not None, "tc-2 TOOL_CALL_START not found"
-        # 串行化工具调用：tc-1 END 应该在 tc-2 START 之前
-        assert (
-            tc1_end_idx < tc2_start_idx
-        ), "Serialized tool calls: tc-1 END should come before tc-2 START"
-
     # ==================== AG-UI 官方验证器规则测试 ====================
 
     @pytest.mark.asyncio
@@ -1387,23 +1310,23 @@ class TestAguiEventSequence:
 
     @pytest.mark.asyncio
     async def test_multiple_tool_calls_parallel(self):
-        """AG-UI 规则：多个 TOOL_CALL 可以并行（但在 copilotkit_compatibility=True 时会串行）
-
-        在 copilotkit_compatibility=True（默认）模式下，其他工具的事件会被放入队列，
-        等到当前工具调用收到 RESULT 后再处理。
+        """AG-UI 规则：多个 TOOL_CALL 可以并行
 
         输入事件：
         - tc-1 CHUNK (START)
-        - tc-2 CHUNK (放入队列)
-        - tc-3 CHUNK (放入队列)
-        - tc-2 RESULT (放入队列，因为 tc-1 还没有 RESULT)
-        - tc-1 RESULT (处理队列中的事件)
+        - tc-2 CHUNK (START)
+        - tc-3 CHUNK (START)
+        - tc-2 RESULT
+        - tc-1 RESULT
         - tc-3 RESULT
 
         预期输出：
-        - tc-1 START -> tc-1 ARGS -> tc-1 END -> tc-1 RESULT
-        - tc-2 START -> tc-2 ARGS -> tc-2 END -> tc-2 RESULT
-        - tc-3 START -> tc-3 ARGS -> tc-3 END -> tc-3 RESULT
+        - tc-1 START -> tc-1 ARGS
+        - tc-2 START -> tc-2 ARGS
+        - tc-3 START -> tc-3 ARGS
+        - tc-2 END -> tc-2 RESULT
+        - tc-1 END -> tc-1 RESULT
+        - tc-3 END -> tc-3 RESULT
         """
 
         async def invoke_agent(request: AgentRequest):
@@ -1496,22 +1419,22 @@ class TestAguiEventSequence:
         """测试交错的工具调用（带重复的 ARGS 事件）
 
         场景：模拟 LangChain 流式输出时可能产生的交错事件序列
-        在 copilotkit_compatibility=True（默认）模式下，其他工具的事件会被放入队列，
-        等到当前工具调用收到 RESULT 后再处理。
 
         输入事件：
         - tc-1 CHUNK (START)
-        - tc-2 CHUNK (放入队列，等待 tc-1 完成)
-        - tc-1 CHUNK (ARGS，同一个工具调用，继续处理)
-        - tc-3 CHUNK (放入队列，等待 tc-1 完成)
-        - tc-1 RESULT (处理队列中的 tc-2 和 tc-3)
+        - tc-2 CHUNK (START)
+        - tc-1 CHUNK (ARGS，同一个工具调用)
+        - tc-3 CHUNK (START)
+        - tc-1 RESULT
         - tc-2 RESULT
         - tc-3 RESULT
 
         预期输出：
-        - tc-1 START -> tc-1 ARGS -> tc-1 ARGS -> tc-1 END -> tc-1 RESULT
-        - tc-2 START -> tc-2 ARGS -> tc-2 END -> tc-2 RESULT
-        - tc-3 START -> tc-3 ARGS -> tc-3 END -> tc-3 RESULT
+        - tc-1 START -> tc-1 ARGS -> tc-2 START -> tc-2 ARGS
+        - tc-1 ARGS -> tc-3 START -> tc-3 ARGS
+        - tc-1 END -> tc-1 RESULT
+        - tc-2 END -> tc-2 RESULT
+        - tc-3 END -> tc-3 RESULT
         """
 
         async def invoke_agent(request: AgentRequest):
@@ -1604,22 +1527,21 @@ class TestAguiEventSequence:
         """测试复杂的文本和工具调用交错场景
 
         场景：模拟真实的 LLM 输出
-        在 copilotkit_compatibility=True（默认）模式下，其他工具的事件会被放入队列，
-        等到当前工具调用收到 RESULT 后再处理。
 
         输入事件：
         1. 文本 "让我查一下..."
         2. tc-a CHUNK (START)
-        3. tc-b CHUNK (放入队列，等待 tc-a 完成)
-        4. tc-a CHUNK (ARGS，同一个工具调用，继续处理)
-        5. tc-a RESULT (处理队列中的 tc-b)
+        3. tc-b CHUNK (START)
+        4. tc-a CHUNK (ARGS)
+        5. tc-a RESULT
         6. tc-b RESULT
         7. 文本 "根据结果..."
 
         预期输出：
         - TEXT_MESSAGE_START -> TEXT_MESSAGE_CONTENT -> TEXT_MESSAGE_END
-        - tc-a START -> tc-a ARGS -> tc-a ARGS -> tc-a END -> tc-a RESULT
-        - tc-b START -> tc-b ARGS -> tc-b END -> tc-b RESULT
+        - tc-a START -> tc-a ARGS -> tc-b START -> tc-b ARGS
+        - tc-a ARGS -> tc-a END -> tc-a RESULT
+        - tc-b END -> tc-b RESULT
         - TEXT_MESSAGE_START -> TEXT_MESSAGE_CONTENT -> TEXT_MESSAGE_END
         """
 
@@ -1686,23 +1608,22 @@ class TestAguiEventSequence:
         assert types.count("TOOL_CALL_ARGS") == 3  # tc-a 两次, tc-b 一次
 
     @pytest.mark.asyncio
-    async def test_tool_call_args_after_end(self):
-        """测试工具调用结束后收到 ARGS 事件
+    async def test_tool_call_args_interleaved(self):
+        """测试交错的工具调用 ARGS 事件
 
-        场景：LangChain 交错输出时，可能在 tc-1 END 后收到 tc-1 的 ARGS
-        在 copilotkit_compatibility=True（默认）模式下，其他工具的事件会被放入队列，
-        等到当前工具调用收到 RESULT 后再处理。
+        场景：LangChain 交错输出时的事件序列
 
         输入事件：
         - tc-1 CHUNK (START)
-        - tc-2 CHUNK (放入队列，等待 tc-1 完成)
-        - tc-1 CHUNK (ARGS，同一个工具调用，继续处理)
-        - tc-1 RESULT (处理队列中的 tc-2)
+        - tc-2 CHUNK (START)
+        - tc-1 CHUNK (ARGS)
+        - tc-1 RESULT
         - tc-2 RESULT
 
         预期输出：
-        - tc-1 START -> tc-1 ARGS -> tc-1 ARGS -> tc-1 END -> tc-1 RESULT
-        - tc-2 START -> tc-2 ARGS -> tc-2 END -> tc-2 RESULT
+        - tc-1 START -> tc-1 ARGS -> tc-2 START -> tc-2 ARGS
+        - tc-1 ARGS -> tc-1 END -> tc-1 RESULT
+        - tc-2 END -> tc-2 RESULT
         """
 
         async def invoke_agent(request: AgentRequest):
@@ -1776,10 +1697,10 @@ class TestAguiEventSequence:
                 ], f"ARGS for {tool_id} after END"
 
     @pytest.mark.asyncio
-    async def test_parallel_tool_calls_standard_mode(self):
-        """测试标准模式下的并行工具调用
+    async def test_parallel_tool_calls(self):
+        """测试并行工具调用
 
-        场景：默认模式（copilotkit_compatibility=False）允许并行工具调用
+        场景：AG-UI 协议支持并行工具调用
         预期：tc-2 START 可以在 tc-1 END 之前发送
         """
 
@@ -1842,203 +1763,10 @@ class TestAguiEventSequence:
         ), "Parallel tool calls: tc-2 START should come before tc-1 END"
 
     @pytest.mark.asyncio
-    async def test_langchain_duplicate_tool_call_with_uuid_id_copilotkit_mode(
-        self,
-    ):
-        """测试 LangChain 重复工具调用（使用 UUID 格式 ID）- CopilotKit 兼容模式
+    async def test_langchain_uuid_as_independent_tool_calls(self):
+        """测试 UUID 格式 ID 被视为独立的工具调用
 
-        场景：模拟 LangChain 流式输出时可能产生的重复事件：
-        - 流式 chunk 使用 call_xxx ID
-        - on_tool_start 使用 UUID 格式的 run_id
-        - 两者对应同一个逻辑工具调用
-
-        预期：在 copilotkit_compatibility=True 模式下，UUID 格式的重复事件应该被忽略或合并到已有的 call_xxx ID
-        """
-        from agentrun.server import AGUIProtocolConfig, ServerConfig
-
-        async def invoke_agent(request: AgentRequest):
-            # 流式 chunk：使用 call_xxx ID
-            yield AgentEvent(
-                event=EventType.TOOL_CALL_CHUNK,
-                data={
-                    "id": "call_abc123",
-                    "name": "get_weather",
-                    "args_delta": '{"city": "Beijing"}',
-                },
-            )
-            # on_tool_start：使用 UUID 格式的 run_id（同一个工具调用）
-            yield AgentEvent(
-                event=EventType.TOOL_CALL_CHUNK,
-                data={
-                    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-                    "name": "get_weather",
-                    "args_delta": '{"city": "Beijing"}',
-                },
-            )
-            # on_tool_end：使用 UUID 格式的 run_id
-            yield AgentEvent(
-                event=EventType.TOOL_RESULT,
-                data={
-                    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-                    "name": "get_weather",
-                    "result": "Sunny, 25°C",
-                },
-            )
-
-        # 启用 CopilotKit 兼容模式
-        config = ServerConfig(
-            agui=AGUIProtocolConfig(copilotkit_compatibility=True)
-        )
-        server = AgentRunServer(invoke_agent=invoke_agent, config=config)
-        app = server.as_fastapi_app()
-        from fastapi.testclient import TestClient
-
-        client = TestClient(app)
-        response = client.post(
-            "/ag-ui/agent",
-            json={"messages": [{"role": "user", "content": "weather"}]},
-        )
-
-        lines = [line async for line in response.aiter_lines() if line]
-        types = get_event_types(lines)
-
-        # 验证只有一个工具调用（UUID 重复事件被合并）
-        assert (
-            types.count("TOOL_CALL_START") == 1
-        ), f"Expected 1 TOOL_CALL_START, got {types.count('TOOL_CALL_START')}"
-        assert (
-            types.count("TOOL_CALL_END") == 1
-        ), f"Expected 1 TOOL_CALL_END, got {types.count('TOOL_CALL_END')}"
-        assert (
-            types.count("TOOL_CALL_RESULT") == 1
-        ), f"Expected 1 TOOL_CALL_RESULT, got {types.count('TOOL_CALL_RESULT')}"
-
-        # 验证使用的是 call_xxx ID，不是 UUID
-        for line in lines:
-            if "TOOL_CALL_START" in line:
-                data = json.loads(line.replace("data: ", ""))
-                assert (
-                    data["toolCallId"] == "call_abc123"
-                ), f"Expected call_abc123, got {data['toolCallId']}"
-            if "TOOL_CALL_RESULT" in line:
-                data = json.loads(line.replace("data: ", ""))
-                assert (
-                    data["toolCallId"] == "call_abc123"
-                ), f"Expected call_abc123, got {data['toolCallId']}"
-
-    # @pytest.mark.asyncio
-    # async def test_langchain_multiple_tools_with_uuid_ids_copilotkit_mode(self):
-    #     """测试 LangChain 多个工具调用（使用 UUID 格式 ID）- CopilotKit 兼容模式
-
-    #     场景：模拟 LangChain 并行调用多个工具时的事件序列：
-    #     - 流式 chunk 使用 call_xxx ID
-    #     - on_tool_start/end 使用 UUID 格式的 run_id
-    #     - 需要正确匹配每个工具的 ID
-
-    #     预期：在 copilotkit_compatibility=True 模式下，每个工具调用应该使用正确的 ID，不会混淆
-    #     """
-    #     from agentrun.server import AGUIProtocolConfig, ServerConfig
-
-    #     async def invoke_agent(request: AgentRequest):
-    #         # 第一个工具的流式 chunk
-    #         yield AgentEvent(
-    #             event=EventType.TOOL_CALL_CHUNK,
-    #             data={
-    #                 "id": "call_tool1",
-    #                 "name": "get_weather",
-    #                 "args_delta": '{"city": "Beijing"}',
-    #             },
-    #         )
-    #         # 第二个工具的流式 chunk
-    #         yield AgentEvent(
-    #             event=EventType.TOOL_CALL_CHUNK,
-    #             data={
-    #                 "id": "call_tool2",
-    #                 "name": "get_time",
-    #                 "args_delta": '{"timezone": "UTC"}',
-    #             },
-    #         )
-    #         # 第一个工具的 on_tool_start（UUID）
-    #         yield AgentEvent(
-    #             event=EventType.TOOL_CALL,  # 改为 TOOL_CALL
-    #             data={
-    #                 "id": "uuid-weather-123",
-    #                 "name": "get_weather",
-    #                 "args": '{"city": "Beijing"}',
-    #             },
-    #         )
-    #         # 第二个工具的 on_tool_start（UUID）
-    #         yield AgentEvent(
-    #             event=EventType.TOOL_CALL,  # 改为 TOOL_CALL
-    #             data={
-    #                 "id": "uuid-time-456",
-    #                 "name": "get_time",
-    #                 "args": '{"timezone": "UTC"}',
-    #             },
-    #         )
-    #         # 第一个工具的 on_tool_end（UUID）
-    #         yield AgentEvent(
-    #             event=EventType.TOOL_RESULT,
-    #             data={
-    #                 "id": "uuid-weather-123",
-    #                 "name": "get_weather",
-    #                 "result": "Sunny, 25°C",
-    #             },
-    #         )
-    #         # 第二个工具的 on_tool_end（UUID）
-    #         yield AgentEvent(
-    #             event=EventType.TOOL_RESULT,
-    #             data={
-    #                 "id": "uuid-time-456",
-    #                 "name": "get_time",
-    #                 "result": "12:00 UTC",
-    #             },
-    #         )
-
-    #     # 启用 CopilotKit 兼容模式
-    #     config = ServerConfig(
-    #         agui=AGUIProtocolConfig(copilotkit_compatibility=True)
-    #     )
-    #     server = AgentRunServer(invoke_agent=invoke_agent, config=config)
-    #     app = server.as_fastapi_app()
-    #     from fastapi.testclient import TestClient
-
-    #     client = TestClient(app)
-    #     response = client.post(
-    #         "/ag-ui/agent",
-    #         json={"messages": [{"role": "user", "content": "tools"}]},
-    #     )
-
-    #     lines = [line async for line in response.aiter_lines() if line]
-    #     types = get_event_types(lines)
-
-    #     # 验证只有两个工具调用（UUID 重复事件被合并）
-    #     assert (
-    #         types.count("TOOL_CALL_START") == 2
-    #     ), f"Expected 2 TOOL_CALL_START, got {types.count('TOOL_CALL_START')}"
-    #     assert (
-    #         types.count("TOOL_CALL_END") == 2
-    #     ), f"Expected 2 TOOL_CALL_END, got {types.count('TOOL_CALL_END')}"
-    #     assert (
-    #         types.count("TOOL_CALL_RESULT") == 2
-    #     ), f"Expected 2 TOOL_CALL_RESULT, got {types.count('TOOL_CALL_RESULT')}"
-
-    #     # 验证使用的是 call_xxx ID，不是 UUID
-    #     tool_call_ids = []
-    #     for line in lines:
-    #         if "TOOL_CALL_START" in line:
-    #             data = json.loads(line.replace("data: ", ""))
-    #             tool_call_ids.append(data["toolCallId"])
-
-    #     assert (
-    #         "call_tool1" in tool_call_ids or "call_tool2" in tool_call_ids
-    #     ), f"Expected call_xxx IDs, got {tool_call_ids}"
-
-    @pytest.mark.asyncio
-    async def test_langchain_uuid_not_deduplicated_standard_mode(self):
-        """测试标准模式下，UUID 格式 ID 不会被去重
-
-        场景：默认模式（copilotkit_compatibility=False）下，UUID 格式的 ID 应该被视为独立的工具调用
+        场景：UUID 格式的 ID 应该被视为独立的工具调用
         """
 
         async def invoke_agent(request: AgentRequest):

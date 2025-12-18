@@ -95,45 +95,10 @@ class ToolCallState:
 
 @dataclass
 class StreamStateMachine:
-    copilotkit_compatibility: bool
     text: TextState = field(default_factory=TextState)
     tool_call_states: Dict[str, ToolCallState] = field(default_factory=dict)
     tool_result_chunks: Dict[str, List[str]] = field(default_factory=dict)
-    uuid_to_tool_call_id: Dict[str, str] = field(default_factory=dict)
     run_errored: bool = False
-    active_tool_id: Optional[str] = None
-    pending_events: List["AgentEvent"] = field(default_factory=list)
-
-    @staticmethod
-    def _is_uuid_like(value: Optional[str]) -> bool:
-        if not value:
-            return False
-        try:
-            uuid.UUID(str(value))
-            return True
-        except (ValueError, TypeError, AttributeError):
-            return False
-
-    def resolve_tool_id(self, tool_id: str, tool_name: str) -> str:
-        """将 UUID 形式的 ID 映射到已有的 call_xxx ID，避免模糊匹配。"""
-        if not tool_id:
-            return ""
-        if not self._is_uuid_like(tool_id):
-            return tool_id
-        if tool_id in self.uuid_to_tool_call_id:
-            return self.uuid_to_tool_call_id[tool_id]
-
-        candidates = [
-            existing_id
-            for existing_id, state in self.tool_call_states.items()
-            if not self._is_uuid_like(existing_id)
-            and state.started
-            and (state.name == tool_name or not tool_name)
-        ]
-        if len(candidates) == 1:
-            self.uuid_to_tool_call_id[tool_id] = candidates[0]
-            return candidates[0]
-        return tool_id
 
     def end_all_tools(
         self, encoder: EventEncoder, exclude: Optional[str] = None
@@ -205,10 +170,6 @@ class AGUIProtocolHandler(BaseProtocolHandler):
     def __init__(self, config: Optional[ServerConfig] = None):
         self._config = config.agui if config else None
         self._encoder = EventEncoder()
-        # 是否串行化工具调用（兼容 CopilotKit 等前端）
-        self._copilotkit_compatibility = pydash.get(
-            self._config, "copilotkit_compatibility", False
-        )
 
     def get_prefix(self) -> str:
         """AG-UI 协议建议使用 /ag-ui/agent 前缀"""
@@ -402,9 +363,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         Yields:
             SSE 格式的字符串
         """
-        state = StreamStateMachine(
-            copilotkit_compatibility=self._copilotkit_compatibility
-        )
+        state = StreamStateMachine()
 
         # 发送 RUN_STARTED
         yield self._encoder.encode(
@@ -413,37 +372,6 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 run_id=context.get("run_id"),
             )
         )
-
-        # 辅助函数：处理队列中的所有事件
-        def process_pending_queue() -> Iterator[str]:
-            """处理队列中的所有待处理事件"""
-            while state.pending_events:
-                pending_event = state.pending_events.pop(0)
-                pending_tool_id = (
-                    pending_event.data.get("id", "")
-                    if pending_event.data
-                    else ""
-                )
-
-                # 如果是新的工具调用，设置为活跃
-                if (
-                    pending_event.event == EventType.TOOL_CALL_CHUNK
-                    or pending_event.event == EventType.TOOL_CALL
-                ) and state.active_tool_id is None:
-                    state.active_tool_id = pending_tool_id
-
-                for sse_data in self._process_event_with_boundaries(
-                    pending_event,
-                    context,
-                    state,
-                ):
-                    if sse_data:
-                        yield sse_data
-
-                # 如果处理的是 TOOL_RESULT，检查是否需要继续处理队列
-                if pending_event.event == EventType.TOOL_RESULT:
-                    if pending_tool_id == state.active_tool_id:
-                        state.active_tool_id = None
 
         async for event in event_stream:
             # RUN_ERROR 后不再处理任何事件
@@ -454,95 +382,6 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             if event.event == EventType.ERROR:
                 state.run_errored = True
 
-            # 在 copilotkit_compatibility=True 模式下，实现严格的工具调用序列化
-            # 当一个工具调用正在进行时，其他工具的事件会被放入队列
-            if self._copilotkit_compatibility and not state.run_errored:
-                original_tool_id = (
-                    event.data.get("id", "") if event.data else ""
-                )
-                tool_name = event.data.get("name", "") if event.data else ""
-                resolved_tool_id = state.resolve_tool_id(
-                    original_tool_id, tool_name
-                )
-                if resolved_tool_id and event.data is not None:
-                    event.data["id"] = resolved_tool_id
-                    tool_id = resolved_tool_id
-                else:
-                    tool_id = original_tool_id
-
-                # 处理 TOOL_CALL_CHUNK 事件
-                if event.event == EventType.TOOL_CALL_CHUNK:
-                    if state.active_tool_id is None:
-                        # 没有活跃的工具调用，直接处理
-                        state.active_tool_id = tool_id
-                    elif tool_id != state.active_tool_id:
-                        # 有其他活跃的工具调用，放入队列
-                        state.pending_events.append(event)
-                        continue
-                    # 如果是同一个工具调用，继续处理
-
-                # 处理 TOOL_CALL 事件
-                elif event.event == EventType.TOOL_CALL:
-                    # TOOL_CALL 事件主要用于 UUID 到 call_xxx ID 的映射
-                    # 在 copilotkit 模式下：
-                    # 1. 结束当前活跃的工具调用（如果有）
-                    # 2. 处理队列中的事件
-                    # 3. 不将 TOOL_CALL 事件的 tool_id 设置为活跃工具
-                    if self._copilotkit_compatibility:
-                        if state.active_tool_id is not None:
-                            for sse_data in state.end_all_tools(self._encoder):
-                                yield sse_data
-                            state.active_tool_id = None
-                        # 处理队列中的事件
-                        if state.pending_events:
-                            for sse_data in process_pending_queue():
-                                yield sse_data
-
-                # 处理 TOOL_RESULT 事件
-                elif event.event == EventType.TOOL_RESULT:
-                    actual_tool_id = resolved_tool_id or tool_id
-
-                    # 如果不是当前活跃工具的结果，放入队列
-                    if (
-                        state.active_tool_id is not None
-                        and actual_tool_id != state.active_tool_id
-                    ):
-                        state.pending_events.append(event)
-                        continue
-
-                    # 标记工具调用已有结果
-                    if (
-                        actual_tool_id
-                        and actual_tool_id in state.tool_call_states
-                    ):
-                        state.tool_call_states[actual_tool_id].has_result = True
-
-                    # 处理当前事件
-                    for sse_data in self._process_event_with_boundaries(
-                        event,
-                        context,
-                        state,
-                    ):
-                        if sse_data:
-                            yield sse_data
-
-                    # 如果这是当前活跃工具的结果，处理队列中的事件
-                    if actual_tool_id == state.active_tool_id:
-                        state.active_tool_id = None
-                        # 处理队列中的事件
-                        for sse_data in process_pending_queue():
-                            yield sse_data
-                    continue
-
-                # 处理非工具相关事件（如 TEXT）
-                # 需要先处理队列中的所有事件
-                elif event.event == EventType.TEXT:
-                    # 先处理队列中的所有事件
-                    for sse_data in process_pending_queue():
-                        yield sse_data
-                    # 清除活跃工具 ID（因为我们要处理文本了）
-                    state.active_tool_id = None
-
             # 处理边界事件注入
             for sse_data in self._process_event_with_boundaries(
                 event,
@@ -550,15 +389,6 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 state,
             ):
                 if sse_data:
-                    yield sse_data
-
-            # 在 copilotkit 兼容模式下，如果当前没有活跃工具且队列中有事件，处理队列
-            if (
-                self._copilotkit_compatibility
-                and state.active_tool_id is None
-                and state.pending_events
-            ):
-                for sse_data in process_pending_queue():
                     yield sse_data
 
         # RUN_ERROR 后不发送任何清理事件
@@ -629,37 +459,11 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
         # TOOL_CALL_CHUNK 事件：在首个 CHUNK 前注入 TOOL_CALL_START
         if event.event == EventType.TOOL_CALL_CHUNK:
-            tool_id_raw = event.data.get("id", "")
+            tool_id = event.data.get("id", "")
             tool_name = event.data.get("name", "")
-            resolved_tool_id = state.resolve_tool_id(tool_id_raw, tool_name)
-            tool_id = resolved_tool_id or tool_id_raw
-            if tool_id and event.data is not None:
-                event.data["id"] = tool_id
 
             for sse_data in state.end_text_if_open(self._encoder):
                 yield sse_data
-
-            if (
-                state.copilotkit_compatibility
-                and state._is_uuid_like(tool_id_raw)
-                and tool_name
-            ):
-                for existing_id, call_state in state.tool_call_states.items():
-                    if (
-                        not state._is_uuid_like(existing_id)
-                        and call_state.name == tool_name
-                        and call_state.started
-                    ):
-                        if not call_state.ended:
-                            args_delta = event.data.get("args_delta", "")
-                            if args_delta:
-                                yield self._encoder.encode(
-                                    ToolCallArgsEvent(
-                                        tool_call_id=existing_id,
-                                        delta=args_delta,
-                                    )
-                                )
-                        return
 
             need_start = False
             current_state = state.tool_call_states.get(tool_id)
@@ -668,10 +472,6 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                     need_start = True
 
             if need_start:
-                if state.copilotkit_compatibility:
-                    for sse_data in state.end_all_tools(self._encoder):
-                        yield sse_data
-
                 yield self._encoder.encode(
                     ToolCallStartEvent(
                         tool_call_id=tool_id,
@@ -694,39 +494,12 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
         # TOOL_CALL 事件：完整的工具调用事件
         if event.event == EventType.TOOL_CALL:
-            tool_id_raw = event.data.get("id", "")
+            tool_id = event.data.get("id", "")
             tool_name = event.data.get("name", "")
             tool_args = event.data.get("args", "")
-            resolved_tool_id = state.resolve_tool_id(tool_id_raw, tool_name)
-            tool_id = resolved_tool_id or tool_id_raw
-            if tool_id and event.data is not None:
-                event.data["id"] = tool_id
 
             for sse_data in state.end_text_if_open(self._encoder):
                 yield sse_data
-
-            # 在 CopilotKit 兼容模式下，检查 UUID 映射
-            if (
-                state.copilotkit_compatibility
-                and state._is_uuid_like(tool_id_raw)
-                and tool_name
-            ):
-                for existing_id, call_state in state.tool_call_states.items():
-                    if (
-                        not state._is_uuid_like(existing_id)
-                        and call_state.name == tool_name
-                        and call_state.started
-                    ):
-                        if not call_state.ended:
-                            # UUID 事件可能包含参数，发送参数事件
-                            if tool_args:
-                                yield self._encoder.encode(
-                                    ToolCallArgsEvent(
-                                        tool_call_id=existing_id,
-                                        delta=tool_args,
-                                    )
-                                )
-                        return  # UUID 事件已完成处理，不创建新的工具调用
 
             need_start = False
             current_state = state.tool_call_states.get(tool_id)
@@ -735,10 +508,6 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                     need_start = True
 
             if need_start:
-                if state.copilotkit_compatibility:
-                    for sse_data in state.end_all_tools(self._encoder):
-                        yield sse_data
-
                 yield self._encoder.encode(
                     ToolCallStartEvent(
                         tool_call_id=tool_id,
@@ -838,60 +607,45 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         if event.event == EventType.TOOL_RESULT:
             tool_id = event.data.get("id", "")
             tool_name = event.data.get("name", "")
-            actual_tool_id = (
-                state.resolve_tool_id(tool_id, tool_name)
-                if state.copilotkit_compatibility
-                else tool_id
-            )
-            if actual_tool_id and event.data is not None:
-                event.data["id"] = actual_tool_id
 
             for sse_data in state.end_text_if_open(self._encoder):
                 yield sse_data
 
-            if state.copilotkit_compatibility:
-                for sse_data in state.end_all_tools(
-                    self._encoder, exclude=actual_tool_id
-                ):
-                    yield sse_data
-
             tool_state = (
-                state.tool_call_states.get(actual_tool_id)
-                if actual_tool_id
-                else None
+                state.tool_call_states.get(tool_id) if tool_id else None
             )
-            if actual_tool_id and tool_state is None:
+            if tool_id and tool_state is None:
                 yield self._encoder.encode(
                     ToolCallStartEvent(
-                        tool_call_id=actual_tool_id,
+                        tool_call_id=tool_id,
                         tool_call_name=tool_name or "",
                     )
                 )
                 tool_state = ToolCallState(
                     name=tool_name, started=True, ended=False
                 )
-                state.tool_call_states[actual_tool_id] = tool_state
+                state.tool_call_states[tool_id] = tool_state
 
             if tool_state and tool_state.started and not tool_state.ended:
                 yield self._encoder.encode(
-                    ToolCallEndEvent(tool_call_id=actual_tool_id)
+                    ToolCallEndEvent(tool_call_id=tool_id)
                 )
                 tool_state.ended = True
 
             final_result = event.data.get("content") or event.data.get(
                 "result", ""
             )
-            if actual_tool_id:
-                cached_chunks = state.pop_tool_result_chunks(actual_tool_id)
+            if tool_id:
+                cached_chunks = state.pop_tool_result_chunks(tool_id)
                 if cached_chunks:
                     final_result = cached_chunks + final_result
 
             yield self._encoder.encode(
                 ToolCallResultEvent(
                     message_id=event.data.get(
-                        "message_id", f"tool-result-{actual_tool_id}"
+                        "message_id", f"tool-result-{tool_id}"
                     ),
-                    tool_call_id=actual_tool_id,
+                    tool_call_id=tool_id,
                     content=final_result,
                     role="tool",
                 )
