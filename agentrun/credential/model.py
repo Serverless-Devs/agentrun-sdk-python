@@ -134,7 +134,7 @@ class CredentialConfig(CredentialConfigInner):
         cls,
         provider: str,
         access_key_id: str,
-        access_key_secred: str,
+        access_key_secret: str,
         account_id: str,
     ):
         """配置访问第三方工具的 ak/sk 凭证"""
@@ -148,7 +148,7 @@ class CredentialConfig(CredentialConfigInner):
                     "accountId": account_id,
                 },
             },
-            credential_secret=access_key_secred,
+            credential_secret=access_key_secret,
         )
 
     @classmethod

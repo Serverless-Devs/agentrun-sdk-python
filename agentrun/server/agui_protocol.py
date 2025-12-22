@@ -19,36 +19,12 @@ from typing import (
 )
 import uuid
 
-from ag_ui.core import AssistantMessage
-from ag_ui.core import CustomEvent as AguiCustomEvent
-from ag_ui.core import EventType as AguiEventType
-from ag_ui.core import Message as AguiMessage
-from ag_ui.core import MessagesSnapshotEvent
-from ag_ui.core import RawEvent as AguiRawEvent
-from ag_ui.core import (
-    RunErrorEvent,
-    RunFinishedEvent,
-    RunStartedEvent,
-    StateDeltaEvent,
-    StateSnapshotEvent,
-    StepFinishedEvent,
-    StepStartedEvent,
-    SystemMessage,
-    TextMessageContentEvent,
-    TextMessageEndEvent,
-    TextMessageStartEvent,
-)
-from ag_ui.core import Tool as AguiTool
-from ag_ui.core import ToolCall as AguiToolCall
-from ag_ui.core import (
-    ToolCallArgsEvent,
-    ToolCallEndEvent,
-    ToolCallResultEvent,
-    ToolCallStartEvent,
-)
-from ag_ui.core import ToolMessage as AguiToolMessage
-from ag_ui.core import UserMessage
-from ag_ui.encoder import EventEncoder
+if TYPE_CHECKING:
+    from ag_ui.core import (
+        Message as AguiMessage,
+    )
+    from ag_ui.encoder import EventEncoder
+
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 import pydash
@@ -101,8 +77,10 @@ class StreamStateMachine:
     run_errored: bool = False
 
     def end_all_tools(
-        self, encoder: EventEncoder, exclude: Optional[str] = None
+        self, encoder: "EventEncoder", exclude: Optional[str] = None
     ) -> Iterator[str]:
+        from ag_ui.core import ToolCallEndEvent
+
         for tool_id, state in self.tool_call_states.items():
             if exclude and tool_id == exclude:
                 continue
@@ -110,7 +88,9 @@ class StreamStateMachine:
                 yield encoder.encode(ToolCallEndEvent(tool_call_id=tool_id))
                 state.ended = True
 
-    def ensure_text_started(self, encoder: EventEncoder) -> Iterator[str]:
+    def ensure_text_started(self, encoder: "EventEncoder") -> Iterator[str]:
+        from ag_ui.core import TextMessageStartEvent
+
         if not self.text.started or self.text.ended:
             if self.text.ended:
                 self.text = TextState()
@@ -123,7 +103,9 @@ class StreamStateMachine:
             self.text.started = True
             self.text.ended = False
 
-    def end_text_if_open(self, encoder: EventEncoder) -> Iterator[str]:
+    def end_text_if_open(self, encoder: "EventEncoder") -> Iterator[str]:
+        from ag_ui.core import TextMessageEndEvent
+
         if self.text.started and not self.text.ended:
             yield encoder.encode(
                 TextMessageEndEvent(message_id=self.text.message_id)
@@ -168,6 +150,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
     name = "ag-ui"
 
     def __init__(self, config: Optional[ServerConfig] = None):
+        from ag_ui.encoder import EventEncoder
+
         self._config = config.agui if config else None
         self._encoder = EventEncoder()
 
@@ -419,6 +403,18 @@ class AGUIProtocolHandler(BaseProtocolHandler):
     ) -> Iterator[str]:
         """处理事件并注入边界事件"""
         import json
+
+        from ag_ui.core import CustomEvent as AguiCustomEvent
+        from ag_ui.core import (
+            RunErrorEvent,
+            StateDeltaEvent,
+            StateSnapshotEvent,
+            TextMessageContentEvent,
+            ToolCallArgsEvent,
+            ToolCallEndEvent,
+            ToolCallResultEvent,
+            ToolCallStartEvent,
+        )
 
         # RAW 事件直接透传
         if event.event == EventType.RAW:
@@ -703,7 +699,7 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
     def _convert_messages_for_snapshot(
         self, messages: List[Dict[str, Any]]
-    ) -> List[AguiMessage]:
+    ) -> List["AguiMessage"]:
         """将消息列表转换为 ag-ui-protocol 格式
 
         Args:
@@ -712,6 +708,10 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         Returns:
             ag-ui-protocol 消息列表
         """
+        from ag_ui.core import AssistantMessage, SystemMessage
+        from ag_ui.core import ToolMessage as AguiToolMessage
+        from ag_ui.core import UserMessage
+
         result = []
         for msg in messages:
             if not isinstance(msg, dict):
@@ -779,6 +779,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         Yields:
             SSE 格式的错误事件
         """
+        from ag_ui.core import RunErrorEvent, RunStartedEvent
+
         thread_id = str(uuid.uuid4())
         run_id = str(uuid.uuid4())
 
