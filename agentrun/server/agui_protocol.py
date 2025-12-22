@@ -347,6 +347,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         Yields:
             SSE 格式的字符串
         """
+        from ag_ui.core import RunFinishedEvent, RunStartedEvent
+
         state = StreamStateMachine()
 
         # 发送 RUN_STARTED

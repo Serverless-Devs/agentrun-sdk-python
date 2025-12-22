@@ -131,6 +131,7 @@ class ProxyConfigTokenRateLimiter(BaseModel):
 
 class ProxyConfigAIGuardrailConfig(BaseModel):
     """AI 防护配置"""
+
     check_request: Optional[bool] = None
     check_response: Optional[bool] = None
 
