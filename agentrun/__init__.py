@@ -303,7 +303,7 @@ def __getattr__(name: str):
             return getattr(server, name)
         except ImportError as e:
             # 检查是否是缺少可选依赖导致的错误
-            if "fastapi" in str(e) or "uvicorn" in str(e):
+            if "fastapi" in str(e) or "uvicorn" in str(e) or "ag_ui" in str(e):
                 raise ImportError(
                     f"'{name}' requires the 'server' optional dependencies. "
                     "Install with: pip install agentrun-sdk[server]\n"
