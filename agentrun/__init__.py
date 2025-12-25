@@ -289,6 +289,14 @@ _SERVER_EXPORTS = {
     "MergeOptions",
 }
 
+# 可选依赖包映射：导入错误的包名 -> 安装使用的包名
+# Optional dependency mapping: import error package name -> installation package name
+_OPTIONAL_PACKAGES = [
+    ("fastapi", "agentrun-sdk[server]"),
+    ("uvicorn", "agentrun-sdk[server]"),
+    ("ag_ui", "agentrun-sdk[server]"),
+]
+
 
 def __getattr__(name: str):
     """延迟加载 server 模块的导出，避免可选依赖导致导入失败
@@ -303,12 +311,14 @@ def __getattr__(name: str):
             return getattr(server, name)
         except ImportError as e:
             # 检查是否是缺少可选依赖导致的错误
-            if "fastapi" in str(e) or "uvicorn" in str(e) or "ag_ui" in str(e):
-                raise ImportError(
-                    f"'{name}' requires the 'server' optional dependencies. "
-                    "Install with: pip install agentrun-sdk[server]\n"
-                    f"Original error: {e}"
-                ) from e
+            error_str = str(e)
+            for package_name, install_name in _OPTIONAL_PACKAGES:
+                if package_name in error_str:
+                    raise ImportError(
+                        f"'{name}' requires optional dependencies. "
+                        f"Install with: pip install {install_name}\n"
+                        f"Original error: {e}"
+                    ) from e
             # 其他导入错误继续抛出
             raise
 
