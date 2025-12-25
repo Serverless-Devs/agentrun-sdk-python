@@ -292,10 +292,11 @@ _SERVER_EXPORTS = {
 # 可选依赖包映射：导入错误的包名 -> 安装使用的包名
 # Optional dependency mapping: import error package name -> installation package name
 # 所有 server 相关的可选依赖 / All server-related optional dependencies
+_SERVER_INSTALL_CMD = "agentrun-sdk[server]"
 _OPTIONAL_PACKAGES = [
-    ("fastapi", "agentrun-sdk[server]"),
-    ("uvicorn", "agentrun-sdk[server]"),
-    ("ag_ui", "agentrun-sdk[server]"),
+    ("fastapi", _SERVER_INSTALL_CMD),
+    ("uvicorn", _SERVER_INSTALL_CMD),
+    ("ag_ui", _SERVER_INSTALL_CMD),
 ]
 
 
