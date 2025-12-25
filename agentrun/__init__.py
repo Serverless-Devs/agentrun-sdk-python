@@ -291,6 +291,7 @@ _SERVER_EXPORTS = {
 
 # 可选依赖包映射：导入错误的包名 -> 安装使用的包名
 # Optional dependency mapping: import error package name -> installation package name
+# 所有 server 相关的可选依赖 / All server-related optional dependencies
 _OPTIONAL_PACKAGES = [
     ("fastapi", "agentrun-sdk[server]"),
     ("uvicorn", "agentrun-sdk[server]"),
@@ -315,7 +316,7 @@ def __getattr__(name: str):
             for package_name, install_name in _OPTIONAL_PACKAGES:
                 if package_name in error_str:
                     raise ImportError(
-                        f"'{name}' requires optional dependencies. "
+                        f"'{name}' requires the 'server' optional dependencies. "
                         f"Install with: pip install {install_name}\n"
                         f"Original error: {e}"
                     ) from e
