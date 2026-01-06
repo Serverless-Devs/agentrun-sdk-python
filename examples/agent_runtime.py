@@ -77,11 +77,16 @@ def create_or_get_agentruntime():
                 ),
             )
         )
-    except ResourceAlreadyExistError:
-        logger.info("已存在，获取已有资源")
+    except ResourceAlreadyExistError as e:
+        logger.info("已存在，获取已有资源", e)
 
-        ar = client.list(
-            AgentRuntimeListInput(agent_runtime_name=agent_runtime_name)
+        ar = list(
+            filter(
+                lambda a: a.agent_runtime_name == agent_runtime_name,
+                client.list(
+                    AgentRuntimeListInput(agent_runtime_name=agent_runtime_name)
+                ),
+            )
         )[0]
 
     ar.wait_until_ready_or_failed()

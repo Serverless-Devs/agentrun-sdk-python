@@ -1,3 +1,4 @@
+from logging import config
 import os
 import re
 import time
@@ -135,21 +136,25 @@ def create_or_get_model_proxy():
     """
     logger.info("创建或获取已有的资源")
 
+    from agentrun.utils.config import Config
+
+    cfg = Config()
+
     try:
         cred = client.create(
             ModelProxyCreateInput(
                 model_proxy_name=model_proxy_name,
                 description="测试模型治理",
                 model_type=model.ModelType.LLM,
+                execution_role_arn=f"acs:ram::{cfg.get_account_id()}:role/aliyunagentrundefaultrole",
                 proxy_config=model.ProxyConfig(
                     endpoints=[
                         model.ProxyConfigEndpoint(
                             model_names=[model_name],
-                            model_service_name="test-model-service",
+                            model_service_name=model_service_name,
                         )
                         for model_name in model_names
                     ],
-                    policies={},
                 ),
             )
         )
@@ -172,9 +177,16 @@ def update_model_proxy(mp: ModelProxy):
     """
     logger.info("更新描述为当前时间")
 
+    from agentrun.utils.config import Config
+
+    cfg = Config()
+
     # 也可以使用 client.update
     mp.update(
-        ModelProxyUpdateInput(description=f"当前时间戳：{time.time()}"),
+        ModelProxyUpdateInput(
+            execution_role_arn=f"acs:ram::{cfg.get_account_id()}:role/aliyunagentrundefaultrole",
+            description=f"当前时间戳：{time.time()}",
+        ),
     )
     mp.wait_until_ready_or_failed()
     if mp.status != Status.READY:

@@ -78,9 +78,11 @@ class HTTPError(AgentRunError):
             "does not exist" in self.message or "not found" in self.message
         ):
             return ResourceNotExistError(resource_type, resource_id)
-        elif (self.status_code == 400 or self.status_code == 500) and (
-            "already exists" in self.message
-        ):
+        elif (
+            self.status_code == 400
+            or self.status_code == 409
+            or self.status_code == 500
+        ) and ("already exists" in self.message):
             # TODO: ModelProxy already exists returns 500
             return ResourceAlreadyExistError(resource_type, resource_id)
         else:
