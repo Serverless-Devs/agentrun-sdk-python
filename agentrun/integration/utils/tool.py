@@ -592,6 +592,23 @@ class Tool:
 
         return func
 
+    def __get__(self, obj: Any, objtype: Any = None) -> "Tool":
+        """实现描述符协议，使 Tool 在类属性访问时自动绑定到实例
+
+        这允许在工具方法内部调用其他 @tool 装饰的方法时正常工作。
+        例如：goto 方法调用 self.browser_navigate() 时，会自动获取绑定版本。
+        """
+        if obj is None:
+            # 通过类访问（如 BrowserToolSet.browser_navigate），返回未绑定的 Tool
+            return self
+
+        # 通过实例访问，返回绑定到该实例的 Tool
+        # 使用实例的 __dict__ 作为缓存，避免每次访问都创建新的 Tool 对象
+        cache_key = f"_bound_tool_{id(self)}"
+        if cache_key not in obj.__dict__:
+            obj.__dict__[cache_key] = self.bind(obj)
+        return obj.__dict__[cache_key]
+
     def bind(self, instance: Any) -> "Tool":
         """绑定工具到实例，便于在类中定义工具方法"""
 

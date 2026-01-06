@@ -314,6 +314,112 @@ class MockLLMTransport:
         )
 
 
+class TestToolDescriptorProtocol:
+    """测试 Tool 类的描述符协议实现
+
+    确保工具方法内部调用其他 @tool 装饰的方法时能正常工作。
+    这是修复 BrowserToolSet.goto() 调用 browser_navigate() 时缺少 self 参数问题的测试。
+    """
+
+    def test_tool_internal_call_works(self):
+        """测试工具内部调用其他工具时能正常工作"""
+        from agentrun.integration.utils.tool import CommonToolSet, tool
+
+        class TestToolSet(CommonToolSet):
+
+            def __init__(self):
+                self.call_log: List[str] = []
+                super().__init__()
+
+            @tool(name="main_tool", description="主工具，会调用子工具")
+            def main_tool(self, value: str) -> str:
+                """主工具，内部调用 sub_tool"""
+                self.call_log.append(f"main_tool({value})")
+                # 这里调用另一个 @tool 装饰的方法
+                # 修复前会报错：TypeError: ... missing 1 required positional argument: 'self'
+                result = self.sub_tool(value=f"from_main:{value}")
+                return f"main_result:{result}"
+
+            @tool(name="sub_tool", description="子工具")
+            def sub_tool(self, value: str) -> str:
+                """子工具"""
+                self.call_log.append(f"sub_tool({value})")
+                return f"sub_result:{value}"
+
+        ts = TestToolSet()
+
+        # 直接调用 main_tool，它内部会调用 sub_tool
+        result = ts.main_tool(value="test_input")
+
+        # 验证两个工具都被正确调用
+        assert ts.call_log == [
+            "main_tool(test_input)",
+            "sub_tool(from_main:test_input)",
+        ]
+        assert result == "main_result:sub_result:from_main:test_input"
+
+    def test_tool_descriptor_returns_bound_tool(self):
+        """测试 Tool.__get__ 返回绑定到实例的 Tool"""
+        from agentrun.integration.utils.tool import CommonToolSet, Tool, tool
+
+        class TestToolSet(CommonToolSet):
+
+            def __init__(self):
+                super().__init__()
+
+            @tool(name="my_tool", description="测试工具")
+            def my_tool(self, x: int) -> int:
+                return x * 2
+
+        ts = TestToolSet()
+
+        # 通过实例访问应该返回绑定的 Tool
+        bound_tool = ts.my_tool
+        assert isinstance(bound_tool, Tool)
+
+        # 绑定的 Tool 应该可以直接调用，不需要传入 self
+        result = bound_tool(x=5)
+        assert result == 10
+
+    def test_tool_descriptor_class_access(self):
+        """测试通过类访问 Tool 时返回未绑定的 Tool"""
+        from agentrun.integration.utils.tool import CommonToolSet, Tool, tool
+
+        class TestToolSet(CommonToolSet):
+
+            @tool(name="class_tool", description="类工具")
+            def class_tool(self, x: int) -> int:
+                return x * 2
+
+        # 通过类访问应该返回未绑定的 Tool
+        unbound_tool = TestToolSet.class_tool
+        assert isinstance(unbound_tool, Tool)
+
+        # 未绑定的 Tool 调用时需要手动传入实例
+        instance = TestToolSet()
+        # 通过实例访问会自动绑定
+        bound_tool = instance.class_tool
+        assert bound_tool(x=3) == 6
+
+    def test_tool_descriptor_caching(self):
+        """测试 Tool.__get__ 的缓存机制"""
+        from agentrun.integration.utils.tool import CommonToolSet, tool
+
+        class TestToolSet(CommonToolSet):
+
+            @tool(name="cached_tool", description="缓存测试工具")
+            def cached_tool(self) -> str:
+                return "cached"
+
+        ts = TestToolSet()
+
+        # 多次访问应该返回同一个绑定的 Tool 对象（缓存）
+        tool1 = ts.cached_tool
+        tool2 = ts.cached_tool
+
+        assert tool1 is tool2  # 应该是同一个对象
+
+
 class TestIntegration:
 
     def get_mocked_toolset(self, timezone="UTC"):
