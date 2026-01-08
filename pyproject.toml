@@ -102,7 +102,7 @@ known_third_party = ["alibabacloud_tea_openapi", "alibabacloud_devs20230714", "a
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
 [tool.mypy]
-python_version = "0.0.9"
+python_version = "3.10"
 exclude = "tests/"
 plugins = ["pydantic.mypy"]
 # Start with non-strict mode, and switch to strict mode later.
@@ -125,6 +125,8 @@ source = ["agentrun"]
 branch = true
 # 排除的文件模式
 omit = [
+    # 包初始化文件（主要是导出和延迟加载逻辑）
+    "agentrun/__init__.py",
     # 测试文件
     "*/tests/*",
     "*_test.py",

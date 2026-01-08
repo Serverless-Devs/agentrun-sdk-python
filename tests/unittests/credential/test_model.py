@@ -174,7 +174,7 @@ class TestCredentialConfig:
         config = CredentialConfig.outbound_tool_ak_sk(
             provider="aliyun",
             access_key_id="ak-id",
-            access_key_secred="ak-secret",
+            access_key_secret="ak-secret",
             account_id="account-123",
         )
         assert config.credential_source_type == CredentialSourceType.TOOL

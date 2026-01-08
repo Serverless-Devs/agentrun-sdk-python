@@ -30,11 +30,7 @@ jobs:
       run: |
         make mypy-check
 
-    - name: Run unit tests
-      run: |
-        make test-unit
-
-    - name: Run coverage
+    - name: Run tests with coverage
       run: |
         make coverage
 
