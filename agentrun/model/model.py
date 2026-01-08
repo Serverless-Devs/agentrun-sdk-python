@@ -114,7 +114,7 @@ class ProxyConfigEndpoint(BaseModel):
     base_url: Optional[str] = None
     model_names: Optional[List[str]] = None
     model_service_name: Optional[str] = None
-    weight: Optional[str] = None
+    weight: Optional[int] = None
 
 
 class ProxyConfigFallback(BaseModel):
