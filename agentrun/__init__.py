@@ -315,9 +315,9 @@ def __getattr__(name: str):
                 for package_name in package_names:
                     if package_name in error_str:
                         raise ImportError(
-                            f"'{name}' requires the 'server' optional dependencies. "
-                            f"Install with: pip install {install_cmd}\n"
-                            f"Original error: {e}"
+                            f"'{name}' requires the 'server' optional"
+                            " dependencies. Install with: pip install"
+                            f" {install_cmd}\nOriginal error: {e}"
                         ) from e
             # 其他导入错误继续抛出
             raise

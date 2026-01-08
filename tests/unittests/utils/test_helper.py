@@ -120,3 +120,68 @@ def test_merge_class():
         T(a=5, c=T(b="8", c=None, d=[]), d=[3, 4]),
         no_new_field=True,
     )
+
+
+def test_merge_tuple():
+    """测试 tuple 合并"""
+    from agentrun.utils.helper import merge
+
+    # 两个 tuple 应该连接
+    assert merge((1, 2), (3, 4)) == (1, 2, 3, 4)
+
+    # 空 tuple
+    assert merge((1, 2), ()) == (1, 2)
+    assert merge((), (3, 4)) == (3, 4)
+
+
+def test_merge_set():
+    """测试 set 合并"""
+    from agentrun.utils.helper import merge
+
+    # 两个 set 应该取并集
+    assert merge({1, 2}, {3, 4}) == {1, 2, 3, 4}
+    assert merge({1, 2}, {2, 3}) == {1, 2, 3}
+
+
+def test_merge_frozenset():
+    """测试 frozenset 合并"""
+    from agentrun.utils.helper import merge
+
+    # 两个 frozenset 应该取并集
+    assert merge(frozenset({1, 2}), frozenset({3, 4})) == frozenset(
+        {1, 2, 3, 4}
+    )
+    assert merge(frozenset({1, 2}), frozenset({2, 3})) == frozenset({1, 2, 3})
+
+
+def test_merge_object_no_new_field():
+    """测试对象合并时的 no_new_field 参数"""
+    from agentrun.utils.helper import merge
+
+    class SimpleObj:
+
+        def __init__(self):
+            self.a = 1
+
+    obj_a = SimpleObj()
+    obj_a.a = 10
+
+    obj_b = SimpleObj()
+    obj_b.a = 20
+    obj_b.b = 30  # type: ignore  # new field
+
+    # 无 no_new_field 参数时应该添加新字段
+    result = merge(SimpleObj(), obj_b)
+    assert hasattr(result, "b")
+
+    # 有 no_new_field=True 时不应该添加新字段
+    obj_c = SimpleObj()
+    obj_c.a = 10
+
+    obj_d = SimpleObj()
+    obj_d.a = 20
+    obj_d.b = 30  # type: ignore
+
+    result2 = merge(obj_c, obj_d, no_new_field=True)
+    assert not hasattr(result2, "b")
+    assert result2.a == 20

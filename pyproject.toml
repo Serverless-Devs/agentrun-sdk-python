@@ -102,7 +102,7 @@ known_third_party = ["alibabacloud_tea_openapi", "alibabacloud_devs20230714", "a
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
 [tool.mypy]
-python_version = "0.0.9"
+python_version = "3.10"
 exclude = "tests/"
 plugins = ["pydantic.mypy"]
 # Start with non-strict mode, and switch to strict mode later.
@@ -114,6 +114,76 @@ follow_imports = "skip"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
 asyncio_mode = "auto"
+
+# ============================================================================
+# Coverage.py 配置
+# ============================================================================
+[tool.coverage.run]
+# 源代码目录
+source = ["agentrun"]
+# 启用分支覆盖率
+branch = true
+# 排除的文件模式
+omit = [
+    # 包初始化文件（主要是导出和延迟加载逻辑）
+    "agentrun/__init__.py",
+    # 测试文件
+    "*/tests/*",
+    "*_test.py",
+    "test_*.py",
+    "conftest.py",
+    # 模板文件（用于代码生成）
+    "*_async_template.py",
+    "*__async_template.py",
+    # 自动生成的 API 控制代码
+    "*/api/control.py",
+    # 代码生成和构建目录
+    "codegen/*",
+    "examples/*",
+    "build/*",
+    "*.egg-info/*",
+    # 缓存目录
+    "*__pycache__*",
+    # server 和 sandbox 模块
+    "agentrun/server/*",
+    "agentrun/sandbox/*",
+    # integration 模块（第三方集成，单独测试）
+    "agentrun/integration/*",
+    # MCP 客户端（需要外部 MCP 服务器）
+    "agentrun/toolset/api/mcp.py",
+    # OpenAPI 解析器（复杂的 HTTP/schema mocking）
+    "agentrun/toolset/api/openapi.py",
+    # 客户端模块（异步方法与同步方法逻辑相同，单测同步方法即可）
+    "agentrun/agent_runtime/client.py",
+    "agentrun/model/client.py",
+    "agentrun/credential/client.py",
+    # endpoint 模块（invoke_openai 需要 Data API，难以单测）
+    "agentrun/agent_runtime/endpoint.py",
+    # toolset 模块（call_tool 和 to_apiset 需要外部 API 调用）
+    "agentrun/toolset/toolset.py",
+    # runtime 模块（invoke_openai 需要 Data API）
+    "agentrun/agent_runtime/runtime.py",
+]
+
+[tool.coverage.report]
+# 排除的代码行模式
+exclude_lines = [
+    # 标准排除
+    "pragma: no cover",
+    # 类型检查导入
+    "if TYPE_CHECKING:",
+    # 调试断言
+    "raise AssertionError",
+    "raise NotImplementedError",
+    # 抽象方法
+    "@abstractmethod",
+    # 防御性断言
+    "if __name__ == .__main__.:",
+]
+# 显示缺失的行
+show_missing = true
+# 精度
+precision = 2
 
 [tool.setuptools.packages.find]
 where = ["."]
