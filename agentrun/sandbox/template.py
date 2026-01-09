@@ -39,59 +39,61 @@ class Template(BaseModel):
     """
 
     template_id: Optional[str] = None
-    """模板 ID"""
+    """模板 ID / Template ID"""
     template_name: Optional[str] = None
-    """模板名称"""
+    """模板名称 / Template Name"""
     template_version: Optional[str] = None
-    """模板版本"""
+    """模板版本 / Template Version"""
     template_arn: Optional[str] = None
-    """模板 ARN"""
+    """模板 ARN / Template ARN"""
     resource_name: Optional[str] = None
-    """资源名称"""
+    """资源名称 / Resource Name"""
     template_type: Optional[TemplateType] = None
-    """模板类型"""
+    """模板类型 / Template Type"""
     cpu: Optional[float] = None
-    """CPU 核数"""
+    """CPU 核数 / CPU Cores"""
     memory: Optional[int] = None
-    """内存大小（MB）"""
+    """内存大小（MB） / Memory Size (MB)"""
     disk_size: Optional[int] = None
-    """磁盘大小（GB）"""
+    """磁盘大小（GB） / Disk Size (GB)"""
     description: Optional[str] = None
-    """描述"""
+    """描述 / Description"""
     execution_role_arn: Optional[str] = None
-    """执行角色 ARN"""
+    """执行角色 ARN / Execution Role ARN"""
     sandbox_idle_timeout_in_seconds: Optional[int] = None
-    """沙箱空闲超时时间（秒）"""
+    """沙箱空闲超时时间（秒） / Sandbox Idle Timeout (seconds)"""
     sandbox_ttlin_seconds: Optional[int] = None
-    """沙箱存活时间（秒）"""
+    """沙箱存活时间（秒） / Sandbox TTL (seconds)"""
     share_concurrency_limit_per_sandbox: Optional[int] = None
-    """每个沙箱的最大并发会话数"""
+    """每个沙箱的最大并发会话数 / Max Concurrency Limit Per Sandbox"""
     template_configuration: Optional[Dict] = None
-    """模板配置"""
+    """模板配置 / Template Configuration"""
     environment_variables: Optional[Dict] = None
-    """环境变量"""
+    """环境变量 / Environment Variables"""
     network_configuration: Optional[TemplateNetworkConfiguration] = None
-    """网络配置"""
+    """网络配置 / Network Configuration"""
     oss_configuration: Optional[List[TemplateOssConfiguration]] = None
-    """OSS 配置列表"""
+    """OSS 配置列表 / OSS Configuration List"""
     log_configuration: Optional[TemplateLogConfiguration] = None
-    """日志配置"""
+    """日志配置 / Log Configuration"""
     credential_configuration: Optional[TemplateCredentialConfiguration] = None
-    """凭证配置"""
+    """凭证配置 / Credential Configuration"""
     container_configuration: Optional[TemplateContainerConfiguration] = None
-    """容器配置"""
+    """容器配置 / Container Configuration"""
     mcp_options: Optional[TemplateMcpOptions] = None
-    """MCP 选项"""
+    """MCP 选项 / MCP Options"""
     mcp_state: Optional[TemplateMcpState] = None
-    """MCP 状态"""
+    """MCP 状态 / MCP State"""
+    allow_anonymous_manage: Optional[bool] = None
+    """是否允许匿名管理 / Whether to allow anonymous management"""
     created_at: Optional[str] = None
-    """创建时间"""
+    """创建时间 / Creation Time"""
     last_updated_at: Optional[str] = None
-    """最后更新时间"""
+    """最后更新时间 / Last Updated Time"""
     status: Optional[str] = None
-    """状态"""
+    """状态 / Status"""
     status_reason: Optional[str] = None
-    """状态原因"""
+    """状态原因 / Status Reason"""
 
     @classmethod
     def __get_client(cls, config: Optional[Config] = None):

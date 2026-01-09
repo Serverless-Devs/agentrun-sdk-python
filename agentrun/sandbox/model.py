@@ -5,7 +5,7 @@ Defines data models and enumerations related to sandboxes.
 """
 
 from enum import Enum
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import uuid
 
 from pydantic import model_validator
@@ -51,6 +51,108 @@ class CodeLanguage(str, Enum):
     """Code Interpreter 代码语言 / Code Interpreter Programming Language"""
 
     PYTHON = "python"
+
+
+# ==================== NAS 配置相关 ====================
+
+
+class NASMountConfig(BaseModel):
+    """NAS 挂载配置 / NAS Mount Configuration
+
+    定义 NAS 文件系统的挂载配置。
+    Defines the mount configuration for NAS file system.
+    """
+
+    enable_tls: Optional[bool] = None
+    """是否启用 TLS 加密 / Whether to enable TLS encryption"""
+    mount_dir: Optional[str] = None
+    """挂载目录 / Mount Directory"""
+    server_addr: Optional[str] = None
+    """NAS 服务器地址 / NAS Server Address"""
+
+
+class NASConfig(BaseModel):
+    """NAS 配置 / NAS Configuration
+
+    定义 NAS 文件系统的配置。
+    Defines the configuration for NAS file system.
+    """
+
+    group_id: Optional[int] = None
+    """组 ID / Group ID"""
+    mount_points: Optional[List[NASMountConfig]] = None
+    """挂载点列表 / Mount Points List"""
+    user_id: Optional[int] = None
+    """用户 ID / User ID"""
+
+
+# ==================== OSS 挂载配置相关 ====================
+
+
+class OSSMountPoint(BaseModel):
+    """OSS 挂载点 / OSS Mount Point
+
+    定义 OSS 存储的挂载点配置。
+    Defines the mount point configuration for OSS storage.
+    """
+
+    bucket_name: Optional[str] = None
+    """OSS 存储桶名称 / OSS Bucket Name"""
+    bucket_path: Optional[str] = None
+    """OSS 存储桶路径 / OSS Bucket Path"""
+    endpoint: Optional[str] = None
+    """OSS 端点 / OSS Endpoint"""
+    mount_dir: Optional[str] = None
+    """挂载目录 / Mount Directory"""
+    read_only: Optional[bool] = None
+    """是否只读 / Read Only"""
+
+
+class OSSMountConfig(BaseModel):
+    """OSS 挂载配置 / OSS Mount Configuration
+
+    定义 OSS 存储的挂载配置。
+    Defines the mount configuration for OSS storage.
+    """
+
+    mount_points: Optional[List[OSSMountPoint]] = None
+    """挂载点列表 / Mount Points List"""
+
+
+# ==================== PolarFS 配置相关 ====================
+
+
+class PolarFsMountConfig(BaseModel):
+    """PolarFS 挂载配置 / PolarFS Mount Configuration
+
+    定义 PolarFS 文件系统的挂载配置。
+    Defines the mount configuration for PolarFS file system.
+    """
+
+    instance_id: Optional[str] = None
+    """实例 ID / Instance ID"""
+    mount_dir: Optional[str] = None
+    """挂载目录 / Mount Directory"""
+    remote_dir: Optional[str] = None
+    """远程目录 / Remote Directory"""
+
+
+class PolarFsConfig(BaseModel):
+    """PolarFS 配置 / PolarFS Configuration
+
+    定义 PolarFS 文件系统的配置。
+    Defines the configuration for PolarFS file system.
+    """
+
+    group_id: Optional[int] = None
+    """组 ID / Group ID"""
+    mount_points: Optional[List[PolarFsMountConfig]] = None
+    """挂载点列表 / Mount Points List"""
+    user_id: Optional[int] = None
+    """用户 ID / User ID"""
+
+
+# ==================== 模板配置相关 ====================
 
 
 class TemplateNetworkConfiguration(BaseModel):
@@ -180,6 +282,8 @@ class TemplateInput(BaseModel):
     """容器配置 / Container Configuration"""
     disk_size: Optional[int] = None
     """磁盘大小（GB） / Disk Size (GB)"""
+    allow_anonymous_manage: Optional[bool] = None
+    """是否允许匿名管理 / Whether to allow anonymous management"""
 
     @model_validator(mode="before")
     @classmethod
@@ -256,6 +360,14 @@ class SandboxInput(BaseModel):
     """模板名称 / Template Name"""
     sandbox_idle_timeout_seconds: Optional[int] = 600
     """沙箱空闲超时时间（秒） / Sandbox Idle Timeout (seconds)"""
+    sandbox_id: Optional[str] = None
+    """沙箱 ID（可选，用户可指定） / Sandbox ID (optional, user can specify)"""
+    nas_config: Optional[NASConfig] = None
+    """NAS 配置 / NAS Configuration"""
+    oss_mount_config: Optional[OSSMountConfig] = None
+    """OSS 挂载配置 / OSS Mount Configuration"""
+    polar_fs_config: Optional[PolarFsConfig] = None
+    """PolarFS 配置 / PolarFS Configuration"""
 
 
 class ListSandboxesInput(BaseModel):
