@@ -1,6 +1,10 @@
-"""LangChain/LangGraph 集成测试的公共 fixtures 和辅助函数
+"""Integration 测试的公共 fixtures 和辅助函数
 
-提供模拟 LangChain/LangGraph 消息对象的工厂函数和常用测试辅助函数。
+提供所有 integration 测试共享的 fixtures：
+- Mock LLM Server
+- Mock Model
+- Mock ToolSet
+- 消息工厂函数
 """
 
 from typing import Any, Dict, List, Union
@@ -8,8 +12,49 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from agentrun.integration.builtin.model import CommonModel
 from agentrun.integration.langgraph import AgentRunConverter
+from agentrun.integration.utils.tool import CommonToolSet, tool
+from agentrun.model.model_proxy import ModelProxy
 from agentrun.server.model import AgentEvent, EventType
+
+from .mock_llm_server import MockLLMServer
+from .scenarios import Scenarios
+
+# =============================================================================
+# 共享的 TestToolSet
+# =============================================================================
+
+
+class SharedTestToolSet(CommonToolSet):
+    """共享的测试工具集
+
+    提供两个测试工具：
+    - weather_lookup: 查询天气
+    - get_time_now: 获取当前时间
+    """
+
+    def __init__(self, timezone: str = "UTC"):
+        self.time_zone = timezone
+        self.call_history: List[Any] = []
+        super().__init__()
+
+    @tool(description="查询城市天气")
+    def weather_lookup(self, city: str) -> str:
+        result = f"{city} 天气晴朗"
+        self.call_history.append(result)
+        return result
+
+    @tool()
+    def get_time_now(self) -> dict:
+        """返回当前时间"""
+        result = {
+            "time": "2025-01-02 15:04:05",
+            "timezone": self.time_zone,
+        }
+        self.call_history.append(result)
+        return result
+
 
 # =============================================================================
 # Mock 消息工厂函数
@@ -86,7 +131,7 @@ def convert_and_collect(events: List[Dict]) -> List[Union[str, AgentEvent]]:
     Returns:
         List: 转换后的 AgentEvent 列表
     """
-    results = []
+    results: List[Union[str, AgentEvent]] = []
     for event in events:
         results.extend(AgentRunConverter.to_agui_events(event))
     return results
@@ -267,3 +312,37 @@ def ai_message_chunk_factory():
 def tool_message_factory():
     """提供 ToolMessage 工厂函数"""
     return create_mock_tool_message
+
+
+@pytest.fixture
+def shared_mock_server(monkeypatch: Any, respx_mock: Any) -> MockLLMServer:
+    """提供共享的 Mock LLM Server
+
+    预配置了默认场景。
+    """
+    server = MockLLMServer(expect_tools=True, validate_tools=False)
+    server.install(monkeypatch)
+    server.add_default_scenarios()
+    return server
+
+
+@pytest.fixture
+def shared_mocked_model(
+    shared_mock_server: MockLLMServer, monkeypatch: Any
+) -> CommonModel:
+    """提供共享的 Mock Model"""
+    from agentrun.integration.builtin.model import model
+
+    mock_model_proxy = ModelProxy(model_proxy_name="mock-model-proxy")
+
+    monkeypatch.setattr(
+        "agentrun.model.client.ModelClient.get",
+        lambda *args, **kwargs: mock_model_proxy,
+    )
+    return model("mock-model")
+
+
+@pytest.fixture
+def shared_mocked_toolset() -> SharedTestToolSet:
+    """提供共享的 Mock ToolSet"""
+    return SharedTestToolSet(timezone="UTC")

@@ -17,7 +17,6 @@ class PydanticAIModelAdapter(ModelAdapter):
         try:
             from pydantic_ai.models.openai import OpenAIChatModel
             from pydantic_ai.providers.openai import OpenAIProvider
-            from pydantic_ai.settings import ModelSettings
         except Exception as e:
             raise ImportError(
                 "PydanticAI is not installed. "
@@ -28,15 +27,16 @@ class PydanticAIModelAdapter(ModelAdapter):
 
         info = common_model.get_model_info()
 
+        # 注意：不在此处设置 stream_options，因为：
+        # 1. run_sync() 使用非流式请求，不需要 stream_options
+        # 2. run_stream() 使用流式请求，PydanticAI 会自行处理 usage 信息
+        # 3. 在非流式请求中传递 stream_options 不符合 OpenAI API 规范
         return OpenAIChatModel(
             info.model or "",
             provider=OpenAIProvider(
                 base_url=info.base_url,
                 api_key=info.api_key,
                 http_client=AsyncClient(headers=info.headers),
-            ),
-            settings=ModelSettings(
-                extra_body={"stream_options": {"include_usage": True}}
             ),
         )
 

@@ -19,12 +19,12 @@ import pytest
 from agentrun.integration.langgraph import AgentRunConverter
 from agentrun.server.model import AgentEvent, EventType
 
-# 使用 helpers.py 中的公共函数
-from .helpers import convert_and_collect
-from .helpers import create_mock_ai_message as create_ai_message
-from .helpers import create_mock_ai_message_chunk as create_ai_message_chunk
-from .helpers import create_mock_tool_message as create_tool_message
-from .helpers import filter_agent_events
+# 使用 conftest.py 中的公共函数
+from .conftest import convert_and_collect
+from .conftest import create_mock_ai_message as create_ai_message
+from .conftest import create_mock_ai_message_chunk as create_ai_message_chunk
+from .conftest import create_mock_tool_message as create_tool_message
+from .conftest import filter_agent_events
 
 # =============================================================================
 # 测试 on_chat_model_stream 事件（流式文本输出）

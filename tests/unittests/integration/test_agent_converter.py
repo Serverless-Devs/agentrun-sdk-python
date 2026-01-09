@@ -14,8 +14,8 @@ import pytest
 from agentrun.integration.langgraph.agent_converter import AgentRunConverter
 from agentrun.server.model import AgentResult, EventType
 
-# 使用 helpers.py 中的公共 mock 函数
-from .helpers import (
+# 使用 conftest.py 中的公共 mock 函数
+from .conftest import (
     create_mock_ai_message,
     create_mock_ai_message_chunk,
     create_mock_tool_message,
