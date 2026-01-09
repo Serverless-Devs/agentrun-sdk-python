@@ -17,11 +17,15 @@ class CrewAIModelAdapter(ModelAdapter):
         from crewai import LLM
 
         info = common_model.get_model_info()  # 确保模型可用
+
+        # 注意：不在此处设置 stream_options，因为：
+        # 1. CrewAI 内部决定是否使用流式请求
+        # 2. 在非流式请求中传递 stream_options 不符合 OpenAI API 规范
+        # 3. CrewAI 会自行处理 usage 信息
         return LLM(
             api_key=info.api_key,
             model=f"{info.provider or 'openai'}/{info.model}",
             base_url=info.base_url,
             default_headers=info.headers,
-            stream_options={"include_usage": True},
             # async_client=AsyncClient(headers=info.headers),
         )

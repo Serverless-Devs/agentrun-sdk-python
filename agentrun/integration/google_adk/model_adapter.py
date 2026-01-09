@@ -34,10 +34,13 @@ class GoogleADKModelAdapter(ModelAdapter):
 
         info = common_model.get_model_info()
 
+        # 注意：不在此处设置 stream_options，因为：
+        # 1. Google ADK 内部决定是否使用流式请求
+        # 2. 在非流式请求中传递 stream_options 不符合 OpenAI API 规范
+        # 3. Google ADK 会自行处理 usage 信息
         return LiteLlm(
             model=f"{info.provider or 'openai'}/{info.model}",
             api_base=info.base_url,
             api_key=info.api_key,
             extra_headers=info.headers,
-            stream_options={"include_usage": True},
         )
