@@ -447,3 +447,27 @@ A: 建议：
 - [Python SDK 文档](./python/README.md)
 - [示例代码](./python/examples/)
 - [阿里云 AgentRun 官方文档](https://help.aliyun.com/zh/agentrun/)
+
+## 工作流程
+
+### 为特定模块增加参数
+
+名词解释
+- AgentRun SDK：当前项目
+- 底层 SDK：我们会依赖底层 SDK 与平台进行交互，如果是 python sdk，则为 `agentrun-20250910`；如果是 nodejs sdk，则为 `@alicloud/agentrun20250910`
+- 要修改模块：sandbox、model 等
+
+此时，应该遵循如下流程
+
+该模块的代码位于 ${component} 目录，包含如下部分
+- api/ 							和底层 SDK 交互的逻辑。你可以根据该文件的调用方式，跳转到底层 sdk 的逻辑，进行检查
+- client 						为用户封装的客户端，你需要检查一下是否需要修改
+- model							相关类型描述，你需要严格检查当前文件是否需要修改，这里可能存在大量修改
+- 其他文件						你也需要一并检查，如果是 nodejs sdk，需要检查 class 的属性
+- _xxx_async_template.py 		python sdk 中生成 xxx.py 文件的模板，只需要声明 async 即可（使用 `make codegen` 进行生成）
+
+1. 请严格检查底层 SDK 的输入、输出参数，并对照现有类型定义，整理出新增的参数列表
+2. 根据新增的参数列表，在 agentrun sdk 中进行修改，补充对应的中英文注释
+3. 执行相关模块的 ut 测试，确保可以正确执行
+4. 进行修改内容的总结汇报
+5. 根据汇报内容进行检查，重新检查底层 SDK 和 AgentRun SDK 的定义
