@@ -25,11 +25,12 @@
 """
 
 from .agent_converter import AgentRunConverter
-from .builtin import model, sandbox_toolset, toolset
+from .builtin import knowledgebase_toolset, model, sandbox_toolset, toolset
 
 __all__ = [
     "AgentRunConverter",
     "model",
     "toolset",
     "sandbox_toolset",
+    "knowledgebase_toolset",
 ]

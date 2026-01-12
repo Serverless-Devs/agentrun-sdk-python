@@ -25,6 +25,7 @@ class ResourceType(Enum):
     Tool = "tool"
     Template = "template"
     Sandbox = "sandbox"
+    KnowledgeBase = "knowledgebase"
 
 
 class DataAPI:

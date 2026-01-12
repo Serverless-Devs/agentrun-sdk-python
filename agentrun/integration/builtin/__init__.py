@@ -4,6 +4,7 @@
 This module provides built-in integration functions for quickly creating models and tools.
 """
 
+from .knowledgebase import knowledgebase_toolset
 from .model import model, ModelArgs
 from .sandbox import sandbox_toolset
 from .toolset import toolset
@@ -13,4 +14,5 @@ __all__ = [
     "ModelArgs",
     "toolset",
     "sandbox_toolset",
+    "knowledgebase_toolset",
 ]

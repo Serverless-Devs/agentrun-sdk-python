@@ -8,6 +8,9 @@ from typing import Any, Callable, List, Optional, Union
 
 from typing_extensions import Unpack
 
+from agentrun.integration.builtin import (
+    knowledgebase_toolset as _knowledgebase_toolset,
+)
 from agentrun.integration.builtin import model as _model
 from agentrun.integration.builtin import ModelArgs
 from agentrun.integration.builtin import sandbox_toolset as _sandbox_toolset
@@ -63,3 +66,23 @@ def sandbox_toolset(
         config=config,
         sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
     ).to_langgraph(prefix=prefix)
+
+
+def knowledgebase_toolset(
+    knowledge_base_names: List[str],
+    *,
+    prefix: Optional[str] = None,
+    modify_tool_name: Optional[Callable[[Tool], Tool]] = None,
+    filter_tools_by_name: Optional[Callable[[str], bool]] = None,
+    config: Optional[Config] = None,
+) -> List[Any]:
+    """将知识库检索封装为 LangGraph ``StructuredTool`` 列表。 / LangGraph Built-in Integration Functions"""
+
+    return _knowledgebase_toolset(
+        knowledge_base_names=knowledge_base_names,
+        config=config,
+    ).to_langgraph(
+        prefix=prefix,
+        modify_tool_name=modify_tool_name,
+        filter_tools_by_name=filter_tools_by_name,
+    )

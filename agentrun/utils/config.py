@@ -61,6 +61,7 @@ class Config:
         "_control_endpoint",
         "_data_endpoint",
         "_devs_endpoint",
+        "_bailian_endpoint",
         "_headers",
         "__weakref__",
     )
@@ -78,6 +79,7 @@ class Config:
         control_endpoint: Optional[str] = None,
         data_endpoint: Optional[str] = None,
         devs_endpoint: Optional[str] = None,
+        bailian_endpoint: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> None:
         """初始化配置 / Initialize configuration
@@ -135,6 +137,8 @@ class Config:
             data_endpoint = get_env_with_default("", "AGENTRUN_DATA_ENDPOINT")
         if devs_endpoint is None:
             devs_endpoint = get_env_with_default("", "DEVS_ENDPOINT")
+        if bailian_endpoint is None:
+            bailian_endpoint = get_env_with_default("", "BAILIAN_ENDPOINT")
 
         self._access_key_id = access_key_id
         self._access_key_secret = access_key_secret
@@ -147,6 +151,7 @@ class Config:
         self._control_endpoint = control_endpoint
         self._data_endpoint = data_endpoint
         self._devs_endpoint = devs_endpoint
+        self._bailian_endpoint = bailian_endpoint
         self._headers = headers or {}
 
     @classmethod
@@ -252,6 +257,13 @@ class Config:
             return self._devs_endpoint
 
         return f"https://devs.{self.get_region_id()}.aliyuncs.com"
+
+    def get_bailian_endpoint(self) -> str:
+        """获取百炼端点 / Get Bailian endpoint"""
+        if self._bailian_endpoint:
+            return self._bailian_endpoint
+
+        return "https://bailian.cn-beijing.aliyuncs.com"
 
     def get_headers(self) -> Dict[str, str]:
         """获取自定义请求头"""

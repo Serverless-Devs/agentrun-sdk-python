@@ -7,6 +7,7 @@ This module defines the base class for control API.
 from typing import Optional
 
 from alibabacloud_agentrun20250910.client import Client as AgentRunClient
+from alibabacloud_bailian20231229.client import Client as BailianClient
 from alibabacloud_devs20230714.client import Client as DevsClient
 from alibabacloud_tea_openapi import utils_models as open_api_util_models
 
@@ -66,6 +67,32 @@ class ControlAPI:
         if endpoint.startswith("http://") or endpoint.startswith("https://"):
             endpoint = endpoint.split("://", 1)[1]
         return DevsClient(
+            open_api_util_models.Config(
+                access_key_id=cfg.get_access_key_id(),
+                access_key_secret=cfg.get_access_key_secret(),
+                security_token=cfg.get_security_token(),
+                region_id=cfg.get_region_id(),
+                endpoint=endpoint,
+                connect_timeout=cfg.get_timeout(),  # type: ignore
+                read_timeout=cfg.get_read_timeout(),  # type: ignore
+            )
+        )
+
+    def _get_bailian_client(
+        self, config: Optional[Config] = None
+    ) -> "BailianClient":
+        """
+        获取百炼 API 客户端实例 / Get Bailian API client instance
+
+        Returns:
+            BailianClient: 百炼 API 客户端实例 / Bailian API client instance
+        """
+
+        cfg = Config.with_configs(self.config, config)
+        endpoint = cfg.get_bailian_endpoint()
+        if endpoint.startswith("http://") or endpoint.startswith("https://"):
+            endpoint = endpoint.split("://", 1)[1]
+        return BailianClient(
             open_api_util_models.Config(
                 access_key_id=cfg.get_access_key_id(),
                 access_key_secret=cfg.get_access_key_secret(),

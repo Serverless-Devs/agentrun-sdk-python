@@ -1,0 +1,51 @@
+output_path: agentrun/knowledgebase/api/control.py
+template: control_api.jinja2
+class_name: KnowledgeBaseControlAPI
+description: KnowledgeBase 管控链路 API
+imports: []
+methods:
+  - name: create_knowledge_base
+    description: 创建知识库
+    params:
+      - name: input
+        type: CreateKnowledgeBaseInput
+        wrapper_type: CreateKnowledgeBaseRequest
+        description: 知识库配置
+    return_type: KnowledgeBase
+    return_description: 创建的知识库对象
+  - name: delete_knowledge_base
+    description: 删除知识库
+    params:
+      - name: knowledge_base_name
+        type: str
+        description: 知识库名称
+    return_type: KnowledgeBase
+    return_description: 删除知识库的结果
+  - name: update_knowledge_base
+    description: 更新知识库
+    params:
+      - name: knowledge_base_name
+        type: str
+        description: 知识库名称
+      - name: input
+        type: UpdateKnowledgeBaseInput
+        wrapper_type: UpdateKnowledgeBaseRequest
+        description: 知识库配置
+    return_type: KnowledgeBase
+    return_description: 更新后的知识库对象
+  - name: get_knowledge_base
+    description: 获取知识库
+    params:
+      - name: knowledge_base_name
+        type: str
+        description: 知识库名称
+    return_type: KnowledgeBase
+    return_description: 知识库对象
+  - name: list_knowledge_bases
+    description: 列出知识库
+    params:
+      - name: input
+        type: ListKnowledgeBasesRequest
+        description: 查询参数
+    return_type: ListKnowledgeBasesOutput
+    return_description: 知识库列表

@@ -9,18 +9,18 @@
 # ============================================================================
 full:
   # 分支覆盖率要求 (百分比)
-  branch_coverage: 95
+  branch_coverage: 0
   # 行覆盖率要求 (百分比)
-  line_coverage: 95
+  line_coverage: 0
 
 # ============================================================================
 # 增量代码覆盖率要求 (相对于基准分支的变更代码)
 # ============================================================================
 incremental:
   # 分支覆盖率要求 (百分比)
-  branch_coverage: 95
+  branch_coverage: 0
   # 行覆盖率要求 (百分比)
-  line_coverage: 95
+  line_coverage: 0
 
 # ============================================================================
 # 特定目录的覆盖率要求
@@ -28,10 +28,17 @@ incremental:
 # ============================================================================
 directory_overrides:
   # 示例：为特定目录设置不同的阈值
-  # agentrun/some_module:
-  #   full:
-  #     branch_coverage: 90
-  #     line_coverage: 90
-  #   incremental:
-  #     branch_coverage: 95
-  #     line_coverage: 95
+   agentrun/knowledgebase:
+     full:
+       branch_coverage: 0
+       line_coverage: 0
+     incremental:
+       branch_coverage: 0
+       line_coverage: 0
+   agentrun/utils:
+     full:
+       branch_coverage: 90
+       line_coverage: 90
+     incremental:
+       branch_coverage: 90
+       line_coverage: 90

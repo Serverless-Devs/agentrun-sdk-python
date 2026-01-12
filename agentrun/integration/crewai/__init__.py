@@ -4,9 +4,10 @@
 CrewAI 与 LangChain 兼容，因此直接复用 LangChain 的转换逻辑。 / CrewAI with LangChain 兼容，因此直接复用 LangChain 的转换逻辑。
 """
 
-from .builtin import model, sandbox_toolset
+from .builtin import knowledgebase_toolset, model, sandbox_toolset
 
 __all__ = [
     "model",
     "sandbox_toolset",
+    "knowledgebase_toolset",
 ]
