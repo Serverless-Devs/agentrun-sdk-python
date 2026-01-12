@@ -4,7 +4,7 @@
 This template is used to generate sandbox data API code.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from agentrun.utils.config import Config
 from agentrun.utils.data_api import DataAPI, ResourceType
@@ -70,16 +70,23 @@ class SandboxDataAPI(DataAPI):
         self,
         template_name: str,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional[Dict[str, Any]] = None,
+        oss_mount_config: Optional[Dict[str, Any]] = None,
+        polar_fs_config: Optional[Dict[str, Any]] = None,
         config: Optional[Config] = None,
     ):
         self.__refresh_access_token(template_name=template_name, config=config)
-        return await self.post_async(
-            "/",
-            data={
-                "templateName": template_name,
-                "sandboxIdleTimeoutSeconds": sandbox_idle_timeout_seconds,
-            },
-        )
+        data: Dict[str, Any] = {
+            "templateName": template_name,
+            "sandboxIdleTimeoutSeconds": sandbox_idle_timeout_seconds,
+        }
+        if nas_config is not None:
+            data["nasConfig"] = nas_config
+        if oss_mount_config is not None:
+            data["ossMountConfig"] = oss_mount_config
+        if polar_fs_config is not None:
+            data["polarFsConfig"] = polar_fs_config
+        return await self.post_async("/", data=data)
 
     async def delete_sandbox_async(
         self, sandbox_id: str, config: Optional[Config] = None

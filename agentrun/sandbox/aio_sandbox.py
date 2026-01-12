@@ -763,8 +763,7 @@ class AioSandbox(Sandbox):
 
             except Exception as e:
                 logger.error(
-                    f"[{retry_count}/{max_retries}] Health check failed,"
-                    f" retrying: {e}"
+                    f"[{retry_count}/{max_retries}] Health check failed: {e}"
                 )
 
             if retry_count < max_retries:
@@ -806,8 +805,12 @@ class AioSandbox(Sandbox):
         """Check sandbox health status (async)."""
         return await self.data_api.check_health_async()
 
+    # ========================================
+    # Browser API Methods
+    # ========================================
+
     def check_health(self):
-        """Check sandbox health status (sync)."""
+        """Check sandbox health status (async)."""
         return self.data_api.check_health()
 
     # ========================================
@@ -868,8 +871,12 @@ class AioSandbox(Sandbox):
         """Delete a recording file (async)."""
         return await self.data_api.delete_recording_async(filename)
 
+    # ========================================
+    # Code Interpreter API Properties
+    # ========================================
+
     def delete_recording(self, filename: str):
-        """Delete a recording file (sync)."""
+        """Delete a recording file (async)."""
         return self.data_api.delete_recording(filename)
 
     # ========================================

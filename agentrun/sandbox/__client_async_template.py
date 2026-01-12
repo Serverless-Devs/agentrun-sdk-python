@@ -5,7 +5,7 @@ This template is used to generate sandbox client code.
 """
 
 import time
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from alibabacloud_agentrun20250910.models import (
     CreateTemplateInput,
@@ -18,7 +18,10 @@ from agentrun.sandbox.api import SandboxControlAPI, SandboxDataAPI
 from agentrun.sandbox.model import (
     ListSandboxesInput,
     ListSandboxesOutput,
+    NASConfig,
+    OSSMountConfig,
     PageableInput,
+    PolarFsConfig,
     TemplateInput,
 )
 from agentrun.utils.config import Config
@@ -273,25 +276,47 @@ class SandboxClient:
         self,
         template_name: str,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional[NASConfig] = None,
+        oss_mount_config: Optional[OSSMountConfig] = None,
+        polar_fs_config: Optional[PolarFsConfig] = None,
         config: Optional[Config] = None,
     ) -> Sandbox:
-        """创建 Sandbox（异步）
+        """创建 Sandbox（异步） / Create Sandbox (async)
 
         Args:
-            input: Sandbox 配置
-            config: 配置对象
+            template_name: 模板名称 / Template name
+            sandbox_idle_timeout_seconds: 沙箱空闲超时时间（秒） / Sandbox idle timeout (seconds)
+            nas_config: NAS 配置 / NAS configuration
+            oss_mount_config: OSS 挂载配置 / OSS mount configuration
+            polar_fs_config: PolarFS 配置 / PolarFS configuration
+            config: 配置对象 / Config object
 
         Returns:
-            Sandbox: 创建的 Sandbox 对象
+            Sandbox: 创建的 Sandbox 对象 / Created Sandbox object
 
         Raises:
-            ClientError: 客户端错误
-            ServerError: 服务器错误
+            ClientError: 客户端错误 / Client error
+            ServerError: 服务器错误 / Server error
         """
+        # 将配置对象转换为字典格式
+        nas_config_dict: Optional[Dict[str, Any]] = None
+        if nas_config is not None:
+            nas_config_dict = nas_config.model_dump(by_alias=True)
+
+        oss_mount_config_dict: Optional[Dict[str, Any]] = None
+        if oss_mount_config is not None:
+            oss_mount_config_dict = oss_mount_config.model_dump(by_alias=True)
+
+        polar_fs_config_dict: Optional[Dict[str, Any]] = None
+        if polar_fs_config is not None:
+            polar_fs_config_dict = polar_fs_config.model_dump(by_alias=True)
 
         result = await self.__sandbox_data_api.create_sandbox_async(
             template_name=template_name,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            nas_config=nas_config_dict,
+            oss_mount_config=oss_mount_config_dict,
+            polar_fs_config=polar_fs_config_dict,
             config=config,
         )
 

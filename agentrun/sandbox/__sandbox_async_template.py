@@ -4,7 +4,16 @@
 This module defines the high-level API for sandbox resources.
 """
 
-from typing import List, Literal, Optional, overload, TYPE_CHECKING, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    overload,
+    TYPE_CHECKING,
+    Union,
+)
 
 from agentrun.sandbox.model import TemplateType
 from agentrun.utils.config import Config
@@ -17,7 +26,10 @@ if TYPE_CHECKING:
     from agentrun.sandbox.model import (
         ListSandboxesInput,
         ListSandboxesOutput,
+        NASConfig,
+        OSSMountConfig,
         PageableInput,
+        PolarFsConfig,
         TemplateInput,
     )
     from agentrun.sandbox.template import Template
@@ -32,23 +44,29 @@ class Sandbox(BaseModel):
     _template_type: Optional[TemplateType]
 
     created_at: Optional[str] = None
-    """沙箱创建时间"""
+    """沙箱创建时间 / Sandbox creation time"""
+    ended_at: Optional[str] = None
+    """沙箱结束时间 / Sandbox end time"""
     last_updated_at: Optional[str] = None
-    """最后更新时间"""
+    """最后更新时间 / Last updated time"""
+    metadata: Optional[Dict[str, Any]] = None
+    """元数据 / Metadata"""
     sandbox_arn: Optional[str] = None
-    """沙箱全局唯一资源名称"""
+    """沙箱全局唯一资源名称 / Sandbox ARN"""
     sandbox_id: Optional[str] = None
-    """沙箱 ID"""
+    """沙箱 ID / Sandbox ID"""
+    sandbox_idle_ttlin_seconds: Optional[int] = None
+    """沙箱空闲 TTL（秒） / Sandbox Idle TTL (seconds)"""
     sandbox_idle_timeout_seconds: Optional[int] = None
-    """沙箱空闲超时时间（秒）"""
+    """沙箱空闲超时时间（秒） / Sandbox Idle Timeout (seconds)"""
     status: Optional[str] = None
-    """沙箱状态"""
+    """沙箱状态 / Sandbox status"""
     template_id: Optional[str] = None
-    """模板 ID"""
+    """模板 ID / Template ID"""
     template_name: Optional[str] = None
-    """模板名称"""
+    """模板名称 / Template name"""
     _config: Optional[Config] = None
-    """配置对象，用于子类的 data_api 初始化"""
+    """配置对象，用于子类的 data_api 初始化 / Config object for data_api initialization"""
 
     @classmethod
     def __get_client(cls):
@@ -64,6 +82,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.CODE_INTERPRETER],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "CodeInterpreterSandbox":
         ...
@@ -75,6 +96,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.BROWSER],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "BrowserSandbox":
         ...
@@ -86,6 +110,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.AIO],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "AioSandbox":
         ...
@@ -96,6 +123,9 @@ class Sandbox(BaseModel):
         template_type: TemplateType,
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
 
@@ -123,6 +153,9 @@ class Sandbox(BaseModel):
         base_sandbox = await cls.__get_client().create_sandbox_async(
             template_name=template_name,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            nas_config=nas_config,
+            oss_mount_config=oss_mount_config,
+            polar_fs_config=polar_fs_config,
         )
 
         # 根据 template 类型转换为对应的子类实例
