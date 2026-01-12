@@ -70,7 +70,6 @@ class SandboxDataAPI(DataAPI):
         self,
         template_name: str,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
-        sandbox_id: Optional[str] = None,
         nas_config: Optional[Dict[str, Any]] = None,
         oss_mount_config: Optional[Dict[str, Any]] = None,
         polar_fs_config: Optional[Dict[str, Any]] = None,
@@ -81,8 +80,6 @@ class SandboxDataAPI(DataAPI):
             "templateName": template_name,
             "sandboxIdleTimeoutSeconds": sandbox_idle_timeout_seconds,
         }
-        if sandbox_id is not None:
-            data["sandboxId"] = sandbox_id
         if nas_config is not None:
             data["nasConfig"] = nas_config
         if oss_mount_config is not None:

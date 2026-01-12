@@ -36,7 +36,10 @@ if TYPE_CHECKING:
     from agentrun.sandbox.model import (
         ListSandboxesInput,
         ListSandboxesOutput,
+        NASConfig,
+        OSSMountConfig,
         PageableInput,
+        PolarFsConfig,
         TemplateInput,
     )
     from agentrun.sandbox.template import Template
@@ -89,6 +92,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.CODE_INTERPRETER],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "CodeInterpreterSandbox":
         ...
@@ -100,6 +106,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.CODE_INTERPRETER],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "CodeInterpreterSandbox":
         ...
@@ -111,6 +120,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.BROWSER],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "BrowserSandbox":
         ...
@@ -122,6 +134,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.BROWSER],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "BrowserSandbox":
         ...
@@ -133,6 +148,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.AIO],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "AioSandbox":
         ...
@@ -144,6 +162,9 @@ class Sandbox(BaseModel):
         template_type: Literal[TemplateType.AIO],
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> "AioSandbox":
         ...
@@ -154,6 +175,9 @@ class Sandbox(BaseModel):
         template_type: TemplateType,
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
 
@@ -181,6 +205,9 @@ class Sandbox(BaseModel):
         base_sandbox = await cls.__get_client().create_sandbox_async(
             template_name=template_name,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            nas_config=nas_config,
+            oss_mount_config=oss_mount_config,
+            polar_fs_config=polar_fs_config,
         )
 
         # 根据 template 类型转换为对应的子类实例
@@ -211,6 +238,9 @@ class Sandbox(BaseModel):
         template_type: TemplateType,
         template_name: Optional[str] = None,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
     ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
 
@@ -238,6 +268,9 @@ class Sandbox(BaseModel):
         base_sandbox = cls.__get_client().create_sandbox(
             template_name=template_name,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            nas_config=nas_config,
+            oss_mount_config=oss_mount_config,
+            polar_fs_config=polar_fs_config,
         )
 
         # 根据 template 类型转换为对应的子类实例
