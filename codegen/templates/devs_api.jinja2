@@ -15,7 +15,7 @@ from agentrun.utils.control_api import ControlAPI
 {% endfor %}
 from alibabacloud_devs20230714.models import {{ method.return_type }}
 {% endfor %}
-from alibabacloud_tea_util.models import RuntimeOptions
+from darabonba.runtime import RuntimeOptions
 from agentrun.utils.exception import ClientError, ServerError
 from alibabacloud_tea_openapi.exceptions._client import ClientException
 from alibabacloud_tea_openapi.exceptions._server import ServerException
