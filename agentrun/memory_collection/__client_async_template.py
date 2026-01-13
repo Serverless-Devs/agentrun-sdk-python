@@ -1,0 +1,178 @@
+"""MemoryCollection 客户端 / MemoryCollection Client
+
+此模块提供记忆集合管理的客户端API。
+This module provides the client API for memory collection management.
+"""
+
+from typing import Optional
+
+from alibabacloud_agentrun20250910.models import (
+    CreateMemoryCollectionInput,
+    ListMemoryCollectionsRequest,
+    UpdateMemoryCollectionInput,
+)
+
+from agentrun.utils.config import Config
+from agentrun.utils.exception import HTTPError
+
+from .api.control import MemoryCollectionControlAPI
+from .memory_collection import MemoryCollection
+from .model import (
+    MemoryCollectionCreateInput,
+    MemoryCollectionListInput,
+    MemoryCollectionListOutput,
+    MemoryCollectionUpdateInput,
+)
+
+
+class MemoryCollectionClient:
+    """MemoryCollection 客户端 / MemoryCollection Client
+
+    提供记忆集合的创建、删除、更新和查询功能。
+    Provides create, delete, update and query functions for memory collections.
+    """
+
+    def __init__(self, config: Optional[Config] = None):
+        """初始化客户端 / Initialize client
+
+        Args:
+            config: 配置对象,可选 / Configuration object, optional
+        """
+        self.__control_api = MemoryCollectionControlAPI(config)
+
+    async def create_async(
+        self,
+        input: MemoryCollectionCreateInput,
+        config: Optional[Config] = None,
+    ):
+        """创建记忆集合(异步) / Create memory collection asynchronously
+
+        Args:
+            input: 记忆集合输入参数 / Memory collection input parameters
+            config: 配置对象,可选 / Configuration object, optional
+
+        Returns:
+            MemoryCollection: 创建的记忆集合对象 / Created memory collection object
+
+        Raises:
+            ResourceAlreadyExistError: 资源已存在 / Resource already exists
+            HTTPError: HTTP 请求错误 / HTTP request error
+        """
+        try:
+            result = await self.__control_api.create_memory_collection_async(
+                CreateMemoryCollectionInput().from_map(input.model_dump()),
+                config=config,
+            )
+
+            return MemoryCollection.from_inner_object(result)
+        except HTTPError as e:
+            raise e.to_resource_error(
+                "MemoryCollection", input.memory_collection_name
+            ) from e
+
+    async def delete_async(
+        self, memory_collection_name: str, config: Optional[Config] = None
+    ):
+        """删除记忆集合（异步）
+
+        Args:
+            memory_collection_name: 记忆集合名称
+            config: 配置
+
+        Raises:
+            ResourceNotExistError: 记忆集合不存在
+        """
+        try:
+            result = await self.__control_api.delete_memory_collection_async(
+                memory_collection_name, config=config
+            )
+
+            return MemoryCollection.from_inner_object(result)
+
+        except HTTPError as e:
+            raise e.to_resource_error(
+                "MemoryCollection", memory_collection_name
+            ) from e
+
+    async def update_async(
+        self,
+        memory_collection_name: str,
+        input: MemoryCollectionUpdateInput,
+        config: Optional[Config] = None,
+    ):
+        """更新记忆集合（异步）
+
+        Args:
+            memory_collection_name: 记忆集合名称
+            input: 记忆集合更新输入参数
+            config: 配置
+
+        Returns:
+            MemoryCollection: 更新后的记忆集合对象
+
+        Raises:
+            ResourceNotExistError: 记忆集合不存在
+        """
+        try:
+            result = await self.__control_api.update_memory_collection_async(
+                memory_collection_name,
+                UpdateMemoryCollectionInput().from_map(input.model_dump()),
+                config=config,
+            )
+
+            return MemoryCollection.from_inner_object(result)
+        except HTTPError as e:
+            raise e.to_resource_error(
+                "MemoryCollection", memory_collection_name
+            ) from e
+
+    async def get_async(
+        self, memory_collection_name: str, config: Optional[Config] = None
+    ):
+        """获取记忆集合（异步）
+
+        Args:
+            memory_collection_name: 记忆集合名称
+            config: 配置
+
+        Returns:
+            MemoryCollection: 记忆集合对象
+
+        Raises:
+            ResourceNotExistError: 记忆集合不存在
+        """
+        try:
+            result = await self.__control_api.get_memory_collection_async(
+                memory_collection_name, config=config
+            )
+            return MemoryCollection.from_inner_object(result)
+        except HTTPError as e:
+            raise e.to_resource_error(
+                "MemoryCollection", memory_collection_name
+            ) from e
+
+    async def list_async(
+        self,
+        input: Optional[MemoryCollectionListInput] = None,
+        config: Optional[Config] = None,
+    ):
+        """列出记忆集合（异步）
+
+        Args:
+            input: 分页查询参数
+            config: 配置
+
+        Returns:
+            List[MemoryCollectionListOutput]: 记忆集合列表
+        """
+        if input is None:
+            input = MemoryCollectionListInput()
+
+        results = await self.__control_api.list_memory_collections_async(
+            ListMemoryCollectionsRequest().from_map(input.model_dump()),
+            config=config,
+        )
+        return [
+            MemoryCollectionListOutput.from_inner_object(item)
+            for item in results.items  # type: ignore
+        ]

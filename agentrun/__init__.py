@@ -55,6 +55,22 @@ from agentrun.credential import (
     CredentialUpdateInput,
     RelatedResource,
 )
+# Memory Collection
+from agentrun.memory_collection import (
+    EmbedderConfig,
+    EmbedderConfigConfig,
+    LLMConfig,
+    LLMConfigConfig,
+    MemoryCollection,
+    MemoryCollectionClient,
+    MemoryCollectionCreateInput,
+    MemoryCollectionListInput,
+    MemoryCollectionListOutput,
+    MemoryCollectionUpdateInput,
+    NetworkConfiguration,
+    VectorStoreConfig,
+    VectorStoreConfigConfig,
+)
 # Model Service
 from agentrun.model import (
     BackendType,
@@ -173,6 +189,23 @@ __all__ = [
     "CredentialCreateInput",
     "CredentialUpdateInput",
     "CredentialListInput",
+    ######## Memory Collection ########
+    # base
+    "MemoryCollection",
+    "MemoryCollectionClient",
+    # inner model
+    "EmbedderConfig",
+    "EmbedderConfigConfig",
+    "LLMConfig",
+    "LLMConfigConfig",
+    "NetworkConfiguration",
+    "VectorStoreConfig",
+    "VectorStoreConfigConfig",
+    # api model
+    "MemoryCollectionCreateInput",
+    "MemoryCollectionUpdateInput",
+    "MemoryCollectionListInput",
+    "MemoryCollectionListOutput",
     ######## Model ########
     # base
     "ModelClient",

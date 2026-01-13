@@ -45,13 +45,15 @@ JINJA2_FILES := \
 	agentrun/credential/api/control.py \
 	agentrun/model/api/control.py \
 	agentrun/toolset/api/control.py \
-	agentrun/sandbox/api/control.py
+	agentrun/sandbox/api/control.py \
+	agentrun/memory_collection/api/control.py
 JINJA2_CONFIGS := \
 	codegen/configs/agent_runtime_control_api.yaml \
 	codegen/configs/credential_control_api.yaml \
 	codegen/configs/model_control_api.yaml \
 	codegen/configs/toolset_control_api.yaml \
 	codegen/configs/sandbox_control_api.yaml \
+	codegen/configs/memory_collection_control_api.yaml \
 
 define make_jinja2_rule
 $(1): $(2)
@@ -65,6 +67,7 @@ $(eval $(call make_jinja2_rule,agentrun/credential/api/control.py,codegen/config
 $(eval $(call make_jinja2_rule,agentrun/model/api/control.py,codegen/configs/model_control_api.yaml))
 $(eval $(call make_jinja2_rule,agentrun/toolset/api/control.py,codegen/configs/toolset_control_api.yaml))
 $(eval $(call make_jinja2_rule,agentrun/sandbox/api/control.py,codegen/configs/sandbox_control_api.yaml))
+$(eval $(call make_jinja2_rule,agentrun/memory_collection/api/control.py,codegen/configs/memory_collection_control_api.yaml))
 TEMPLATE_FILES := $(shell find . -name "__*async_template.py" -not -path "*__pycache__*" -not -path "*egg-info*")
 
 # 根据模板文件生成对应的输出文件路径

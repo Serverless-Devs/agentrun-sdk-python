@@ -1,0 +1,53 @@
+output_path: agentrun/memory_collection/api/control.py
+template: control_api.jinja2
+class_name: MemoryCollectionControlAPI
+description: Memory Collection 管控链路 API
+imports: []
+methods:
+  # memory collection
+  - name: create_memory_collection
+    description: 创建 Memory Collection
+    params:
+      - name: input
+        type: CreateMemoryCollectionInput
+        wrapper_type: CreateMemoryCollectionRequest
+        description: Memory Collection 配置
+    return_type: MemoryCollection
+    return_description: 创建的 Memory Collection 对象
+  - name: delete_memory_collection
+    description: 删除 Memory Collection
+    params:
+      - name: memory_collection_name
+        type: str
+        description: Memory Collection 名称
+    return_type: MemoryCollection
+    return_description: 删除结果
+  - name: update_memory_collection
+    description: 更新 Memory Collection
+    params:
+      - name: memory_collection_name
+        type: str
+        description: Memory Collection 名称
+      - name: input
+        type: UpdateMemoryCollectionInput
+        wrapper_type: UpdateMemoryCollectionRequest
+        description: Memory Collection 配置
+    return_type: MemoryCollection
+    return_description: 更新的 Memory Collection 对象
+  - name: get_memory_collection
+    description: 获取 Memory Collection
+    params:
+      - name: memory_collection_name
+        type: str
+        description: Memory Collection 名称
+    return_type: MemoryCollection
+    return_description: Memory Collection 对象
+  - name: list_memory_collections
+    description: 枚举 Memory Collection
+    params:
+      - name: input
+        type: ListMemoryCollectionsRequest
+        description: 枚举的配置
+    return_type: ListMemoryCollectionsOutput
+    return_description: Memory Collection 列表
+
