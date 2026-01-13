@@ -15,6 +15,7 @@ dependencies = [
     "pydash>=8.0.5",
     "alibabacloud-agentrun20250910>=5.0.1",
     "alibabacloud_tea_openapi>=0.4.2",
+    "alibabacloud_bailian20231229>=2.6.2",
 ]
 
 [project.optional-dependencies]
@@ -51,10 +52,6 @@ playwright = [
 
 mcp = [
     "mcp>=1.21.2; python_version >= '3.10'",
-]
-
-knowledgebase = [
-    "alibabacloud_bailian20231229>=2.6.2"
 ]
 
 [dependency-groups]

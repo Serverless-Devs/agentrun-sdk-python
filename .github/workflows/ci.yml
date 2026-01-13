@@ -26,6 +26,21 @@ jobs:
       run: |
         make setup PYTHON_VERSION=${{ matrix.python-version }}
 
+    - name: Run minimal installation test
+      run: |
+        # 创建一个临时目录用于测试
+        mkdir -p /tmp/minimal_test
+        cd /tmp/minimal_test
+        
+        # 使用 uv 创建一个新环境并只安装项目的默认依赖
+        uv venv -p 3.10
+        
+        # 安装项目但不包含任何可选依赖
+        uv pip install "$GITHUB_WORKSPACE/"
+        
+        # 测试导入和版本打印
+        uv run python -c "import agentrun; print(f'Version: {agentrun.__version__}')"
+
     - name: Run type check (mypy)
       run: |
         make mypy-check
