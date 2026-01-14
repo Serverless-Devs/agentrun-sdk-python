@@ -468,3 +468,115 @@ class TestAgentRuntimeEndpointInvokeOpenai:
     def test_invoke_openai_async(self, mock_client_class, mock_data_api_class):
         """测试 invoke_openai_async - 跳过因为私有属性问题"""
         pass
+
+
+class TestAgentRuntimeEndpointAbstractMethods:
+    """测试 AgentRuntimeEndpoint 抽象方法实现
+
+    此测试类用于验证 AgentRuntimeEndpoint 正确实现了 ResourceBase 要求的抽象方法。
+    这是为了防止类似于 Issue #XXX 的问题再次发生，确保 from_inner_object 能够正常实例化对象。
+    """
+
+    def test_from_inner_object_instantiation(self):
+        """测试 from_inner_object 能够正常实例化对象
+
+        这个测试确保 AgentRuntimeEndpoint 类实现了所有必需的抽象方法。
+        如果抽象方法未实现，from_inner_object 会抛出 TypeError。
+        """
+
+        # 准备一个最小的有效数据
+        class MockDaraModel:
+
+            def to_map(self):
+                return {
+                    "agentRuntimeEndpointId": "are-test-123",
+                    "agentRuntimeEndpointName": "test-endpoint",
+                    "agentRuntimeId": "ar-test-123",
+                    "status": "READY",
+                }
+
+        inner_obj = MockDaraModel()
+
+        # 这里不应该抛出 TypeError: Can't instantiate abstract class
+        endpoint = AgentRuntimeEndpoint.from_inner_object(inner_obj)
+
+        # 验证对象正确创建
+        assert endpoint is not None
+        assert endpoint.agent_runtime_endpoint_id == "are-test-123"
+        assert endpoint.agent_runtime_endpoint_name == "test-endpoint"
+
+    def test_list_page_method_exists(self):
+        """测试 _list_page 方法存在且可调用"""
+        # 验证类有 _list_page 方法
+        assert hasattr(AgentRuntimeEndpoint, "_list_page")
+        assert callable(getattr(AgentRuntimeEndpoint, "_list_page"))
+
+    def test_list_page_async_method_exists(self):
+        """测试 _list_page_async 方法存在且可调用"""
+        # 验证类有 _list_page_async 方法
+        assert hasattr(AgentRuntimeEndpoint, "_list_page_async")
+        assert callable(getattr(AgentRuntimeEndpoint, "_list_page_async"))
+
+    @patch(CLIENT_PATH)
+    def test_list_page_requires_agent_runtime_id(self, mock_client_class):
+        """测试 _list_page 需要 agent_runtime_id 参数"""
+        from agentrun.utils.model import PageableInput
+
+        # 不提供 agent_runtime_id 应该抛出 ValueError
+        with pytest.raises(ValueError, match="agent_runtime_id is required"):
+            AgentRuntimeEndpoint._list_page(
+                PageableInput(page_number=1, page_size=10)
+            )
+
+    @patch(CLIENT_PATH)
+    def test_list_page_async_requires_agent_runtime_id(self, mock_client_class):
+        """测试 _list_page_async 需要 agent_runtime_id 参数"""
+        from agentrun.utils.model import PageableInput
+
+        # 不提供 agent_runtime_id 应该抛出 ValueError
+        with pytest.raises(ValueError, match="agent_runtime_id is required"):
+            asyncio.run(
+                AgentRuntimeEndpoint._list_page_async(
+                    PageableInput(page_number=1, page_size=10)
+                )
+            )
+
+    @patch(CLIENT_PATH)
+    def test_list_page_with_agent_runtime_id(self, mock_client_class):
+        """测试 _list_page 正确传递 agent_runtime_id"""
+        from agentrun.utils.model import PageableInput
+
+        mock_client = MagicMock()
+        mock_client.list_endpoints.return_value = []
+        mock_client_class.return_value = mock_client
+
+        # 提供 agent_runtime_id 应该正常执行
+        result = AgentRuntimeEndpoint._list_page(
+            PageableInput(page_number=1, page_size=10),
+            agent_runtime_id="ar-test-123",
+        )
+
+        # 验证调用了 list_endpoints
+        mock_client.list_endpoints.assert_called_once()
+        assert result == []
+
+    @patch(CLIENT_PATH)
+    def test_list_page_async_with_agent_runtime_id(self, mock_client_class):
+        """测试 _list_page_async 正确传递 agent_runtime_id"""
+        from agentrun.utils.model import PageableInput
+
+        mock_client = MagicMock()
+        mock_client.list_endpoints_async = AsyncMock(return_value=[])
+        mock_client_class.return_value = mock_client
+
+        # 提供 agent_runtime_id 应该正常执行
+        result = asyncio.run(
+            AgentRuntimeEndpoint._list_page_async(
+                PageableInput(page_number=1, page_size=10),
+                agent_runtime_id="ar-test-123",
+            )
+        )
+
+        # 验证调用了 list_endpoints_async
+        mock_client.list_endpoints_async.assert_called_once()
+        assert result == []

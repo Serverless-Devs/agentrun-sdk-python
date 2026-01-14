@@ -28,6 +28,7 @@ from agentrun.agent_runtime.model import (
     AgentRuntimeEndpointUpdateInput,
 )
 from agentrun.utils.config import Config
+from agentrun.utils.model import PageableInput
 from agentrun.utils.resource import ResourceBase
 
 
@@ -283,6 +284,84 @@ class AgentRuntimeEndpoint(
         return cli.get_endpoint(
             agent_runtime_id,
             endpoint_id,
+            config=config,
+        )
+
+    @classmethod
+    async def _list_page_async(
+        cls,
+        page_input: PageableInput,
+        config: Optional[Config] = None,
+        **kwargs,
+    ) -> List["AgentRuntimeEndpoint"]:
+        """分页列出端点 / List endpoints by page
+
+        此方法是 ResourceBase 要求实现的抽象方法，用于支持分页查询。
+        This method is an abstract method required by ResourceBase to support pagination.
+
+        Args:
+            page_input: 分页参数 / Pagination parameters
+            config: 配置对象,可选 / Configuration object, optional
+            **kwargs: 其他参数，必须包含 agent_runtime_id / Other parameters, must include agent_runtime_id
+
+        Returns:
+            List[AgentRuntimeEndpoint]: 端点对象列表 / List of endpoint objects
+
+        Raises:
+            ValueError: 当 agent_runtime_id 未提供时 / When agent_runtime_id is not provided
+            HTTPError: HTTP 请求错误 / HTTP request error
+        """
+        agent_runtime_id = kwargs.get("agent_runtime_id")
+        if not agent_runtime_id:
+            raise ValueError(
+                "agent_runtime_id is required for listing endpoints"
+            )
+
+        return await cls.__get_client().list_endpoints_async(
+            agent_runtime_id,
+            AgentRuntimeEndpointListInput(
+                page_number=page_input.page_number,
+                page_size=page_input.page_size,
+            ),
+            config=config,
+        )
+
+    @classmethod
+    def _list_page(
+        cls,
+        page_input: PageableInput,
+        config: Optional[Config] = None,
+        **kwargs,
+    ) -> List["AgentRuntimeEndpoint"]:
+        """分页列出端点 / List endpoints by page
+
+        此方法是 ResourceBase 要求实现的抽象方法，用于支持分页查询。
+        This method is an abstract method required by ResourceBase to support pagination.
+
+        Args:
+            page_input: 分页参数 / Pagination parameters
+            config: 配置对象,可选 / Configuration object, optional
+            **kwargs: 其他参数，必须包含 agent_runtime_id / Other parameters, must include agent_runtime_id
+
+        Returns:
+            List[AgentRuntimeEndpoint]: 端点对象列表 / List of endpoint objects
+
+        Raises:
+            ValueError: 当 agent_runtime_id 未提供时 / When agent_runtime_id is not provided
+            HTTPError: HTTP 请求错误 / HTTP request error
+        """
+        agent_runtime_id = kwargs.get("agent_runtime_id")
+        if not agent_runtime_id:
+            raise ValueError(
+                "agent_runtime_id is required for listing endpoints"
+            )
+
+        return cls.__get_client().list_endpoints(
+            agent_runtime_id,
+            AgentRuntimeEndpointListInput(
+                page_number=page_input.page_number,
+                page_size=page_input.page_size,
+            ),
             config=config,
         )
 
