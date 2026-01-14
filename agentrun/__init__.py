@@ -18,7 +18,7 @@ Provides simple and easy-to-use APIs for managing AI Agent runtime environments,
 
 from typing import TYPE_CHECKING
 
-__version__ = "0.0.12"
+__version__ = "0.0.13"
 
 # Agent Runtime
 from agentrun.agent_runtime import (
