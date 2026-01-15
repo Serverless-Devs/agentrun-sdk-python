@@ -527,23 +527,25 @@ class TestModelProxyCompletions:
             "AGENTRUN_ACCOUNT_ID": "test-account",
         },
     )
-    def test_completions(self):
+    @patch("litellm.completion")
+    def test_completions(self, mock_completion):
         from agentrun.model.api.data import BaseInfo
+
+        mock_completion.return_value = {"choices": []}
 
         proxy = ModelProxy(model_proxy_name="test-proxy")
 
-        # Create a mock _data_client directly
+        # Create a mock _data_client to provide model_info
         mock_data_client = MagicMock()
         mock_info = BaseInfo(model="gpt-4", base_url="https://api.example.com")
         mock_data_client.model_info.return_value = mock_info
-        mock_data_client.completions.return_value = {"choices": []}
 
-        # Bypass the model_info call by setting _data_client
+        # Set _data_client so model_info() returns our mock info
         proxy._data_client = mock_data_client
 
         proxy.completions(messages=[{"role": "user", "content": "Hello"}])
 
-        mock_data_client.completions.assert_called_once()
+        mock_completion.assert_called_once()
 
 
 class TestModelProxyResponses:
@@ -557,20 +559,24 @@ class TestModelProxyResponses:
             "AGENTRUN_ACCOUNT_ID": "test-account",
         },
     )
-    def test_responses(self):
+    @patch("litellm.responses")
+    def test_responses(self, mock_responses):
         from agentrun.model.api.data import BaseInfo
+
+        mock_responses.return_value = {}
 
         proxy = ModelProxy(model_proxy_name="test-proxy")
 
-        # Create a mock _data_client directly
+        # Create a mock _data_client to provide model_info
         mock_data_client = MagicMock()
         mock_info = BaseInfo(model="gpt-4", base_url="https://api.example.com")
         mock_data_client.model_info.return_value = mock_info
-        mock_data_client.responses.return_value = {}
 
-        # Bypass the model_info call by setting _data_client
+        # Set _data_client so model_info() returns our mock info
         proxy._data_client = mock_data_client
 
-        proxy.responses(messages=[{"role": "user", "content": "Hello"}])
+        # Note: The responses method expects 'input' parameter (not 'messages')
+        # based on the ModelAPI.responses signature
+        proxy.responses(input="Hello")
 
-        mock_data_client.responses.assert_called_once()
+        mock_responses.assert_called_once()
