@@ -23,8 +23,8 @@ from agentrun.memory_collection import (
 from agentrun.utils.config import Config
 
 
-async def main():
-    """主函数 / Main function"""
+async def memory_collection_basic_example():
+    """MemoryCollection 基础操作示例 / MemoryCollection Basic Operations Example"""
 
     # 创建配置
     # Create configuration
@@ -155,8 +155,73 @@ async def main():
 
         traceback.print_exc()
 
-    print("\n✅ 示例完成")
+
+async def async_mem0_memory_example():
+    """异步 AsyncMemory 转换方法使用示例"""
+    print("\n=== 异步转换为 mem0ai AsyncMemory 客户端 ===")
+
+    try:
+        # 使用高层 API 的 to_mem0_memory_async 方法
+        # Use high-level API's to_mem0_memory_async method
+        memory = await MemoryCollection.to_mem0_memory_async(
+            "memoryCollection010901"
+        )
+        print(f"✅ 成功创建 mem0ai AsyncMemory 客户端")
+        print(f"   类型: {type(memory)}")
+
+        # 使用 mem0ai AsyncMemory 客户端进行操作
+        # Use mem0ai AsyncMemory client for operations
+        user_id = "user456"
+
+        # 添加记忆
+        # Add memory
+        result = await memory.add(
+            "我喜欢喝咖啡和茶",
+            user_id=user_id,
+            metadata={"category": "beverage"},
+        )
+        print(f"\n✅ 添加记忆成功:")
+        for idx, res in enumerate(result.get("results", []), 1):
+            print(f"   {idx}. ID: {res.get('id')}, 事件: {res.get('event')}")
+
+        # 搜索记忆
+        # Search memory
+        search_results = await memory.search(
+            "用户喜欢喝什么？", user_id=user_id
+        )
+        print(f"\n✅ 搜索记忆结果:")
+        for idx, result in enumerate(search_results.get("results", []), 1):
+            print(
+                f"   {idx}. 内容: {result.get('memory')}, 相似度:"
+                f" {result.get('score', 0):.4f}"
+            )
+
+        # 获取所有记忆
+        # Get all memories
+        all_memories = await memory.get_all(user_id=user_id)
+        print(f"\n✅ 获取所有记忆:")
+        for idx, mem in enumerate(all_memories.get("results", []), 1):
+            print(f"   {idx}. {mem.get('memory')}")
+
+    except ImportError as e:
+        print(f"⚠️  mem0ai 未安装: {e}")
+        print("   安装方法: pip install agentrun-sdk[mem0]")
+    except Exception as e:
+        print(f"❌ AsyncMemory 操作失败: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import asyncio
+
+    # 运行基础操作示例
+    # Run basic operations example
+    asyncio.run(memory_collection_basic_example())
+
+    # 运行异步 AsyncMemory 示例
+    # Run async AsyncMemory example
+    asyncio.run(async_mem0_memory_example())
+
+    print("\n✅ 示例完成")

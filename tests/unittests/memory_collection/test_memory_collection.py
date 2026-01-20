@@ -364,3 +364,106 @@ class TestMemoryCollectionFromInnerObject:
         assert (
             memory_collection.memory_collection_name == "test-memory-collection"
         )
+
+
+class TestMemoryCollectionToMem0Memory:
+    """测试 MemoryCollection.to_mem0_memory 和 to_mem0_memory_async 方法"""
+
+    @patch("agentrun.memory_collection.client.MemoryCollectionControlAPI")
+    def test_to_mem0_memory_sync(self, mock_control_api_class):
+        """测试同步转换为 mem0 Memory 客户端"""
+        # Mock MemoryCollection 数据
+        mock_control_api = MagicMock()
+        mock_data = MockMemoryCollectionData()
+        mock_control_api.get_memory_collection.return_value = mock_data
+        mock_control_api_class.return_value = mock_control_api
+
+        # Mock Memory.from_config
+        with patch("agentrun_mem0.Memory") as mock_memory_class:
+            mock_memory_instance = MagicMock()
+            mock_memory_class.from_config.return_value = mock_memory_instance
+
+            # 调用 to_mem0_memory
+            result = MemoryCollection.to_mem0_memory(
+                "test-memory-collection",
+                config=Config(
+                    access_key_id="test-key",
+                    access_key_secret="test-secret",
+                    region_id="cn-hangzhou",
+                ),
+            )
+
+            # 验证返回的是 Memory 实例
+            assert result == mock_memory_instance
+            mock_memory_class.from_config.assert_called_once()
+
+    @patch("agentrun.memory_collection.client.MemoryCollectionControlAPI")
+    @pytest.mark.asyncio
+    async def test_to_mem0_memory_async(self, mock_control_api_class):
+        """测试异步转换为 mem0 AsyncMemory 客户端"""
+        # Mock MemoryCollection 数据
+        mock_control_api = MagicMock()
+        mock_data = MockMemoryCollectionData()
+        mock_control_api.get_memory_collection_async = AsyncMock(
+            return_value=mock_data
+        )
+        mock_control_api_class.return_value = mock_control_api
+
+        # Mock AsyncMemory.from_config
+        with patch("agentrun_mem0.AsyncMemory") as mock_async_memory_class:
+            mock_async_memory_instance = MagicMock()
+            # from_config 是异步方法，需要返回 AsyncMock
+            mock_async_memory_class.from_config = AsyncMock(
+                return_value=mock_async_memory_instance
+            )
+
+            # 调用 to_mem0_memory_async
+            result = await MemoryCollection.to_mem0_memory_async(
+                "test-memory-collection",
+                config=Config(
+                    access_key_id="test-key",
+                    access_key_secret="test-secret",
+                    region_id="cn-hangzhou",
+                ),
+            )
+
+            # 验证返回的是 AsyncMemory 实例
+            assert result == mock_async_memory_instance
+            mock_async_memory_class.from_config.assert_called_once()
+
+    @patch("agentrun.memory_collection.client.MemoryCollectionControlAPI")
+    def test_to_mem0_memory_import_error(self, mock_control_api_class):
+        """测试 mem0 包未安装时的错误处理"""
+        mock_control_api = MagicMock()
+        mock_control_api.get_memory_collection.return_value = (
+            MockMemoryCollectionData()
+        )
+        mock_control_api_class.return_value = mock_control_api
+
+        # Mock import 失败
+        with patch("builtins.__import__", side_effect=ImportError("No module")):
+            with pytest.raises(ImportError) as exc_info:
+                MemoryCollection.to_mem0_memory("test-memory-collection")
+
+            assert "agentrun-mem0ai package is required" in str(exc_info.value)
+
+    @patch("agentrun.memory_collection.client.MemoryCollectionControlAPI")
+    @pytest.mark.asyncio
+    async def test_to_mem0_memory_async_import_error(
+        self, mock_control_api_class
+    ):
+        """测试异步方法 mem0 包未安装时的错误处理"""
+        mock_control_api = MagicMock()
+        mock_control_api.get_memory_collection_async = AsyncMock(
+            return_value=MockMemoryCollectionData()
+        )
+        mock_control_api_class.return_value = mock_control_api
+
+        # Mock import 失败
+        with patch("builtins.__import__", side_effect=ImportError("No module")):
+            with pytest.raises(ImportError) as exc_info:
+                await MemoryCollection.to_mem0_memory_async(
+                    "test-memory-collection"
+                )
+
+            assert "agentrun-mem0ai package is required" in str(exc_info.value)
