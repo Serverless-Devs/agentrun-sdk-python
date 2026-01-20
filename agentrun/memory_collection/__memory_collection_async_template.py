@@ -228,7 +228,7 @@ class MemoryCollection(
         config: Optional[Config] = None,
         history_db_path: Optional[str] = None,
     ):
-        """将 MemoryCollection 转换为 agentrun-mem0ai Memory 客户端（异步）
+        """将 MemoryCollection 转换为 agentrun-mem0ai AsyncMemory 客户端（异步）
 
         Args:
             memory_collection_name: 记忆集合名称
@@ -236,7 +236,7 @@ class MemoryCollection(
             history_db_path: mem0 历史数据库路径（可选）
 
         Returns:
-            Memory: agentrun-mem0ai Memory 客户端实例
+            AsyncMemory: agentrun-mem0ai AsyncMemory 客户端实例
 
         Raises:
             ImportError: 如果未安装 agentrun-mem0ai 包
@@ -247,10 +247,10 @@ class MemoryCollection(
             ...     "memoryCollection010901",
             ...     config=config
             ... )
-            >>> memory.add("用户喜欢吃苹果", user_id="user123")
+            >>> await memory.add("用户喜欢吃苹果", user_id="user123")
         """
         try:
-            from agentrun_mem0 import Memory
+            from agentrun_mem0 import AsyncMemory
         except ImportError as e:
             raise ImportError(
                 "agentrun-mem0ai package is required. Install it with: pip"
@@ -267,8 +267,8 @@ class MemoryCollection(
             memory_collection, config, history_db_path
         )
 
-        # 创建并返回 Memory 实例
-        return Memory.from_config(mem0_config)
+        # 创建并返回 AsyncMemory 实例
+        return await AsyncMemory.from_config(mem0_config)
 
     @staticmethod
     def _convert_vpc_endpoint_to_public(endpoint: str) -> str:
@@ -392,13 +392,25 @@ class MemoryCollection(
                     )
                 )
 
+                embedder_config_dict = {
+                    "model": embedder_config.config.model,
+                    "openai_base_url": base_url,
+                    "api_key": api_key,
+                }
+
+                # 从 vector_store_config 中获取向量维度
+                if (
+                    memory_collection.vector_store_config
+                    and memory_collection.vector_store_config.config
+                    and memory_collection.vector_store_config.config.vector_dimension
+                ):
+                    embedder_config_dict["embedding_dims"] = (
+                        memory_collection.vector_store_config.config.vector_dimension
+                    )
+
                 mem0_config["embedder"] = {
                     "provider": "openai",  # mem0 使用 openai 兼容接口
-                    "config": {
-                        "model": embedder_config.config.model,
-                        "openai_base_url": base_url,
-                        "api_key": api_key,
-                    },
+                    "config": embedder_config_dict,
                 }
 
         # 添加历史数据库路径

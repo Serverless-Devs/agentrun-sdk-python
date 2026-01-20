@@ -206,6 +206,7 @@ def _generate_sync_code_for_file(async_file):
             content = (
                 line.replace("AsyncClient", "Client")
                 .replace("AsyncOpenAI", "OpenAI")
+                .replace("AsyncMemory", "Memory")
                 .replace("async_playwright", "sync_playwright")
                 .replace("asyncio.gather(*", "(")
                 .replace("_async", "")
