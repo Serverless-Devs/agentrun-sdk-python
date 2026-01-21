@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from agentrun.sandbox.aio_sandbox import AioSandbox
     from agentrun.sandbox.browser_sandbox import BrowserSandbox
     from agentrun.sandbox.code_interpreter_sandbox import CodeInterpreterSandbox
+    from agentrun.sandbox.custom_sandbox import CustomSandbox
     from agentrun.sandbox.model import (
         ListSandboxesInput,
         ListSandboxesOutput,
@@ -118,6 +119,20 @@ class Sandbox(BaseModel):
         ...
 
     @classmethod
+    @overload
+    async def create_async(
+        cls,
+        template_type: Literal[TemplateType.CUSTOM],
+        template_name: Optional[str] = None,
+        sandbox_idle_timeout_seconds: Optional[int] = 600,
+        nas_config: Optional["NASConfig"] = None,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
+        config: Optional[Config] = None,
+    ) -> "CustomSandbox":
+        ...
+
+    @classmethod
     async def create_async(
         cls,
         template_type: TemplateType,
@@ -127,7 +142,12 @@ class Sandbox(BaseModel):
         oss_mount_config: Optional["OSSMountConfig"] = None,
         polar_fs_config: Optional["PolarFsConfig"] = None,
         config: Optional[Config] = None,
-    ) -> Union["CodeInterpreterSandbox", "BrowserSandbox", "AioSandbox"]:
+    ) -> Union[
+        "CodeInterpreterSandbox",
+        "BrowserSandbox",
+        "AioSandbox",
+        "CustomSandbox",
+    ]:
 
         if template_name is None:
             # todo 可以考虑为用户创建一个模板？
@@ -142,6 +162,7 @@ class Sandbox(BaseModel):
         from agentrun.sandbox.code_interpreter_sandbox import (
             CodeInterpreterSandbox,
         )
+        from agentrun.sandbox.custom_sandbox import CustomSandbox
 
         if template_type != template.template_type:
             raise ValueError(
@@ -172,6 +193,10 @@ class Sandbox(BaseModel):
             sandbox = AioSandbox.model_validate(
                 base_sandbox.model_dump(by_alias=False)
             )
+        elif template.template_type == TemplateType.CUSTOM:
+            sandbox = CustomSandbox.model_validate(
+                base_sandbox.model_dump(by_alias=False)
+            )
         else:
             raise ValueError(
                 f"template_type {template.template_type} is not supported"
@@ -194,7 +219,7 @@ class Sandbox(BaseModel):
         if sandbox_id is None:
             raise ValueError("sandbox_id is required")
         # todo 后续适配后使用 stop()
-        return await cls.__get_client().delete_sandbox_async(sandbox_id)
+        return await cls.__get_client().stop_sandbox_async(sandbox_id)
 
     @classmethod
     async def delete_by_id_async(cls, sandbox_id: str):
@@ -460,4 +485,4 @@ class Sandbox(BaseModel):
         if self.sandbox_id is None:
             raise ValueError("sandbox_id is required to stop a Sandbox")
         # todo 后续适配后使用 stop()
-        return await self.delete_by_id_async(self.sandbox_id)
+        return await self.stop_by_id_async(self.sandbox_id)
