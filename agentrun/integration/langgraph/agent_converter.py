@@ -82,6 +82,8 @@ class AgentRunConverter:
         # 用于在 on_tool_end 中查找对应的 tool_call_id
         self._run_id_to_tool_call_id: Dict[str, str] = {}
 
+        self.has_on_chat_model_stream = False
+
     def convert(
         self,
         event: Union[Dict[str, Any], Any],
@@ -436,8 +438,8 @@ class AgentRunConverter:
     # 事件转换器（静态方法）
     # =========================================================================
 
-    @staticmethod
     def _convert_stream_updates_event(
+        self,
         event_dict: Dict[str, Any],
         messages_key: str = "messages",
     ) -> Iterator[Union[AgentResult, str]]:
@@ -525,8 +527,8 @@ class AgentRunConverter:
                             },
                         )
 
-    @staticmethod
     def _convert_stream_values_event(
+        self,
         event_dict: Dict[str, Any],
         messages_key: str = "messages",
     ) -> Iterator[Union[AgentResult, str]]:
@@ -595,8 +597,8 @@ class AgentRunConverter:
                     },
                 )
 
-    @staticmethod
     def _convert_astream_events_event(
+        self,
         event_dict: Dict[str, Any],
         tool_call_id_map: Optional[Dict[int, str]] = None,
         tool_call_started_set: Optional[set] = None,
@@ -625,6 +627,9 @@ class AgentRunConverter:
 
         # 1. LangGraph 格式: on_chat_model_stream
         if event_type == "on_chat_model_stream":
+
+            self.has_on_chat_model_stream = True
+
             chunk = data.get("chunk")
             if chunk:
                 # 文本内容
@@ -722,6 +727,7 @@ class AgentRunConverter:
         elif (
             event_type == "on_chain_stream"
             and event_dict.get("name") == "model"
+            and not self.has_on_chat_model_stream
         ):
             chunk_data = data.get("chunk", {})
             if isinstance(chunk_data, dict):
@@ -997,8 +1003,8 @@ class AgentRunConverter:
     # 主要 API（静态方法）
     # =========================================================================
 
-    @staticmethod
     def to_agui_events(
+        self,
         event: Union[Dict[str, Any], Any],
         messages_key: str = "messages",
         tool_call_id_map: Optional[Dict[int, str]] = None,
@@ -1052,7 +1058,7 @@ class AgentRunConverter:
         # 根据事件格式选择对应的转换器
         if AgentRunConverter.is_astream_events_format(event_dict):
             # astream_events 格式：{"event": "on_xxx", "data": {...}}
-            yield from AgentRunConverter._convert_astream_events_event(
+            yield from self._convert_astream_events_event(
                 event_dict,
                 tool_call_id_map,
                 tool_call_started_set,
@@ -1062,12 +1068,12 @@ class AgentRunConverter:
 
         elif AgentRunConverter.is_stream_updates_format(event_dict):
             # stream/astream(stream_mode="updates") 格式：{node_name: state_update}
-            yield from AgentRunConverter._convert_stream_updates_event(
+            yield from self._convert_stream_updates_event(
                 event_dict, messages_key
             )
 
         elif AgentRunConverter.is_stream_values_format(event_dict):
             # stream/astream(stream_mode="values") 格式：完整 state dict
-            yield from AgentRunConverter._convert_stream_values_event(
+            yield from self._convert_stream_values_event(
                 event_dict, messages_key
             )

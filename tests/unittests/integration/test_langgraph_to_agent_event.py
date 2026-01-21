@@ -43,7 +43,7 @@ class TestOnChatModelStreamText:
             "data": {"chunk": create_ai_message_chunk("你好")},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0] == "你好"
@@ -59,7 +59,7 @@ class TestOnChatModelStreamText:
             "data": {"chunk": create_ai_message_chunk("")},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 0
 
@@ -120,7 +120,7 @@ class TestOnChatModelStreamToolCall:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert isinstance(results[0], AgentEvent)
@@ -167,12 +167,12 @@ class TestOnChatModelStreamToolCall:
 
         tool_call_id_map: Dict[int, str] = {}
         results1 = list(
-            AgentRunConverter.to_agui_events(
+            AgentRunConverter().to_agui_events(
                 first_chunk, tool_call_id_map=tool_call_id_map
             )
         )
         results2 = list(
-            AgentRunConverter.to_agui_events(
+            AgentRunConverter().to_agui_events(
                 second_chunk, tool_call_id_map=tool_call_id_map
             )
         )
@@ -207,7 +207,7 @@ class TestOnChatModelStreamToolCall:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_CALL_CHUNK
@@ -243,7 +243,7 @@ class TestOnChatModelStreamToolCall:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 2
         assert results[0].data["id"] == "call_a"
@@ -273,7 +273,7 @@ class TestOnToolStart:
             "data": {"input": {"city": "北京"}},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_CALL_CHUNK
@@ -298,7 +298,7 @@ class TestOnToolStart:
             "data": {"input": {"city": "北京", "runtime": FakeRuntime()}},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert (
@@ -326,7 +326,7 @@ class TestOnToolStart:
         }
 
         results = list(
-            AgentRunConverter.to_agui_events(
+            AgentRunConverter().to_agui_events(
                 event, tool_call_started_set=tool_call_started_set
             )
         )
@@ -347,7 +347,7 @@ class TestOnToolStart:
             "data": {},  # 无输入
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_CALL_CHUNK
@@ -375,7 +375,7 @@ class TestOnToolEnd:
             "data": {"output": {"result": "晴天", "temp": 25}},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_RESULT
@@ -394,7 +394,7 @@ class TestOnToolEnd:
             "data": {"output": "操作成功"},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_RESULT
@@ -419,7 +419,7 @@ class TestOnToolEnd:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].data["id"] == "call_original_id"
@@ -442,7 +442,7 @@ class TestStreamUpdatesFormat:
         msg = create_ai_message("你好")
         event = {"model": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0] == "你好"
@@ -462,7 +462,7 @@ class TestStreamUpdatesFormat:
         )
         event = {"agent": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_CALL_CHUNK
@@ -478,7 +478,7 @@ class TestStreamUpdatesFormat:
         msg = create_tool_message('{"weather": "晴天"}', "call_xyz")
         event = {"tools": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_RESULT
@@ -504,7 +504,7 @@ class TestStreamValuesFormat:
         msg3 = create_ai_message("第三条")
         event = {"messages": [msg1, msg2, msg3]}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0] == "第三条"
@@ -520,7 +520,7 @@ class TestStreamValuesFormat:
         )
         event = {"messages": [msg]}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_CALL_CHUNK
@@ -756,7 +756,7 @@ class TestErrorEvents:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.ERROR
@@ -781,7 +781,7 @@ class TestErrorEvents:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].data["tool_call_id"] == "call_original_id"
@@ -798,7 +798,7 @@ class TestErrorEvents:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert "Division by zero" in results[0].data["message"]
@@ -817,7 +817,7 @@ class TestErrorEvents:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.ERROR
@@ -840,7 +840,7 @@ class TestErrorEvents:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.ERROR
@@ -863,7 +863,7 @@ class TestErrorEvents:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.ERROR
