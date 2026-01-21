@@ -28,7 +28,7 @@ jobs:
         echo "Extracted version: ${VERSION}"
     - name: Update pyproject.toml
       run: |
-        sed -i 's/version = "[^"]*"/version = "'${VERSION}'"/' pyproject.toml
+        sed -i 's/^version = "[^"]*"/version = "'${VERSION}'"/' pyproject.toml
         echo "Updated pyproject.toml version to ${VERSION}"
     - name: Update __version__ in __init__.py
       run: |

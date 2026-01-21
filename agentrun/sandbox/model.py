@@ -34,6 +34,8 @@ class TemplateType(str, Enum):
     """浏览器 / Browser"""
     AIO = "AllInOne"
     """All-in-One 沙箱 / All-in-One Sandbox"""
+    CUSTOM = "CustomImage"
+    """自定义镜像 / Custom Image"""
 
 
 class TemplateNetworkMode(str, Enum):
@@ -218,6 +220,12 @@ class TemplateContainerConfiguration(BaseModel):
     """容器镜像地址 / Container Image Address"""
     command: Optional[List[str]] = None
     """容器启动命令 / Container Start Command"""
+    acr_instance_id: Optional[str] = None
+    """ACR 实例 ID / ACR Instance ID"""
+    image_registry_type: Optional[str] = None
+    """镜像注册表类型 / Image Registry Type"""
+    port: Optional[int] = None
+    """端口 / Port"""
 
 
 class TemplateMcpOptions(BaseModel):
