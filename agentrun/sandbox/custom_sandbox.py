@@ -13,7 +13,7 @@ class CustomSandbox(Sandbox):
     _template_type = TemplateType.CUSTOM
 
     def get_base_url(self, config: Optional[Config] = None):
-        """Get CDP WebSocket URL for browser automation."""
+        """Get the base URL for the custom sandbox template."""
         api = DataAPI(
             resource_name="",
             resource_type=ResourceType.Template,
