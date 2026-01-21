@@ -131,9 +131,10 @@ def convert_and_collect(events: List[Dict]) -> List[Union[str, AgentEvent]]:
     Returns:
         List: 转换后的 AgentEvent 列表
     """
+    converter = AgentRunConverter()
     results: List[Union[str, AgentEvent]] = []
     for event in events:
-        results.extend(AgentRunConverter.to_agui_events(event))
+        results.extend(converter.to_agui_events(event))
     return results
 
 
