@@ -360,7 +360,6 @@ AGUI_EXPECTED = {
         {"type": "RUN_FINISHED", "hasThreadId": True, "hasRunId": True},
     ]],
     "tool_weather": [
-        # 新的事件序列：TOOL_CALL_START -> TOOL_CALL_ARGS -> TOOL_CALL_END -> TOOL_CALL_RESULT
         [
             {"type": "RUN_STARTED", "hasThreadId": True, "hasRunId": True},
             {
@@ -397,41 +396,38 @@ AGUI_EXPECTED = {
             {"type": "RUN_FINISHED", "hasThreadId": True, "hasRunId": True},
         ],
     ],
-    "tool_time": [
-        # 新的事件序列：TOOL_CALL_START -> TOOL_CALL_ARGS -> TOOL_CALL_END -> TOOL_CALL_RESULT
-        [
-            {"type": "RUN_STARTED", "hasThreadId": True, "hasRunId": True},
-            {
-                "type": "TOOL_CALL_START",
-                "toolCallName": "get_time",
-                "hasToolCallId": True,
-            },
-            {
-                "type": "TOOL_CALL_ARGS",
-                "delta": "",
-                "hasToolCallId": True,
-            },
-            {"type": "TOOL_CALL_END", "hasToolCallId": True},
-            {
-                "type": "TOOL_CALL_RESULT",
-                "role": "tool",
-                "hasToolCallId": True,
-                "hasMessageId": True,
-            },
-            {
-                "type": "TEXT_MESSAGE_START",
-                "role": "assistant",
-                "hasMessageId": True,
-            },
-            {
-                "type": "TEXT_MESSAGE_CONTENT",
-                "delta": "工具结果已收到: 2024-01-01 12:00:00",
-                "hasMessageId": True,
-            },
-            {"type": "TEXT_MESSAGE_END", "hasMessageId": True},
-            {"type": "RUN_FINISHED", "hasThreadId": True, "hasRunId": True},
-        ]
-    ],
+    "tool_time": [[
+        {"type": "RUN_STARTED", "hasThreadId": True, "hasRunId": True},
+        {
+            "type": "TOOL_CALL_START",
+            "toolCallName": "get_time",
+            "hasToolCallId": True,
+        },
+        {
+            "type": "TOOL_CALL_ARGS",
+            "delta": "",
+            "hasToolCallId": True,
+        },
+        {"type": "TOOL_CALL_END", "hasToolCallId": True},
+        {
+            "type": "TOOL_CALL_RESULT",
+            "role": "tool",
+            "hasToolCallId": True,
+            "hasMessageId": True,
+        },
+        {
+            "type": "TEXT_MESSAGE_START",
+            "role": "assistant",
+            "hasMessageId": True,
+        },
+        {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "delta": "工具结果已收到: 2024-01-01 12:00:00",
+            "hasMessageId": True,
+        },
+        {"type": "TEXT_MESSAGE_END", "hasMessageId": True},
+        {"type": "RUN_FINISHED", "hasThreadId": True, "hasRunId": True},
+    ]],
 }
 
 
@@ -508,7 +504,6 @@ def _normalize_openai_stream(
 
 
 OPENAI_STREAM_EXPECTED = {
-    # 新格式：delta_role 和 delta_content 可能在同一个 chunk 中
     "text_basic": [
         {
             "object": "chat.completion.chunk",
@@ -521,7 +516,6 @@ OPENAI_STREAM_EXPECTED = {
             "finish_reason": "stop",
         },
     ],
-    # 流式工具调用：name 和 arguments 可能分成多个 chunk
     "tool_weather": [
         {
             "object": "chat.completion.chunk",

@@ -114,7 +114,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"chunk": chunk},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0] == "你好"
@@ -127,7 +127,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"chunk": chunk},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
     def test_on_chat_model_stream_with_tool_call_args(self):
@@ -145,7 +145,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"chunk": chunk},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 第一个 chunk 有 id 和 name 时，发送完整的 TOOL_CALL_CHUNK
         assert len(results) == 1
@@ -164,7 +164,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"input": {"city": "北京"}},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在是单个 TOOL_CALL_CHUNK（边界事件由协议层自动处理）
         assert len(results) == 1
@@ -183,7 +183,7 @@ class TestConvertAstreamEventsFormat:
             "data": {},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在是单个 TOOL_CALL_CHUNK（边界事件由协议层自动处理）
         assert len(results) == 1
@@ -203,7 +203,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"output": {"weather": "晴天", "temperature": 25}},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # on_tool_end 只发送 TOOL_CALL_RESULT
         assert len(results) == 1
@@ -221,7 +221,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"output": "晴天，25度"},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # on_tool_end 只发送 TOOL_CALL_RESULT
         assert len(results) == 1
@@ -243,7 +243,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"input": {"obj": Dummy()}},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在是单个 TOOL_CALL_CHUNK
         assert len(results) == 1
@@ -274,7 +274,7 @@ class TestConvertAstreamEventsFormat:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在是单个 TOOL_CALL_CHUNK
         assert len(results) == 1
@@ -318,7 +318,7 @@ class TestConvertAstreamEventsFormat:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在是单个 TOOL_CALL_CHUNK
         assert len(results) == 1
@@ -351,7 +351,7 @@ class TestConvertAstreamEventsFormat:
             },
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # on_tool_end 只发送 TOOL_CALL_RESULT（TOOL_CALL_END 在 on_tool_start 发送）
         assert len(results) == 1
@@ -369,7 +369,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"input": {"timezone": "Asia/Shanghai"}},  # 没有 runtime
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在是单个 TOOL_CALL_CHUNK
         assert len(results) == 1
@@ -441,7 +441,7 @@ class TestConvertAstreamEventsFormat:
 
         for event in events:
             results = list(
-                AgentRunConverter.to_agui_events(
+                AgentRunConverter().to_agui_events(
                     event, tool_call_id_map=tool_call_id_map
                 )
             )
@@ -484,7 +484,7 @@ class TestConvertAstreamEventsFormat:
         }
 
         # 不传入 tool_call_id_map
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0].event == EventType.TOOL_CALL_CHUNK
@@ -570,7 +570,7 @@ class TestConvertAstreamEventsFormat:
 
         for event in events:
             results = list(
-                AgentRunConverter.to_agui_events(
+                AgentRunConverter().to_agui_events(
                     event, tool_call_id_map=tool_call_id_map
                 )
             )
@@ -683,7 +683,7 @@ class TestConvertAstreamEventsFormat:
         tool_call_id_map: Dict[int, str] = {}
         tool_call_started_set: set = set()
         results = list(
-            AgentRunConverter.to_agui_events(
+            AgentRunConverter().to_agui_events(
                 event,
                 tool_call_id_map=tool_call_id_map,
                 tool_call_started_set=tool_call_started_set,
@@ -742,7 +742,7 @@ class TestConvertAstreamEventsFormat:
 
         for event in events:
             results = list(
-                AgentRunConverter.to_agui_events(
+                AgentRunConverter().to_agui_events(
                     event, tool_call_id_map=tool_call_id_map
                 )
             )
@@ -870,7 +870,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"chunk": {"messages": [msg]}},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0] == "你好！有什么可以帮你的吗？"
@@ -883,7 +883,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"chunk": {"messages": []}},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
     def test_on_chat_model_end_ignored(self):
@@ -893,7 +893,7 @@ class TestConvertAstreamEventsFormat:
             "data": {"output": create_mock_ai_message("完成")},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
     def test_on_chain_stream_tool_call_no_duplicate_with_on_tool_start(self):
@@ -1005,7 +1005,7 @@ class TestConvertStreamUpdatesFormat:
         msg = create_mock_ai_message("你好！")
         event = {"model": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0] == "你好！"
@@ -1015,7 +1015,7 @@ class TestConvertStreamUpdatesFormat:
         msg = create_mock_ai_message("")
         event = {"model": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
     def test_ai_message_with_tool_calls(self):
@@ -1030,7 +1030,7 @@ class TestConvertStreamUpdatesFormat:
         )
         event = {"agent": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在是单个 TOOL_CALL_CHUNK
         assert len(results) == 1
@@ -1044,7 +1044,7 @@ class TestConvertStreamUpdatesFormat:
         msg = create_mock_tool_message('{"weather": "多云"}', "call_abc")
         event = {"tools": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在只有 TOOL_RESULT
         assert len(results) == 1
@@ -1056,7 +1056,7 @@ class TestConvertStreamUpdatesFormat:
         """测试 __end__ 节点被忽略"""
         event = {"__end__": {"messages": []}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
     def test_multiple_nodes_in_event(self):
@@ -1069,7 +1069,7 @@ class TestConvertStreamUpdatesFormat:
             "tools": {"messages": [tool_msg]},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 应该有 2 个结果：1 个文本 + 1 个 TOOL_RESULT
         assert len(results) == 2
@@ -1083,13 +1083,13 @@ class TestConvertStreamUpdatesFormat:
 
         # 使用默认 key 应该找不到消息
         results = list(
-            AgentRunConverter.to_agui_events(event, messages_key="messages")
+            AgentRunConverter().to_agui_events(event, messages_key="messages")
         )
         assert len(results) == 0
 
         # 使用正确的 key
         results = list(
-            AgentRunConverter.to_agui_events(
+            AgentRunConverter().to_agui_events(
                 event, messages_key="custom_messages"
             )
         )
@@ -1111,7 +1111,7 @@ class TestConvertStreamValuesFormat:
         msg2 = create_mock_ai_message("最后一条消息")
         event = {"messages": [msg1, msg2]}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 只处理最后一条消息
         assert len(results) == 1
@@ -1127,7 +1127,7 @@ class TestConvertStreamValuesFormat:
         )
         event = {"messages": [msg]}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 现在是单个 TOOL_CALL_CHUNK
         assert len(results) == 1
@@ -1139,7 +1139,7 @@ class TestConvertStreamValuesFormat:
         tool_msg = create_mock_tool_message("工具结果", "call_ghi")
         event = {"messages": [ai_msg, tool_msg]}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # 只处理最后一条消息（工具消息），现在只有 TOOL_RESULT
         assert len(results) == 1
@@ -1149,7 +1149,7 @@ class TestConvertStreamValuesFormat:
         """测试空消息列表"""
         event = {"messages": []}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
 
@@ -1171,7 +1171,7 @@ class TestConvertStreamEventObject:
         stream_event.name = "model"
         stream_event.run_id = "run_001"
 
-        results = list(AgentRunConverter.to_agui_events(stream_event))
+        results = list(AgentRunConverter().to_agui_events(stream_event))
 
         assert len(results) == 1
         assert results[0] == "Hello"
@@ -1222,7 +1222,7 @@ class TestConvertEventSequence:
 
         all_results = []
         for event in events:
-            all_results.extend(AgentRunConverter.to_agui_events(event))
+            all_results.extend(AgentRunConverter().to_agui_events(event))
 
         # 验证结果
         # on_tool_start: 1 TOOL_CALL_CHUNK
@@ -1273,7 +1273,7 @@ class TestConvertEventSequence:
 
         all_results = []
         for event in events:
-            all_results.extend(AgentRunConverter.to_agui_events(event))
+            all_results.extend(AgentRunConverter().to_agui_events(event))
 
         # 验证结果：
         # - 1 TOOL_CALL_CHUNK（工具调用）
@@ -1302,7 +1302,7 @@ class TestConvertEdgeCases:
 
     def test_empty_event(self):
         """测试空事件"""
-        results = list(AgentRunConverter.to_agui_events({}))
+        results = list(AgentRunConverter().to_agui_events({}))
         assert len(results) == 0
 
     def test_none_values(self):
@@ -1311,7 +1311,7 @@ class TestConvertEdgeCases:
             "event": "on_chat_model_stream",
             "data": {"chunk": None},
         }
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
     def test_invalid_message_type(self):
@@ -1321,7 +1321,7 @@ class TestConvertEdgeCases:
         msg.content = "test"
         event = {"model": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         # unknown 类型不会产生输出
         assert len(results) == 0
 
@@ -1333,7 +1333,7 @@ class TestConvertEdgeCases:
         )
         event = {"agent": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         # 没有 id 的工具调用应该被跳过
         assert len(results) == 0
 
@@ -1346,7 +1346,7 @@ class TestConvertEdgeCases:
 
         event = {"tools": {"messages": [msg]}}
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         # 没有 tool_call_id 的工具消息应该被跳过
         assert len(results) == 0
 
@@ -1356,7 +1356,7 @@ class TestConvertEdgeCases:
             "model": {"messages": [{"type": "ai", "content": "字典格式消息"}]}
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0] == "字典格式消息"
@@ -1375,7 +1375,7 @@ class TestConvertEdgeCases:
             "data": {"chunk": chunk},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
         assert results[0] == "这是多模态内容"
@@ -1391,7 +1391,7 @@ class TestConvertEdgeCases:
             "data": {"output": output},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
 
         # on_tool_end 只发送 TOOL_CALL_RESULT（TOOL_CALL_END 在 on_tool_start 发送）
         assert len(results) == 1
@@ -1410,7 +1410,7 @@ class TestConvertEdgeCases:
         event = (chunk, metadata)  # 元组格式
 
         # 元组格式会被 _event_to_dict 转换为空字典，因此不产生输出
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
     def test_unsupported_random_dict_format(self):
@@ -1423,7 +1423,7 @@ class TestConvertEdgeCases:
             "another_key": {"nested": "data"},
         }
 
-        results = list(AgentRunConverter.to_agui_events(event))
+        results = list(AgentRunConverter().to_agui_events(event))
         assert len(results) == 0
 
 
@@ -1789,7 +1789,7 @@ class TestConvertIntegration:
 
         results = []
         for event in mock_events:
-            results.extend(AgentRunConverter.to_agui_events(event))
+            results.extend(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 3
         assert "".join(results) == "你好，世界！"
@@ -1838,7 +1838,7 @@ class TestConvertIntegration:
 
         results = []
         for event in mock_events:
-            results.extend(AgentRunConverter.to_agui_events(event))
+            results.extend(AgentRunConverter().to_agui_events(event))
 
         # 验证事件顺序
         assert len(results) == 3
@@ -1885,7 +1885,7 @@ class TestConvertIntegration:
 
         results = []
         for event in mock_events:
-            results.extend(AgentRunConverter.to_agui_events(event))
+            results.extend(AgentRunConverter().to_agui_events(event))
 
         # 验证有工具调用事件
         tool_chunks = [
