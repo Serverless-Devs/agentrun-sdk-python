@@ -84,7 +84,7 @@ class CredentialClient:
     def create(
         self, input: CredentialCreateInput, config: Optional[Config] = None
     ):
-        """创建凭证(同步) / Create credential asynchronously
+        """创建凭证(同步) / Create credential synchronously
 
         Args:
             input: 凭证输入参数 / Credential input parameters

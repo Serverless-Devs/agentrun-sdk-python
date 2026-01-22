@@ -91,7 +91,7 @@ class AgentRuntimeEndpoint(
         input: AgentRuntimeEndpointCreateInput,
         config: Optional[Config] = None,
     ):
-        """根据 ID 同步创建端点 / Create endpoint by ID asynchronously
+        """根据 ID 同步创建端点 / Create endpoint by ID synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -148,7 +148,7 @@ class AgentRuntimeEndpoint(
         endpoint_id: str,
         config: Optional[Config] = None,
     ):
-        """根据 ID 同步删除端点 / Delete endpoint by ID asynchronously
+        """根据 ID 同步删除端点 / Delete endpoint by ID synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -208,7 +208,7 @@ class AgentRuntimeEndpoint(
         input: AgentRuntimeEndpointUpdateInput,
         config: Optional[Config] = None,
     ):
-        """根据 ID 同步更新端点 / Update endpoint by ID asynchronously
+        """根据 ID 同步更新端点 / Update endpoint by ID synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -266,7 +266,7 @@ class AgentRuntimeEndpoint(
         endpoint_id: str,
         config: Optional[Config] = None,
     ):
-        """根据 ID 同步获取端点 / Get endpoint by ID asynchronously
+        """根据 ID 同步获取端点 / Get endpoint by ID synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -414,7 +414,7 @@ class AgentRuntimeEndpoint(
 
     @classmethod
     def list_by_id(cls, agent_runtime_id: str, config: Optional[Config] = None):
-        """根据 Agent Runtime ID 同步列出所有端点 / List all endpoints by Agent Runtime ID asynchronously
+        """根据 Agent Runtime ID 同步列出所有端点 / List all endpoints by Agent Runtime ID synchronously
 
         此方法会自动分页获取所有端点并去重。
         This method automatically paginates to get all endpoints and deduplicates them.
@@ -489,7 +489,7 @@ class AgentRuntimeEndpoint(
         return self
 
     def delete(self, config: Optional[Config] = None) -> "AgentRuntimeEndpoint":
-        """同步删除当前端点 / Delete current endpoint asynchronously
+        """同步删除当前端点 / Delete current endpoint synchronously
 
         Args:
             config: 配置对象,可选 / Configuration object, optional
@@ -559,7 +559,7 @@ class AgentRuntimeEndpoint(
         input: AgentRuntimeEndpointUpdateInput,
         config: Optional[Config] = None,
     ) -> Self:
-        """同步更新当前端点 / Update current endpoint asynchronously
+        """同步更新当前端点 / Update current endpoint synchronously
 
         Args:
             input: 端点更新配置 / Endpoint update configuration
@@ -621,7 +621,7 @@ class AgentRuntimeEndpoint(
         return self
 
     def get(self, config: Optional[Config] = None):
-        """同步获取当前端点信息 / Get current endpoint information asynchronously
+        """同步获取当前端点信息 / Get current endpoint information synchronously
 
         Args:
             config: 配置对象,可选 / Configuration object, optional

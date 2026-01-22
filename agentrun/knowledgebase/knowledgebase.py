@@ -82,7 +82,7 @@ class KnowledgeBase(
     def create(
         cls, input: KnowledgeBaseCreateInput, config: Optional[Config] = None
     ):
-        """创建知识库（同步）/ Create knowledge base asynchronously
+        """创建知识库（同步）/ Create knowledge base synchronously
 
         Args:
             input: 知识库输入参数 / KnowledgeBase input parameters
@@ -111,7 +111,7 @@ class KnowledgeBase(
     def delete_by_name(
         cls, knowledge_base_name: str, config: Optional[Config] = None
     ):
-        """根据名称删除知识库（同步）/ Delete knowledge base by name asynchronously
+        """根据名称删除知识库（同步）/ Delete knowledge base by name synchronously
 
         Args:
             knowledge_base_name: 知识库名称 / KnowledgeBase name
@@ -147,7 +147,7 @@ class KnowledgeBase(
         input: KnowledgeBaseUpdateInput,
         config: Optional[Config] = None,
     ):
-        """根据名称更新知识库（同步）/ Update knowledge base by name asynchronously
+        """根据名称更新知识库（同步）/ Update knowledge base by name synchronously
 
         Args:
             knowledge_base_name: 知识库名称 / KnowledgeBase name
@@ -182,7 +182,7 @@ class KnowledgeBase(
     def get_by_name(
         cls, knowledge_base_name: str, config: Optional[Config] = None
     ):
-        """根据名称获取知识库（同步）/ Get knowledge base by name asynchronously
+        """根据名称获取知识库（同步）/ Get knowledge base by name synchronously
 
         Args:
             knowledge_base_name: 知识库名称 / KnowledgeBase name
@@ -246,7 +246,7 @@ class KnowledgeBase(
         provider: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> List[KnowledgeBaseListOutput]:
-        """列出所有知识库（同步）/ List all knowledge bases asynchronously
+        """列出所有知识库（同步）/ List all knowledge bases synchronously
 
         Args:
             provider: 提供商 / Provider
@@ -288,7 +288,7 @@ class KnowledgeBase(
     def update(
         self, input: KnowledgeBaseUpdateInput, config: Optional[Config] = None
     ):
-        """更新知识库（同步）/ Update knowledge base asynchronously
+        """更新知识库（同步）/ Update knowledge base synchronously
 
         Args:
             input: 知识库更新输入参数 / KnowledgeBase update input parameters
@@ -325,7 +325,7 @@ class KnowledgeBase(
         )
 
     def delete(self, config: Optional[Config] = None):
-        """删除知识库（同步）/ Delete knowledge base asynchronously
+        """删除知识库（同步）/ Delete knowledge base synchronously
 
         Args:
             config: 配置 / Configuration
@@ -359,7 +359,7 @@ class KnowledgeBase(
         return self
 
     def get(self, config: Optional[Config] = None):
-        """刷新知识库信息（同步）/ Refresh knowledge base info asynchronously
+        """刷新知识库信息（同步）/ Refresh knowledge base info synchronously
 
         Args:
             config: 配置 / Configuration
@@ -393,7 +393,7 @@ class KnowledgeBase(
     # =========================================================================
 
     def refresh(self, config: Optional[Config] = None):
-        """刷新知识库信息（同步）/ Refresh knowledge base info asynchronously
+        """刷新知识库信息（同步）/ Refresh knowledge base info synchronously
 
         Args:
             config: 配置 / Configuration
@@ -506,7 +506,7 @@ class KnowledgeBase(
         query: str,
         config: Optional[Config] = None,
     ) -> Dict[str, Any]:
-        """检索知识库（同步）/ Retrieve from knowledge base asynchronously
+        """检索知识库（同步）/ Retrieve from knowledge base synchronously
 
         根据当前知识库的 provider 类型和配置执行检索。
         Executes retrieval based on current knowledge base provider type and configuration.
@@ -547,7 +547,7 @@ class KnowledgeBase(
         kb_name: str,
         config: Optional[Config] = None,
     ) -> Any:
-        """安全获取知识库（同步）/ Safely get knowledge base asynchronously
+        """安全获取知识库（同步）/ Safely get knowledge base synchronously
 
         Args:
             kb_name: 知识库名称 / Knowledge base name
@@ -611,7 +611,7 @@ class KnowledgeBase(
         query: str,
         config: Optional[Config] = None,
     ) -> Dict[str, Any]:
-        """安全执行知识库检索（同步）/ Safely retrieve from knowledge base asynchronously
+        """安全执行知识库检索（同步）/ Safely retrieve from knowledge base synchronously
 
         Args:
             kb_name: 知识库名称 / Knowledge base name
@@ -704,7 +704,7 @@ class KnowledgeBase(
         knowledge_base_names: List[str],
         config: Optional[Config] = None,
     ) -> Dict[str, Any]:
-        """多知识库检索（同步）/ Multi knowledge base retrieval asynchronously
+        """多知识库检索（同步）/ Multi knowledge base retrieval synchronously
 
         根据知识库名称列表进行检索，自动获取各知识库的配置并执行检索。
         如果某个知识库查询失败，不影响其他知识库的查询。

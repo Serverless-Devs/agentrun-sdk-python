@@ -447,9 +447,7 @@ class DataAPI:
         )
 
         try:
-            with httpx.Client(
-                timeout=self.config.get_timeout()
-            ) as client:
+            with httpx.Client(timeout=self.config.get_timeout()) as client:
                 response = client.request(
                     method,
                     url,
@@ -931,9 +929,7 @@ class DataAPI:
                 data = form_data or {}
                 data["path"] = target_file_path
 
-                with httpx.Client(
-                    timeout=self.config.get_timeout()
-                ) as client:
+                with httpx.Client(timeout=self.config.get_timeout()) as client:
                     response = client.post(
                         url, files=files, data=data, headers=req_headers
                     )
@@ -1027,9 +1023,7 @@ class DataAPI:
         url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
 
         try:
-            with httpx.Client(
-                timeout=self.config.get_timeout()
-            ) as client:
+            with httpx.Client(timeout=self.config.get_timeout()) as client:
                 response = client.get(url, headers=req_headers)
                 response.raise_for_status()
 
@@ -1125,9 +1119,7 @@ class DataAPI:
         url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
 
         try:
-            with httpx.Client(
-                timeout=self.config.get_timeout()
-            ) as client:
+            with httpx.Client(timeout=self.config.get_timeout()) as client:
                 response = client.get(url, headers=req_headers)
                 response.raise_for_status()
 
