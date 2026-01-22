@@ -734,7 +734,7 @@ class AioSandbox(Sandbox):
 
     def __enter__(self):
         """Synchronous context manager entry."""
-        # Poll health check asynchronously
+        # Poll health check synchronously
         max_retries = 60  # Maximum 60 seconds
         retry_count = 0
 

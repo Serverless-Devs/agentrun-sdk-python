@@ -81,7 +81,7 @@ class KnowledgeBaseClient:
     def create(
         self, input: KnowledgeBaseCreateInput, config: Optional[Config] = None
     ):
-        """创建知识库(同步) / Create knowledge base asynchronously
+        """创建知识库(同步) / Create knowledge base synchronously
 
         Args:
             input: 知识库输入参数 / KnowledgeBase input parameters
@@ -131,7 +131,7 @@ class KnowledgeBaseClient:
             ) from e
 
     def delete(self, knowledge_base_name: str, config: Optional[Config] = None):
-        """删除知识库（同步）/ Delete knowledge base asynchronously
+        """删除知识库（同步）/ Delete knowledge base synchronously
 
         Args:
             knowledge_base_name: 知识库名称 / KnowledgeBase name
@@ -190,7 +190,7 @@ class KnowledgeBaseClient:
         input: KnowledgeBaseUpdateInput,
         config: Optional[Config] = None,
     ):
-        """更新知识库（同步）/ Update knowledge base asynchronously
+        """更新知识库（同步）/ Update knowledge base synchronously
 
         Args:
             knowledge_base_name: 知识库名称 / KnowledgeBase name
@@ -242,7 +242,7 @@ class KnowledgeBaseClient:
             ) from e
 
     def get(self, knowledge_base_name: str, config: Optional[Config] = None):
-        """获取知识库（同步）/ Get knowledge base asynchronously
+        """获取知识库（同步）/ Get knowledge base synchronously
 
         Args:
             knowledge_base_name: 知识库名称 / KnowledgeBase name
@@ -292,7 +292,7 @@ class KnowledgeBaseClient:
         input: Optional[KnowledgeBaseListInput] = None,
         config: Optional[Config] = None,
     ):
-        """列出知识库（同步）/ List knowledge bases asynchronously
+        """列出知识库（同步）/ List knowledge bases synchronously
 
         Args:
             input: 分页查询参数 / Pagination query parameters

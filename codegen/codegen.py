@@ -209,6 +209,7 @@ def _generate_sync_code_for_file(async_file):
                 .replace("AsyncMemory", "Memory")
                 .replace("async_playwright", "sync_playwright")
                 .replace("asyncio.gather(*", "(")
+                .replace("asynchronously", "synchronously")
                 .replace("_async", "")
                 .replace("async def", "def")
                 .replace("await ", "")

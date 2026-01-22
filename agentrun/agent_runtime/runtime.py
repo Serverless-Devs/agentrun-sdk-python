@@ -88,7 +88,7 @@ class AgentRuntime(
     def create(
         cls, input: AgentRuntimeCreateInput, config: Optional[Config] = None
     ):
-        """同步创建 Agent Runtime / Create Agent Runtime asynchronously
+        """同步创建 Agent Runtime / Create Agent Runtime synchronously
 
         Args:
             input: Agent Runtime 创建配置 / Agent Runtime creation configuration
@@ -142,7 +142,7 @@ class AgentRuntime(
 
     @classmethod
     def delete_by_id(cls, id: str, config: Optional[Config] = None):
-        """根据 ID 同步删除 Agent Runtime / Delete Agent Runtime by ID asynchronously
+        """根据 ID 同步删除 Agent Runtime / Delete Agent Runtime by ID synchronously
 
         此方法会先删除所有关联的端点,然后再删除 Agent Runtime。
         This method will first delete all associated endpoints, then delete the Agent Runtime.
@@ -205,7 +205,7 @@ class AgentRuntime(
         input: AgentRuntimeUpdateInput,
         config: Optional[Config] = None,
     ):
-        """根据 ID 同步更新 Agent Runtime / Update Agent Runtime by ID asynchronously
+        """根据 ID 同步更新 Agent Runtime / Update Agent Runtime by ID synchronously
 
         Args:
             id: Agent Runtime ID
@@ -240,7 +240,7 @@ class AgentRuntime(
 
     @classmethod
     def get_by_id(cls, id: str, config: Optional[Config] = None):
-        """根据 ID 同步获取 Agent Runtime / Get Agent Runtime by ID asynchronously
+        """根据 ID 同步获取 Agent Runtime / Get Agent Runtime by ID synchronously
 
         Args:
             id: Agent Runtime ID
@@ -359,7 +359,7 @@ class AgentRuntime(
 
     @classmethod
     def list(cls, config: Optional[Config] = None):
-        """同步列出所有 Agent Runtimes / List all Agent Runtimes asynchronously
+        """同步列出所有 Agent Runtimes / List all Agent Runtimes synchronously
 
         此方法会自动分页获取所有 Agent Runtimes 并去重。
         This method automatically paginates to get all Agent Runtimes and deduplicates them.

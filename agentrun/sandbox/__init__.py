@@ -6,6 +6,7 @@ from .aio_sandbox import AioSandbox
 from .browser_sandbox import BrowserSandbox
 from .client import SandboxClient
 from .code_interpreter_sandbox import CodeInterpreterSandbox
+from .custom_sandbox import CustomSandbox
 from .model import (
     CodeLanguage,
     ListSandboxesInput,
@@ -66,4 +67,5 @@ __all__ = [
     "OSSMountPoint",
     "PolarFsConfig",
     "PolarFsConfig",
+    "CustomSandbox",
 ]

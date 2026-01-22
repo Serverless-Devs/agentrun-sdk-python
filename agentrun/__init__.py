@@ -100,8 +100,10 @@ from agentrun.model import (
 )
 # Sandbox
 from agentrun.sandbox import (
+    AioSandbox,
     BrowserSandbox,
     CodeInterpreterSandbox,
+    CustomSandbox,
     SandboxClient,
     Template,
 )
@@ -239,6 +241,8 @@ __all__ = [
     "SandboxClient",
     "BrowserSandbox",
     "CodeInterpreterSandbox",
+    "AioSandbox",
+    "CustomSandbox",
     "Template",
     ######## ToolSet ########
     "ToolSetClient",

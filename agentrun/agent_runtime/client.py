@@ -111,7 +111,7 @@ class AgentRuntimeClient:
     def create(
         self, input: AgentRuntimeCreateInput, config: Optional[Config] = None
     ) -> AgentRuntime:
-        """同步创建 Agent Runtime / Create Agent Runtime asynchronously
+        """同步创建 Agent Runtime / Create Agent Runtime synchronously
 
         Args:
             input: Agent Runtime 创建配置 / Agent Runtime creation configuration
@@ -176,7 +176,7 @@ class AgentRuntimeClient:
             raise e.to_resource_error("AgentRuntime", id) from e
 
     def delete(self, id: str, config: Optional[Config] = None) -> AgentRuntime:
-        """同步删除 Agent Runtime / Delete Agent Runtime asynchronously
+        """同步删除 Agent Runtime / Delete Agent Runtime synchronously
 
         Args:
             id: Agent Runtime ID
@@ -231,7 +231,7 @@ class AgentRuntimeClient:
         input: AgentRuntimeUpdateInput,
         config: Optional[Config] = None,
     ) -> AgentRuntime:
-        """同步更新 Agent Runtime / Update Agent Runtime asynchronously
+        """同步更新 Agent Runtime / Update Agent Runtime synchronously
 
         Args:
             id: Agent Runtime ID
@@ -286,7 +286,7 @@ class AgentRuntimeClient:
         id: str,
         config: Optional[Config] = None,
     ) -> AgentRuntime:
-        """同步获取 Agent Runtime / Get Agent Runtime asynchronously
+        """同步获取 Agent Runtime / Get Agent Runtime synchronously
 
         Args:
             id: Agent Runtime ID
@@ -343,7 +343,7 @@ class AgentRuntimeClient:
         input: Optional[AgentRuntimeListInput] = None,
         config: Optional[Config] = None,
     ) -> List[AgentRuntime]:
-        """同步列出 Agent Runtimes / List Agent Runtimes asynchronously
+        """同步列出 Agent Runtimes / List Agent Runtimes synchronously
 
         Args:
             input: 列表查询配置,可选 / List query configuration, optional
@@ -417,7 +417,7 @@ class AgentRuntimeClient:
         endpoint: AgentRuntimeEndpointCreateInput,
         config: Optional[Config] = None,
     ) -> AgentRuntimeEndpoint:
-        """同步创建 Agent Runtime 端点 / Create Agent Runtime Endpoint asynchronously
+        """同步创建 Agent Runtime 端点 / Create Agent Runtime Endpoint synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -496,7 +496,7 @@ class AgentRuntimeClient:
         endpoint_id: str,
         config: Optional[Config] = None,
     ) -> AgentRuntimeEndpoint:
-        """同步删除 Agent Runtime 端点 / Delete Agent Runtime Endpoint asynchronously
+        """同步删除 Agent Runtime 端点 / Delete Agent Runtime Endpoint synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -578,7 +578,7 @@ class AgentRuntimeClient:
         endpoint: AgentRuntimeEndpointUpdateInput,
         config: Optional[Config] = None,
     ) -> AgentRuntimeEndpoint:
-        """同步更新 Agent Runtime 端点 / Update Agent Runtime Endpoint asynchronously
+        """同步更新 Agent Runtime 端点 / Update Agent Runtime Endpoint synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -656,7 +656,7 @@ class AgentRuntimeClient:
         endpoint_id: str,
         config: Optional[Config] = None,
     ) -> AgentRuntimeEndpoint:
-        """同步获取 Agent Runtime 端点 / Get Agent Runtime Endpoint asynchronously
+        """同步获取 Agent Runtime 端点 / Get Agent Runtime Endpoint synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -732,7 +732,7 @@ class AgentRuntimeClient:
         input: Optional[AgentRuntimeEndpointListInput] = None,
         config: Optional[Config] = None,
     ) -> List[AgentRuntimeEndpoint]:
-        """同步列出 Agent Runtime 端点 / List Agent Runtime Endpoints asynchronously
+        """同步列出 Agent Runtime 端点 / List Agent Runtime Endpoints synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID
@@ -806,7 +806,7 @@ class AgentRuntimeClient:
         input: Optional[AgentRuntimeVersionListInput] = None,
         config: Optional[Config] = None,
     ) -> List[AgentRuntimeVersion]:
-        """同步列出 Agent Runtime 版本 / List Agent Runtime Versions asynchronously
+        """同步列出 Agent Runtime 版本 / List Agent Runtime Versions synchronously
 
         Args:
             agent_runtime_id: Agent Runtime ID

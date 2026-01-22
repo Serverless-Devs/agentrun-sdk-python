@@ -856,6 +856,9 @@ class DataAPI:
         url = self.with_path(path, query=query)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
+        # Apply authentication (may modify URL, headers, and query)
+        cfg = Config.with_configs(self.config, config)
+        url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
 
         try:
             with open(local_file_path, "rb") as f:
@@ -915,6 +918,9 @@ class DataAPI:
         url = self.with_path(path, query=query)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
+        # Apply authentication (may modify URL, headers, and query)
+        cfg = Config.with_configs(self.config, config)
+        url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
 
         try:
             with open(local_file_path, "rb") as f:
@@ -963,6 +969,9 @@ class DataAPI:
         url = self.with_path(path, query=query)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
+        # Apply authentication (may modify URL, headers, and query)
+        cfg = Config.with_configs(self.config, config)
+        url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
 
         try:
             async with httpx.AsyncClient(
@@ -1009,6 +1018,9 @@ class DataAPI:
         url = self.with_path(path, query=query)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
+        # Apply authentication (may modify URL, headers, and query)
+        cfg = Config.with_configs(self.config, config)
+        url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
 
         try:
             with httpx.Client(timeout=self.config.get_timeout()) as client:
