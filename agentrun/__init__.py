@@ -16,9 +16,11 @@ Provides simple and easy-to-use APIs for managing AI Agent runtime environments,
 - Integration: 框架集成 / Framework integration
 """
 
+import os
 from typing import TYPE_CHECKING
 
 __version__ = "0.0.16"
+
 
 # Agent Runtime
 from agentrun.agent_runtime import (
@@ -114,6 +116,7 @@ from agentrun.utils.exception import (
     ResourceAlreadyExistError,
     ResourceNotExistError,
 )
+from agentrun.utils.log import logger
 from agentrun.utils.model import Status
 
 # Server - 延迟导入以避免可选依赖问题
@@ -360,3 +363,23 @@ def __getattr__(name: str):
             raise
 
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+if not os.getenv("DISABLE_BREAKING_CHANGES_WARNING"):
+    logger.warning(
+        f"当前您正在使用 AgentRun Python SDK 版本 {__version__}。"
+        "早期版本通常包含许多新功能，这些功能\033[1;33m 可能引入不兼容的变更"
+        " \033[0m。为避免潜在问题，我们强烈建议\033[1;32m 将依赖锁定为此版本"
+        " \033[0m。\nYou are currently using AgentRun Python SDK version"
+        f" {__version__}. Early versions often include many new features,"
+        " which\033[1;33m may introduce breaking changes\033[0m. To avoid"
+        " potential issues, we strongly recommend \033[1;32mpinning the"
+        " dependency to this version\033[0m.\n\033[2;3m  pip install"
+        f" 'agentrun-sdk=={__version__}' \033[0m\n\n增加\033[2;3m"
+        " DISABLE_BREAKING_CHANGES_WARNING=1"
+        " \033[0m到您的环境变量以关闭此警告。\nAdd\033[2;3m"
+        " DISABLE_BREAKING_CHANGES_WARNING=1 \033[0mto your environment"
+        " variables to disable this warning.\n\nReleases:\033[2;3m"
+        " https://github.com/Serverless-Devs/agentrun-sdk-python/releases"
+        " \033[0m"
+    )
