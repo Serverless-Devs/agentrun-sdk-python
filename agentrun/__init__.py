@@ -19,7 +19,7 @@ Provides simple and easy-to-use APIs for managing AI Agent runtime environments,
 import os
 from typing import TYPE_CHECKING
 
-__version__ = "0.0.16"
+__version__ = "0.0.17"
 
 
 # Agent Runtime
