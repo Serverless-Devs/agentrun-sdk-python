@@ -495,7 +495,7 @@ class AgentRunConverter:
                         if tc_id:
                             # 发送带有完整参数的 TOOL_CALL_CHUNK
                             args_str = ""
-                            if tc_args:
+                            if tc_args is not None:
                                 args_str = (
                                     AgentRunConverter._safe_json_dumps(tc_args)
                                     if isinstance(tc_args, dict)
@@ -570,7 +570,7 @@ class AgentRunConverter:
                 if tc_id:
                     # 发送带有完整参数的 TOOL_CALL_CHUNK
                     args_str = ""
-                    if tc_args:
+                    if tc_args is not None:
                         args_str = (
                             AgentRunConverter._safe_json_dumps(tc_args)
                             if isinstance(tc_args, dict)
@@ -694,7 +694,7 @@ class AgentRunConverter:
                             tool_name_to_call_ids[tc_name].append(tc_id)
                         # 第一个 chunk 包含 id 和 name
                         args_delta = ""
-                        if tc_args:
+                        if tc_args is not None:
                             args_delta = (
                                 AgentRunConverter._safe_json_dumps(tc_args)
                                 if isinstance(tc_args, (dict, list))
@@ -708,7 +708,7 @@ class AgentRunConverter:
                                 "args_delta": args_delta,
                             },
                         )
-                    elif tc_args:
+                    elif tc_args is not None:
                         # 后续 chunk 只有 args_delta
                         args_delta = (
                             AgentRunConverter._safe_json_dumps(tc_args)
@@ -765,7 +765,7 @@ class AgentRunConverter:
                                     ).append(tc_id)
 
                                 args_delta = ""
-                                if tc_args:
+                                if tc_args is not None:
                                     args_delta = (
                                         AgentRunConverter._safe_json_dumps(
                                             tc_args

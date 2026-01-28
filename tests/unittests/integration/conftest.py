@@ -320,9 +320,12 @@ def shared_mock_server(monkeypatch: Any, respx_mock: Any) -> MockLLMServer:
     """提供共享的 Mock LLM Server
 
     预配置了默认场景。
+
+    关键修复：传入 respx_mock fixture 给 MockLLMServer
+    - 确保 HTTP mock 在所有环境（本地/CI）中一致生效
     """
     server = MockLLMServer(expect_tools=True, validate_tools=False)
-    server.install(monkeypatch)
+    server.install(monkeypatch, respx_mock)
     server.add_default_scenarios()
     return server
 

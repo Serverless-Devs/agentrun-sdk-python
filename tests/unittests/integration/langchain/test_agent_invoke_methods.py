@@ -400,7 +400,9 @@ AGUI_EXPECTED = {
         },
         {
             "type": "TOOL_CALL_ARGS",
-            "delta": "",
+            # 空参数在 LangGraph 中表现为 "{}" (Node.js SDK) 或 根据转换逻辑可能为空字符串
+            # 但当前 mock server 返回 "{}"，转换器保留了它
+            "delta": "{}",
             "hasToolCallId": True,
         },
         {"type": "TOOL_CALL_END", "hasToolCallId": True},
@@ -553,6 +555,15 @@ OPENAI_STREAM_EXPECTED = {
         },
         {
             "object": "chat.completion.chunk",
+            "tool_calls": [{
+                "name": None,
+                "arguments": "{}",
+                "has_id": False,
+            }],
+            "finish_reason": None,
+        },
+        {
+            "object": "chat.completion.chunk",
             "delta_role": "assistant",
             "delta_content": "工具结果已收到: 2024-01-01 12:00:00",
             "finish_reason": None,
@@ -612,7 +623,7 @@ OPENAI_NONSTREAM_EXPECTED = {
         "content": "工具结果已收到: 2024-01-01 12:00:00",
         "tool_calls": [{
             "name": "get_time",
-            "arguments": "",
+            "arguments": "{}",
             "has_id": True,
         }],
         "finish_reason": "tool_calls",
