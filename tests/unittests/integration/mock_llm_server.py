@@ -43,7 +43,7 @@ class MockLLMServer:
     使用方式:
         # 基本用法
         server = MockLLMServer()
-        server.install(monkeypatch)
+        server.install(monkeypatch, respx_mock)  # 需要传入 respx_mock
 
         # 添加自定义场景
         server.add_scenario(Scenarios.simple_chat("你好", "你好！"))
@@ -67,15 +67,22 @@ class MockLLMServer:
     validate_tools: bool = True
     """是否验证工具格式（默认 True）"""
 
-    def install(self, monkeypatch: Any) -> "MockLLMServer":
+    _respx_router: Any = field(default=None, init=False, repr=False)
+    """内部使用的 respx router 实例"""
+
+    def install(
+        self, monkeypatch: Any, respx_mock: Any = None
+    ) -> "MockLLMServer":
         """安装所有 mock
 
         Args:
             monkeypatch: pytest monkeypatch fixture
+            respx_mock: pytest respx_mock fixture（必须传入以确保 mock 生效）
 
         Returns:
             self: 返回自身以便链式调用
         """
+        self._respx_router = respx_mock
         self._patch_model_info(monkeypatch)
         self._patch_litellm(monkeypatch)
         self._setup_respx()
@@ -240,7 +247,20 @@ class MockLLMServer:
             pass  # google.adk not installed
 
     def _setup_respx(self):
-        """设置 respx HTTP mock"""
+        """设置 respx HTTP mock
+
+        关键修复：使用 pytest-respx fixture 提供的 router 而不是全局 respx
+
+        问题背景：
+        - 之前直接使用全局 respx.route() 在 CI 环境中不生效
+        - 全局 respx router 在某些环境中可能没有正确初始化
+        - 导致 HTTP 请求没有被拦截，Google ADK 发送真实请求
+
+        解决方案：
+        - 使用 pytest-respx 提供的 respx_mock fixture
+        - 通过 install() 方法传入 respx_mock
+        - 确保 mock 在所有环境中一致生效
+        """
 
         def extract_payload(request: Any) -> Dict[str, Any]:
             try:
@@ -274,7 +294,10 @@ class MockLLMServer:
                 )
             return respx.MockResponse(status_code=200, json=response_json)
 
-        respx.route(url__startswith=self.base_url).mock(
+        # 关键修复：使用传入的 respx_router 而不是全局 respx
+        # 如果没有传入 respx_router，回退到全局 respx（向后兼容）
+        router = self._respx_router if self._respx_router is not None else respx
+        router.route(url__startswith=self.base_url).mock(
             side_effect=build_response
         )
 
@@ -304,6 +327,27 @@ class MockLLMServer:
             tools_payload is not None,
         )
 
+        # 添加详细的消息日志，帮助调试框架的消息格式
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "unknown")
+            content_preview = str(msg.get("content", ""))[:100]
+            logger.debug(
+                "Message[%d] role=%s, content_preview=%s",
+                i,
+                role,
+                content_preview,
+            )
+            if "tool_calls" in msg:
+                logger.debug(
+                    "Message[%d] has tool_calls: %s", i, msg.get("tool_calls")
+                )
+            if "tool_call_id" in msg:
+                logger.debug(
+                    "Message[%d] has tool_call_id: %s",
+                    i,
+                    msg.get("tool_call_id"),
+                )
+
         # 验证工具格式
         if self.validate_tools and self.expect_tools and tools_payload:
             self._assert_tools(tools_payload)
@@ -319,16 +363,19 @@ class MockLLMServer:
             turn = scenario.get_response(messages)
             return turn.to_response()
 
-        # 默认逻辑：根据最后一条消息决定响应
+        # 默认逻辑：未匹配场景时使用
         return self._build_default_response(messages, tools_payload)
 
     def _build_default_response(
         self, messages: List[Dict], tools_payload: Optional[List]
     ) -> Dict[str, Any]:
         """构建默认响应（无场景匹配时使用）"""
-        last_role = messages[-1].get("role")
+        # 检查消息历史中是否已经有 tool 结果
+        # 这是关键修复：不只检查最后一条消息，而是检查整个历史
+        has_tool_results = any(msg.get("role") == "tool" for msg in messages)
 
-        if last_role == "tool":
+        if has_tool_results:
+            # 已经有 tool 结果，应该返回最终答案而不是再次调用工具
             return {
                 "id": "chatcmpl-mock-final",
                 "object": "chat.completion",
@@ -349,7 +396,7 @@ class MockLLMServer:
                 },
             }
 
-        # 如果有工具，返回工具调用
+        # 如果有工具且未调用过，返回工具调用
         if tools_payload:
             return {
                 "id": "chatcmpl-mock-tools",

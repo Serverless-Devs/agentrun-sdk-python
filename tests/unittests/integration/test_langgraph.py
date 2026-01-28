@@ -207,9 +207,13 @@ class TestLangGraphIntegration(LangGraphTestMixin):
 
     @pytest.fixture
     def mock_server(self, monkeypatch: Any, respx_mock: Any) -> MockLLMServer:
-        """创建并安装 Mock LLM Server"""
+        """创建并安装 Mock LLM Server
+
+        关键修复：传入 respx_mock fixture 给 MockLLMServer
+        - 确保 HTTP mock 在所有环境（本地/CI）中一致生效
+        """
         server = MockLLMServer(expect_tools=True, validate_tools=False)
-        server.install(monkeypatch)
+        server.install(monkeypatch, respx_mock)
         server.add_default_scenarios()
         return server
 

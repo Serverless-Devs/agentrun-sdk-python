@@ -94,23 +94,42 @@ class GoogleADKTestMixin(IntegrationTestBase):
             app_name=runner.app_name, user_id="test-user"
         )
 
-        result = runner.run(
+        # 设置一个安全的 LLM 调用限制，避免无限循环
+        # 正常的工具调用场景不应该超过 10 次 LLM 调用
+        from google.adk.agents.run_config import RunConfig
+
+        run_config = RunConfig(max_llm_calls=10)
+
+        # 关键修复：使用 run_async() 而不是 run()
+        #
+        # 问题背景：
+        # - runner.run() 创建新线程执行异步代码（见 google/adk/runners.py）
+        # - 新线程有独立的事件循环，respx_mock 无法跨线程工作
+        # - 在 CI 环境（Linux）中，线程隔离更严格，导致 mock 完全失效
+        # - Mock 失效后，真实 HTTP 请求被发送，失败后重试，达到 max_llm_calls 限制
+        #
+        # 解决方案：
+        # - 使用 run_async() 在当前事件循环中运行，避免线程隔离问题
+        # - 同时确保 respx_mock fixture 已传入 MockLLMServer（在 mock_server fixture 中）
+        # - 这样 respx mock 能在所有环境（本地/CI）中一致生效
+        result = runner.run_async(
             user_id=session.user_id,
             session_id=session.id,
             new_message=Content(
                 role="user",
                 parts=[Part(text=message)],
             ),
+            run_config=run_config,
         )
-
-        # 收集所有结果
-        events = list(result)
 
         # 提取最终文本和工具调用
         final_text = ""
         tool_calls: List[ToolCallInfo] = []
+        events = []
 
-        for event in events:
+        # run_async() 返回异步生成器，使用 async for 遍历
+        async for event in result:
+            events.append(event)
             content = getattr(event, "content", None)
             if content:
                 role = getattr(content, "role", None)
@@ -148,11 +167,28 @@ class GoogleADKTestMixin(IntegrationTestBase):
 class TestGoogleADKIntegration(GoogleADKTestMixin):
     """Google ADK Integration 测试类"""
 
+    @pytest.fixture(autouse=True)
+    def print_google_adk_version(self):
+        """自动打印 Google ADK 版本(每个测试前)"""
+        try:
+            import google.adk
+
+            version = getattr(google.adk, "__version__", "unknown")
+            print(f"\n[INFO] Google ADK version: {version}")
+        except Exception as e:
+            print(f"\n[WARNING] Failed to get Google ADK version: {e}")
+
     @pytest.fixture
     def mock_server(self, monkeypatch: Any, respx_mock: Any) -> MockLLMServer:
-        """创建并安装 Mock LLM Server"""
+        """创建并安装 Mock LLM Server
+
+        关键修复：传入 respx_mock fixture 给 MockLLMServer
+        - respx_mock 是 pytest-respx 提供的 fixture
+        - 确保 HTTP mock 在所有环境（本地/CI）中一致生效
+        - 解决了 CI 环境中 mock 不生效导致的测试失败问题
+        """
         server = MockLLMServer(expect_tools=True, validate_tools=False)
-        server.install(monkeypatch)
+        server.install(monkeypatch, respx_mock)  # 传入 respx_mock
         server.add_default_scenarios()
         return server
 

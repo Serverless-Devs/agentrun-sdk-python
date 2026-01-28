@@ -113,12 +113,31 @@ class MockScenario:
         - 如果最后一条消息是 tool 类型，说明工具已执行，进入下一轮
         - 否则返回当前轮次
         """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         # 计算当前应该返回哪一轮
         tool_rounds = sum(1 for msg in messages if msg.get("role") == "tool")
+
+        logger.debug(
+            "Scenario '%s': Found %d tool messages, total turns: %d",
+            self.name,
+            tool_rounds,
+            len(self.turns),
+        )
 
         # 根据工具消息数量确定当前轮次
         # 每个工具响应对应一个轮次的推进
         current_idx = min(tool_rounds, len(self.turns) - 1)
+
+        logger.debug(
+            "Scenario '%s': Returning turn %d, has_tool_calls=%s",
+            self.name,
+            current_idx,
+            self.turns[current_idx].has_tool_calls(),
+        )
+
         return self.turns[current_idx]
 
     def reset(self):
@@ -145,12 +164,14 @@ class Scenarios:
         """
 
         def trigger_fn(messages: List[Dict]) -> bool:
-            # 查找最后一条用户消息
-            for msg in reversed(messages):
+            # 检查所有用户消息（任意一条包含trigger即匹配）
+            # 修复：不只检查最后一条，避免框架插入的额外消息干扰匹配
+            for msg in messages:
                 if msg.get("role") == "user":
                     content = msg.get("content", "")
                     if isinstance(content, str):
-                        return trigger in content
+                        if trigger in content:
+                            return True
                     elif isinstance(content, list):
                         # 处理 content 是列表的情况
                         for item in content:
@@ -188,11 +209,13 @@ class Scenarios:
         """
 
         def trigger_fn(messages: List[Dict]) -> bool:
-            for msg in reversed(messages):
+            # 检查所有用户消息（任意一条包含trigger即匹配）
+            # 修复：避免框架插入的额外消息干扰匹配
+            for msg in messages:
                 if msg.get("role") == "user":
                     content = msg.get("content", "")
-                    if isinstance(content, str):
-                        return trigger in content
+                    if isinstance(content, str) and trigger in content:
+                        return True
             return False
 
         return MockScenario(
@@ -230,11 +253,13 @@ class Scenarios:
         """
 
         def trigger_fn(messages: List[Dict]) -> bool:
-            for msg in reversed(messages):
+            # 检查所有用户消息（任意一条包含trigger即匹配）
+            # 修复：避免框架插入的额外消息干扰匹配
+            for msg in messages:
                 if msg.get("role") == "user":
                     content = msg.get("content", "")
-                    if isinstance(content, str):
-                        return trigger in content
+                    if isinstance(content, str) and trigger in content:
+                        return True
             return False
 
         return MockScenario(
@@ -273,11 +298,13 @@ class Scenarios:
         """
 
         def trigger_fn(messages: List[Dict]) -> bool:
-            for msg in reversed(messages):
+            # 检查所有用户消息（任意一条包含trigger即匹配）
+            # 修复：避免框架插入的额外消息干扰匹配
+            for msg in messages:
                 if msg.get("role") == "user":
                     content = msg.get("content", "")
-                    if isinstance(content, str):
-                        return trigger in content
+                    if isinstance(content, str) and trigger in content:
+                        return True
             return False
 
         turns = []
