@@ -59,22 +59,43 @@ class VectorStoreConfigConfig(BaseModel):
     """向量存储内部配置 / Vector Store Inner Configuration"""
 
     endpoint: Optional[str] = None
-    """端点"""
+    """端点 / Endpoint"""
     instance_name: Optional[str] = None
-    """实例名称"""
+    """实例名称 / Instance name"""
     collection_name: Optional[str] = None
-    """集合名称"""
+    """集合名称 / Collection name"""
     vector_dimension: Optional[int] = None
-    """向量维度"""
+    """向量维度 / Vector dimension"""
+
+
+class VectorStoreConfigMysqlConfig(BaseModel):
+    """向量存储 MySQL 配置 / Vector Store MySQL Configuration"""
+
+    collection_name: Optional[str] = None
+    """集合名称 / Collection name"""
+    credential_name: Optional[str] = None
+    """凭证名称 / Credential name"""
+    db_name: Optional[str] = None
+    """数据库名称 / Database name"""
+    host: Optional[str] = None
+    """主机地址 / Host address"""
+    port: Optional[int] = None
+    """端口号 / Port number"""
+    user: Optional[str] = None
+    """用户名 / Username"""
+    vector_dimension: Optional[int] = None
+    """向量维度 / Vector dimension"""
 
 
 class VectorStoreConfig(BaseModel):
     """向量存储配置 / Vector Store Configuration"""
 
     provider: Optional[str] = None
-    """提供商"""
+    """提供商 / Provider"""
     config: Optional[VectorStoreConfigConfig] = None
-    """配置"""
+    """配置 / Configuration"""
+    mysql_config: Optional[VectorStoreConfigMysqlConfig] = None
+    """MySQL 配置 / MySQL configuration"""
 
 
 class MemoryCollectionMutableProps(BaseModel):
@@ -129,10 +150,14 @@ class MemoryCollectionUpdateInput(MemoryCollectionMutableProps):
 
 
 class MemoryCollectionListInput(PageableInput):
-    """MemoryCollection 列表查询输入参数"""
+    """MemoryCollection 列表查询输入参数 / MemoryCollection List Query Input"""
 
     memory_collection_name: Optional[str] = None
-    """Memory Collection 名称"""
+    """Memory Collection 名称 / Memory Collection name"""
+    status: Optional[str] = None
+    """状态 / Status"""
+    type: Optional[str] = None
+    """类型 / Type"""
 
 
 class MemoryCollectionListOutput(BaseModel):
