@@ -128,21 +128,27 @@ class MemoryCollection(
         cls,
         *,
         memory_collection_name: Optional[str] = None,
+        status: Optional[str] = None,
+        type: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> List[MemoryCollectionListOutput]:
         """列出所有记忆集合（异步）
 
         Args:
-            memory_collection_name: 记忆集合名称（可选）
-            config: 配置
+            memory_collection_name: 记忆集合名称（可选） / Memory Collection name (optional)
+            status: 状态过滤（可选） / Status filter (optional)
+            type: 类型过滤（可选） / Type filter (optional)
+            config: 配置 / Configuration
 
         Returns:
-            List[MemoryCollectionListOutput]: 记忆集合列表
+            List[MemoryCollectionListOutput]: 记忆集合列表 / Memory collection list
         """
         return await cls._list_all_async(
             lambda mc: mc.memory_collection_id or "",
             config=config,
             memory_collection_name=memory_collection_name,
+            status=status,
+            type=type,
         )
 
     async def update_async(
@@ -291,6 +297,32 @@ class MemoryCollection(
             )
         return endpoint
 
+    @staticmethod
+    def _get_mysql_public_host(internal_host: str) -> str:
+        """获取 MySQL 公网地址
+
+        优先从环境变量 AGENTRUN_MYSQL_PUBLIC_HOST 读取公网地址，
+        如果未设置则使用内网地址。
+
+        Args:
+            internal_host: 内网地址
+
+        Returns:
+            str: 公网地址或内网地址
+
+        Example:
+            >>> import os
+            >>> os.environ["AGENTRUN_MYSQL_PUBLIC_HOST"] = "public.mysql.com"
+            >>> _get_mysql_public_host("internal.mysql.com")
+            "public.mysql.com"
+        """
+        import os
+
+        public_host = os.environ.get("AGENTRUN_MYSQL_PUBLIC_HOST")
+        if public_host:
+            return public_host
+        return internal_host
+
     @classmethod
     async def _build_mem0_config_async(
         cls,
@@ -315,6 +347,7 @@ class MemoryCollection(
             vector_store_config = memory_collection.vector_store_config
             provider = vector_store_config.provider or ""
 
+            # 处理 aliyun_tablestore provider
             if vector_store_config.config:
                 vs_config = vector_store_config.config
                 vector_store: Dict[str, Any] = {
@@ -354,6 +387,47 @@ class MemoryCollection(
                         vector_store["config"][
                             "vector_dimension"
                         ] = vs_config.vector_dimension
+
+                mem0_config["vector_store"] = vector_store
+
+            # 处理 alibabacloud_mysql provider
+            elif vector_store_config.mysql_config:
+                mysql_config = vector_store_config.mysql_config
+                vector_store: Dict[str, Any] = {
+                    "provider": provider,
+                    "config": {},
+                }
+
+                # 获取 MySQL 密码
+                password = ""
+                if mysql_config.credential_name:
+                    try:
+                        password = await cls._get_credential_secret_async(
+                            mysql_config.credential_name, config
+                        )
+                    except Exception as e:
+                        raise ValueError(
+                            "Failed to get MySQL password from credential "
+                            f"'{mysql_config.credential_name}': {e}"
+                        ) from e
+
+                # 获取公网地址（优先从环境变量读取）
+                host = cls._get_mysql_public_host(mysql_config.host or "")
+
+                # 构建 MySQL 配置
+                vector_store["config"] = {
+                    "dbname": mysql_config.db_name,
+                    "collection_name": mysql_config.collection_name,
+                    "user": mysql_config.user,
+                    "password": password,
+                    "host": host,
+                    "port": mysql_config.port or 3306,
+                    "embedding_model_dims": (
+                        mysql_config.vector_dimension or 1536
+                    ),
+                    "distance_function": "cosine",
+                    "m_value": 16,
+                }
 
                 mem0_config["vector_store"] = vector_store
 
@@ -418,6 +492,34 @@ class MemoryCollection(
             mem0_config["history_db_path"] = history_db_path
 
         return mem0_config
+
+    @staticmethod
+    async def _get_credential_secret_async(
+        credential_name: str, config: Optional[Config]
+    ) -> str:
+        """从 Credential 获取密钥（异步）
+
+        Args:
+            credential_name: Credential 名称
+            config: AgentRun 配置
+
+        Returns:
+            str: 密钥
+
+        Raises:
+            ValueError: 如果 Credential 不存在或密钥为空
+        """
+        from agentrun.credential import Credential
+
+        credential = await Credential.get_by_name_async(
+            credential_name, config=config
+        )
+        if not credential.credential_secret:
+            raise ValueError(
+                f"Credential {credential_name} secret is empty. "
+                "Please ensure the credential is properly configured."
+            )
+        return credential.credential_secret
 
     @staticmethod
     async def _resolve_model_service_config_async(

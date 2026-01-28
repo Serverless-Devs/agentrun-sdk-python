@@ -1,5 +1,6 @@
 """测试 agentrun.memory_collection.memory_collection 模块 / Test agentrun.memory_collection.memory_collection module"""
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,6 +11,9 @@ from agentrun.memory_collection.model import (
     EmbedderConfigConfig,
     MemoryCollectionCreateInput,
     MemoryCollectionUpdateInput,
+    VectorStoreConfig,
+    VectorStoreConfigConfig,
+    VectorStoreConfigMysqlConfig,
 )
 from agentrun.utils.config import Config
 
@@ -467,3 +471,260 @@ class TestMemoryCollectionToMem0Memory:
                 )
 
             assert "agentrun-mem0ai package is required" in str(exc_info.value)
+
+
+class TestMemoryCollectionMySQLSupport:
+    """测试 MemoryCollection MySQL 向量数据库支持"""
+
+    def test_get_mysql_public_host_with_env(self):
+        """测试从环境变量获取 MySQL 公网地址"""
+        # 设置环境变量
+        os.environ["AGENTRUN_MYSQL_PUBLIC_HOST"] = "public.mysql.com"
+
+        try:
+            host = MemoryCollection._get_mysql_public_host("internal.mysql.com")
+            assert host == "public.mysql.com"
+        finally:
+            # 清理环境变量
+            del os.environ["AGENTRUN_MYSQL_PUBLIC_HOST"]
+
+    def test_get_mysql_public_host_without_env(self):
+        """测试未设置环境变量时使用内网地址"""
+        # 确保环境变量不存在
+        if "AGENTRUN_MYSQL_PUBLIC_HOST" in os.environ:
+            del os.environ["AGENTRUN_MYSQL_PUBLIC_HOST"]
+
+        host = MemoryCollection._get_mysql_public_host("internal.mysql.com")
+        assert host == "internal.mysql.com"
+
+    @patch("agentrun.credential.Credential.get_by_name")
+    def test_get_credential_secret_sync(self, mock_get_credential):
+        """测试同步获取 Credential 密钥"""
+        # Mock credential
+        mock_credential = MagicMock()
+        mock_credential.credential_secret = "test-password"
+        mock_get_credential.return_value = mock_credential
+
+        secret = MemoryCollection._get_credential_secret(
+            "test-credential", None
+        )
+        assert secret == "test-password"
+
+    @patch("agentrun.credential.Credential.get_by_name")
+    def test_get_credential_secret_empty(self, mock_get_credential):
+        """测试 Credential 密钥为空时抛出异常"""
+        # Mock credential with empty secret
+        mock_credential = MagicMock()
+        mock_credential.credential_secret = None
+        mock_get_credential.return_value = mock_credential
+
+        with pytest.raises(ValueError, match="secret is empty"):
+            MemoryCollection._get_credential_secret("test-credential", None)
+
+    @patch("agentrun.credential.Credential.get_by_name_async")
+    @pytest.mark.asyncio
+    async def test_get_credential_secret_async(self, mock_get_credential):
+        """测试异步获取 Credential 密钥"""
+        # Mock credential
+        mock_credential = MagicMock()
+        mock_credential.credential_secret = "test-password"
+        mock_get_credential.return_value = mock_credential
+
+        secret = await MemoryCollection._get_credential_secret_async(
+            "test-credential", None
+        )
+        assert secret == "test-password"
+
+    @patch("agentrun.credential.Credential.get_by_name_async")
+    @pytest.mark.asyncio
+    async def test_build_mem0_config_with_mysql_async(
+        self, mock_get_credential
+    ):
+        """测试异步构建包含 MySQL 配置的 mem0 配置"""
+        # Mock credential
+        mock_credential = MagicMock()
+        mock_credential.credential_secret = "test-password"
+        mock_get_credential.return_value = mock_credential
+
+        # 设置环境变量
+        os.environ["AGENTRUN_MYSQL_PUBLIC_HOST"] = "public.mysql.com"
+
+        try:
+            # 创建带 MySQL 配置的 MemoryCollection
+            memory_collection = MemoryCollection(
+                memory_collection_name="test-mysql-memory",
+                vector_store_config=VectorStoreConfig(
+                    provider="alibabacloud_mysql",
+                    mysql_config=VectorStoreConfigMysqlConfig(
+                        host="internal.mysql.com",
+                        port=3306,
+                        db_name="memory",
+                        user="test_user",
+                        collection_name="mem0",
+                        credential_name="test-credential",
+                        vector_dimension=512,
+                    ),
+                ),
+            )
+
+            # 构建 mem0 配置
+            config = await MemoryCollection._build_mem0_config_async(
+                memory_collection, None, None
+            )
+
+            # 验证配置
+            assert "vector_store" in config
+            assert config["vector_store"]["provider"] == "alibabacloud_mysql"
+
+            vs_config = config["vector_store"]["config"]
+            assert vs_config["dbname"] == "memory"
+            assert vs_config["collection_name"] == "mem0"
+            assert vs_config["user"] == "test_user"
+            assert vs_config["password"] == "test-password"
+            assert vs_config["host"] == "public.mysql.com"  # 使用公网地址
+            assert vs_config["port"] == 3306
+            assert vs_config["embedding_model_dims"] == 512
+            assert vs_config["distance_function"] == "cosine"
+            assert vs_config["m_value"] == 16
+
+        finally:
+            # 清理环境变量
+            del os.environ["AGENTRUN_MYSQL_PUBLIC_HOST"]
+
+    @patch("agentrun.credential.Credential.get_by_name")
+    def test_build_mem0_config_with_mysql_sync(self, mock_get_credential):
+        """测试同步构建包含 MySQL 配置的 mem0 配置"""
+        # Mock credential
+        mock_credential = MagicMock()
+        mock_credential.credential_secret = "test-password"
+        mock_get_credential.return_value = mock_credential
+
+        # 创建带 MySQL 配置的 MemoryCollection
+        memory_collection = MemoryCollection(
+            memory_collection_name="test-mysql-memory",
+            vector_store_config=VectorStoreConfig(
+                provider="alibabacloud_mysql",
+                mysql_config=VectorStoreConfigMysqlConfig(
+                    host="internal.mysql.com",
+                    port=3307,
+                    db_name="test_db",
+                    user="admin",
+                    collection_name="vectors",
+                    credential_name="test-credential",
+                    vector_dimension=1024,
+                ),
+            ),
+        )
+
+        # 构建 mem0 配置
+        config = MemoryCollection._build_mem0_config(
+            memory_collection, None, None
+        )
+
+        # 验证配置
+        assert "vector_store" in config
+        vs_config = config["vector_store"]["config"]
+        assert vs_config["dbname"] == "test_db"
+        assert vs_config["user"] == "admin"
+        assert vs_config["password"] == "test-password"
+        assert vs_config["port"] == 3307
+        assert vs_config["embedding_model_dims"] == 1024
+
+    @patch("agentrun.credential.Credential.get_by_name_async")
+    @pytest.mark.asyncio
+    async def test_build_mem0_config_mysql_default_values(
+        self, mock_get_credential
+    ):
+        """测试 MySQL 配置默认值"""
+        # Mock credential
+        mock_credential = MagicMock()
+        mock_credential.credential_secret = "test-password"
+        mock_get_credential.return_value = mock_credential
+
+        # 创建带 MySQL 配置的 MemoryCollection（使用默认值）
+        memory_collection = MemoryCollection(
+            memory_collection_name="test-mysql-memory",
+            vector_store_config=VectorStoreConfig(
+                provider="alibabacloud_mysql",
+                mysql_config=VectorStoreConfigMysqlConfig(
+                    host="mysql.com",
+                    db_name="memory",
+                    user="user",
+                    collection_name="mem0",
+                    credential_name="test-credential",
+                    # port 和 vector_dimension 使用默认值
+                ),
+            ),
+        )
+
+        # 构建 mem0 配置
+        config = await MemoryCollection._build_mem0_config_async(
+            memory_collection, None, None
+        )
+
+        # 验证默认值
+        vs_config = config["vector_store"]["config"]
+        assert vs_config["port"] == 3306  # 默认端口
+        assert vs_config["embedding_model_dims"] == 1536  # 默认向量维度
+        assert vs_config["distance_function"] == "cosine"  # 默认距离函数
+        assert vs_config["m_value"] == 16  # 默认 HNSW 参数
+
+    @patch("agentrun.credential.Credential.get_by_name_async")
+    @pytest.mark.asyncio
+    async def test_build_mem0_config_mysql_credential_error(
+        self, mock_get_credential
+    ):
+        """测试获取 Credential 失败时的错误处理"""
+        # Mock credential 获取失败
+        mock_get_credential.side_effect = Exception("Credential not found")
+
+        # 创建带 MySQL 配置的 MemoryCollection
+        memory_collection = MemoryCollection(
+            memory_collection_name="test-mysql-memory",
+            vector_store_config=VectorStoreConfig(
+                provider="alibabacloud_mysql",
+                mysql_config=VectorStoreConfigMysqlConfig(
+                    host="mysql.com",
+                    db_name="memory",
+                    user="user",
+                    collection_name="mem0",
+                    credential_name="invalid-credential",
+                ),
+            ),
+        )
+
+        # 验证抛出正确的异常
+        with pytest.raises(ValueError, match="Failed to get MySQL password"):
+            await MemoryCollection._build_mem0_config_async(
+                memory_collection, None, None
+            )
+
+    @patch("agentrun.credential.Credential.get_by_name_async")
+    @pytest.mark.asyncio
+    async def test_build_mem0_config_with_tablestore(self, mock_get_credential):
+        """测试构建 TableStore 配置（确保不影响现有功能）"""
+        # 创建带 TableStore 配置的 MemoryCollection
+        memory_collection = MemoryCollection(
+            memory_collection_name="test-tablestore-memory",
+            vector_store_config=VectorStoreConfig(
+                provider="aliyun_tablestore",
+                config=VectorStoreConfigConfig(
+                    endpoint="https://test.cn-hangzhou.ots.aliyuncs.com",
+                    instance_name="test-instance",
+                    collection_name="vectors",
+                    vector_dimension=768,
+                ),
+            ),
+        )
+
+        # 构建 mem0 配置
+        config = await MemoryCollection._build_mem0_config_async(
+            memory_collection, Config(), None
+        )
+
+        # 验证 TableStore 配置仍然正常工作
+        assert "vector_store" in config
+        assert config["vector_store"]["provider"] == "aliyun_tablestore"
+        vs_config = config["vector_store"]["config"]
+        assert vs_config["instance_name"] == "test-instance"
+        assert vs_config["collection_name"] == "vectors"
