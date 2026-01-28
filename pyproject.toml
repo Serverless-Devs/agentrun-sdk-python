@@ -13,10 +13,10 @@ dependencies = [
     "litellm>=1.79.3",
     "alibabacloud-devs20230714>=2.4.1",
     "pydash>=8.0.5",
-    "alibabacloud-agentrun20250910>=5.3.1",
+    "alibabacloud-agentrun20250910>=5.3.4",
     "alibabacloud_tea_openapi>=0.4.2",
     "alibabacloud_bailian20231229>=2.6.2",
-    "agentrun-mem0ai>=0.0.10",
+    "agentrun-mem0ai>=0.0.12",
 ]
 
 [project.optional-dependencies]
