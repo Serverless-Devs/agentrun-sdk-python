@@ -1,9 +1,9 @@
 """
 知识库模块示例 / KnowledgeBase Module Example
 
-本示例演示如何使用 AgentRun SDK 管理知识库，包括百炼和 RagFlow 两种类型：
+本示例演示如何使用 AgentRun SDK 管理知识库，包括百炼、RagFlow 和 ADB 三种类型：
 This example demonstrates how to use the AgentRun SDK to manage knowledge bases,
-including both Bailian and RagFlow types:
+including Bailian, RagFlow and ADB types:
 
 1. 创建知识库 / Create knowledge base (Bailian & RagFlow)
 2. 获取知识库信息 / Get knowledge base info
@@ -25,6 +25,12 @@ RagFlow 知识库额外配置 / Additional config for RagFlow:
 - RAGFLOW_BASE_URL: RagFlow 服务地址
 - RAGFLOW_DATASET_IDS: RagFlow 数据集 ID 列表（逗号分隔）
 - RAGFLOW_CREDENTIAL_NAME: RagFlow API Key 凭证名称
+
+ADB 知识库额外配置 / Additional config for ADB:
+- ADB_INSTANCE_ID: ADB 实例 ID
+- ADB_NAMESPACE: ADB 命名空间
+- ADB_NAMESPACE_PASSWORD: ADB 命名空间密码
+- ADB_COLLECTION: ADB 文档集合名称
 """
 
 import json
@@ -32,6 +38,8 @@ import os
 import time
 
 from agentrun.knowledgebase import (
+    ADBProviderSettings,
+    ADBRetrieveSettings,
     BailianProviderSettings,
     BailianRetrieveSettings,
     KnowledgeBase,
@@ -99,6 +107,34 @@ RAGFLOW_DATASET_IDS = os.getenv(
 RAGFLOW_CREDENTIAL_NAME = os.getenv(
     "RAGFLOW_CREDENTIAL_NAME", "ragflow-api-key"
 )
+
+# -----------------------------------------------------------------------------
+# ADB 知识库配置 / ADB Knowledge Base Configuration
+# -----------------------------------------------------------------------------
+
+# ADB 知识库名称
+# ADB knowledge base name
+ADB_KB_NAME = f"sdk-test-adb-kb-{TIMESTAMP}"
+
+# ADB 实例 ID，请替换为您的实际值
+# ADB instance ID, please replace with your actual value
+ADB_INSTANCE_ID = os.getenv("ADB_INSTANCE_ID", "gp-your-instance-id")
+
+# ADB 命名空间，默认为 public
+# ADB namespace, defaults to public
+ADB_NAMESPACE = os.getenv("ADB_NAMESPACE", "public")
+
+# ADB 命名空间密码，请替换为您的实际值
+# ADB namespace password, please replace with your actual value
+ADB_NAMESPACE_PASSWORD = os.getenv("ADB_NAMESPACE_PASSWORD", "your-password")
+
+# ADB 文档集合名称，请替换为您的实际值
+# ADB collection name, please replace with your actual value
+ADB_COLLECTION = os.getenv("ADB_COLLECTION", "your-collection")
+
+# ADB 向量化模型名称（可选）
+# ADB embedding model name (optional)
+ADB_EMBEDDING_MODEL = os.getenv("ADB_EMBEDDING_MODEL", "text-embedding-v3")
 
 # ============================================================================
 # 客户端初始化 / Client Initialization
@@ -363,6 +399,153 @@ def delete_ragflow_kb(kb: KnowledgeBase):
 
 
 # ============================================================================
+# ADB 知识库示例函数 / ADB Knowledge Base Example Functions
+# ============================================================================
+
+
+def create_or_get_adb_kb() -> KnowledgeBase:
+    """创建或获取已有的 ADB 知识库 / Create or get existing ADB knowledge base
+
+    Returns:
+        KnowledgeBase: 知识库对象 / Knowledge base object
+    """
+    logger.info("=" * 60)
+    logger.info("创建或获取 ADB 知识库")
+    logger.info("Create or get ADB knowledge base")
+    logger.info("=" * 60)
+
+    try:
+        # 创建 ADB 知识库 / Create ADB knowledge base
+        kb = KnowledgeBase.create(
+            KnowledgeBaseCreateInput(
+                knowledge_base_name=ADB_KB_NAME,
+                description=(
+                    "通过 SDK 创建的 ADB 知识库示例 / ADB KB example"
+                    " created via SDK"
+                ),
+                provider=KnowledgeBaseProvider.ADB,
+                provider_settings=ADBProviderSettings(
+                    db_instance_id=ADB_INSTANCE_ID,
+                    namespace=ADB_NAMESPACE,
+                    namespace_password=ADB_NAMESPACE_PASSWORD,
+                    embedding_model=ADB_EMBEDDING_MODEL,
+                    metrics="cosine",  # 使用余弦相似度 / Use cosine similarity
+                ),
+                retrieve_settings=ADBRetrieveSettings(
+                    top_k=10,
+                    use_full_text_retrieval=False,  # 仅使用向量检索 / Vector only
+                    rerank_factor=2.0,  # 重排序因子 / Rerank factor
+                ),
+            )
+        )
+        logger.info("✅ ADB 知识库创建成功 / ADB KB created successfully")
+
+    except ResourceAlreadyExistError:
+        logger.info(
+            "ℹ️  ADB 知识库已存在，获取已有资源 / ADB KB exists, getting"
+            " existing"
+        )
+        kb = client.get(ADB_KB_NAME)
+
+    _log_kb_info(kb)
+    return kb
+
+
+def query_adb_kb(kb: KnowledgeBase):
+    """查询 ADB 知识库 / Query ADB knowledge base
+
+    Args:
+        kb: 知识库对象 / Knowledge base object
+    """
+    logger.info("=" * 60)
+    logger.info("查询 ADB 知识库")
+    logger.info("Query ADB knowledge base")
+    logger.info("=" * 60)
+
+    query_text = "什么是云原生数据库"
+    logger.info("查询文本 / Query text: %s", query_text)
+
+    try:
+        results = kb.retrieve(query=query_text)
+        logger.info("✅ 查询成功 / Query successful")
+        logger.info("检索结果 / Retrieval results: %s", results)
+        logger.info(
+            "  - 结果数量 / Result count: %s", len(results.get("data", []))
+        )
+    except Exception as e:
+        logger.warning("⚠️  查询失败（可能是配置或连接问题）: %s", e)
+
+
+def query_adb_kb_by_name(knowledgebase_name: str):
+    """查询 ADB 知识库 / Query ADB knowledge base
+    Args:
+        knowledgebase_name: 知识库名称 / Knowledge base name
+    """
+
+    try:
+        kb = KnowledgeBase.get_by_name(knowledgebase_name)
+        results = kb.retrieve(query="什么是云原生数据库")
+        logger.info("✅ 查询成功 / Query successful")
+        logger.info("检索结果 / Retrieval results: %s", results)
+        logger.info(
+            "  - 结果数量 / Result count: %s", len(results.get("data", []))
+        )
+    except Exception as e:
+        logger.warning("⚠️  查询失败（可能是配置或连接问题）: %s", e)
+
+
+def update_adb_kb(kb: KnowledgeBase):
+    """更新 ADB 知识库配置 / Update ADB knowledge base configuration
+
+    Args:
+        kb: 知识库对象 / Knowledge base object
+    """
+    logger.info("=" * 60)
+    logger.info("更新 ADB 知识库配置")
+    logger.info("Update ADB knowledge base configuration")
+    logger.info("=" * 60)
+
+    new_description = f"[ADB] 更新于 {time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+    kb.update(
+        KnowledgeBaseUpdateInput(
+            description=new_description,
+            retrieve_settings=ADBRetrieveSettings(
+                top_k=20,  # 增加返回数量 / Increase result count
+                use_full_text_retrieval=True,  # 启用双路召回 / Enable dual recall
+                rerank_factor=3.0,  # 调整重排序因子 / Adjust rerank factor
+                hybrid_search="RRF",  # 使用 RRF 混合检索 / Use RRF hybrid search
+                hybrid_search_args={"RRF": {"k": 60}},
+            ),
+        )
+    )
+
+    logger.info("✅ ADB 知识库更新成功 / ADB KB updated successfully")
+    logger.info("  - 新描述 / New description: %s", kb.description)
+
+
+def delete_adb_kb(kb: KnowledgeBase):
+    """删除 ADB 知识库 / Delete ADB knowledge base
+
+    Args:
+        kb: 知识库对象 / Knowledge base object
+    """
+    logger.info("=" * 60)
+    logger.info("删除 ADB 知识库")
+    logger.info("Delete ADB knowledge base")
+    logger.info("=" * 60)
+
+    kb.delete()
+    logger.info("✅ ADB 知识库删除请求已发送 / ADB KB delete request sent")
+
+    try:
+        client.get(ADB_KB_NAME)
+        logger.warning("⚠️  ADB 知识库仍然存在 / ADB KB still exists")
+    except ResourceNotExistError:
+        logger.info("✅ ADB 知识库已成功删除 / ADB KB deleted successfully")
+
+
+# ============================================================================
 # 通用工具函数 / Common Utility Functions
 # ============================================================================
 
@@ -404,8 +587,10 @@ def list_knowledge_bases():
     ragflow_list = KnowledgeBase.list_all(
         provider=KnowledgeBaseProvider.RAGFLOW.value
     )
+    adb_list = KnowledgeBase.list_all(provider=KnowledgeBaseProvider.ADB.value)
     logger.info("  - 百炼知识库 / Bailian KBs: %d 个", len(bailian_list))
     logger.info("  - RagFlow 知识库 / RagFlow KBs: %d 个", len(ragflow_list))
+    logger.info("  - ADB 知识库 / ADB KBs: %d 个", len(adb_list))
 
 
 # ============================================================================
@@ -457,6 +642,28 @@ def ragflow_example():
     logger.info("")
 
 
+def adb_example():
+    """ADB 知识库完整示例 / Complete ADB knowledge base example"""
+    logger.info("")
+    logger.info("🔹 ADB 知识库示例 / ADB Knowledge Base Example")
+    logger.info("=" * 60)
+
+    # 创建 ADB 知识库 / Create ADB KB
+    kb = create_or_get_adb_kb()
+
+    # 查询 ADB 知识库 / Query ADB KB
+    query_adb_kb(kb)
+
+    # 更新 ADB 知识库 / Update ADB KB
+    update_adb_kb(kb)
+
+    # 删除 ADB 知识库 / Delete ADB KB
+    delete_adb_kb(kb)
+
+    logger.info("🔹 ADB 知识库示例完成 / ADB KB Example Complete")
+    logger.info("")
+
+
 def knowledgebase_example():
     """知识库模块完整示例 / Complete knowledge base module example
 
@@ -501,6 +708,15 @@ def ragflow_only_example():
     logger.info("🎉 完成 / Complete")
 
 
+def adb_only_example():
+    """仅运行 ADB 知识库示例 / Run ADB knowledge base example only"""
+    logger.info("🚀 ADB 知识库示例 / ADB KB Example")
+    list_knowledge_bases()
+    adb_example()
+    list_knowledge_bases()
+    logger.info("🎉 完成 / Complete")
+
+
 def multiple_knowledgebase_query():
     """多知识库检索 / Multi knowledge base retrieval
     根据知识库名称列表进行检索，自动获取各知识库的配置并执行检索。
@@ -509,7 +725,7 @@ def multiple_knowledgebase_query():
     """
     multi_query_result = KnowledgeBase.multi_retrieve(
         query="什么是Serverless",
-        knowledge_base_names=["ragflow-test", "jingsu-bailian"],
+        knowledge_base_names=["jingsu-bailian", "logantest"],
     )
     logger.info(
         "多知识库检索结果 / Multi knowledge base retrieval result:\n%s",
@@ -536,5 +752,7 @@ def update_ragflow_kb_config():
 if __name__ == "__main__":
     # bailian_only_example()
     # ragflow_only_example()
+    # adb_only_example()
     multiple_knowledgebase_query()
+    # query_adb_kb_by_name("")
     # update_ragflow_kb_config()

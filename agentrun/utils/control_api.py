@@ -9,6 +9,7 @@ from typing import Optional
 from alibabacloud_agentrun20250910.client import Client as AgentRunClient
 from alibabacloud_bailian20231229.client import Client as BailianClient
 from alibabacloud_devs20230714.client import Client as DevsClient
+from alibabacloud_gpdb20160503.client import Client as GPDBClient
 from alibabacloud_tea_openapi import utils_models as open_api_util_models
 
 from agentrun.utils.config import Config
@@ -93,6 +94,45 @@ class ControlAPI:
         if endpoint.startswith("http://") or endpoint.startswith("https://"):
             endpoint = endpoint.split("://", 1)[1]
         return BailianClient(
+            open_api_util_models.Config(
+                access_key_id=cfg.get_access_key_id(),
+                access_key_secret=cfg.get_access_key_secret(),
+                security_token=cfg.get_security_token(),
+                region_id=cfg.get_region_id(),
+                endpoint=endpoint,
+                connect_timeout=cfg.get_timeout(),  # type: ignore
+                read_timeout=cfg.get_read_timeout(),  # type: ignore
+            )
+        )
+
+    def _get_gpdb_client(self, config: Optional[Config] = None) -> "GPDBClient":
+        """
+        获取 GPDB (AnalyticDB for PostgreSQL) API 客户端实例
+        Get GPDB (AnalyticDB for PostgreSQL) API client instance
+
+        Args:
+            config: 配置对象,可选 / Configuration object, optional
+
+        Returns:
+            GPDBClient: GPDB API 客户端实例 / GPDB API client instance
+        """
+
+        cfg = Config.with_configs(self.config, config)
+        # GPDB 使用区域级别的 endpoint / GPDB uses region-level endpoint
+        region_id = cfg.get_region_id()
+        if region_id in (
+            "cn-beijing",
+            "cn-hangzhou",
+            "cn-shanghai",
+            "cn-shenzhen",
+            "cn-hongkong",
+            "ap-southeast-1",
+        ):
+            endpoint = "gpdb.aliyuncs.com"
+        else:
+            endpoint = f"gpdb.{region_id}.aliyuncs.com"
+
+        return GPDBClient(
             open_api_util_models.Config(
                 access_key_id=cfg.get_access_key_id(),
                 access_key_secret=cfg.get_access_key_secret(),
