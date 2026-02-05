@@ -1,6 +1,7 @@
 """KnowledgeBase 模块 / KnowledgeBase Module"""
 
 from .api import (
+    ADBDataAPI,
     BailianDataAPI,
     get_data_api,
     KnowledgeBaseControlAPI,
@@ -10,6 +11,8 @@ from .api import (
 from .client import KnowledgeBaseClient
 from .knowledgebase import KnowledgeBase
 from .model import (
+    ADBProviderSettings,
+    ADBRetrieveSettings,
     BailianProviderSettings,
     BailianRetrieveSettings,
     KnowledgeBaseCreateInput,
@@ -33,6 +36,7 @@ __all__ = [
     "KnowledgeBaseDataAPI",
     "RagFlowDataAPI",
     "BailianDataAPI",
+    "ADBDataAPI",
     "get_data_api",
     # enums
     "KnowledgeBaseProvider",
@@ -40,10 +44,12 @@ __all__ = [
     "ProviderSettings",
     "RagFlowProviderSettings",
     "BailianProviderSettings",
+    "ADBProviderSettings",
     # retrieve settings
     "RetrieveSettings",
     "RagFlowRetrieveSettings",
     "BailianRetrieveSettings",
+    "ADBRetrieveSettings",
     # api model
     "KnowledgeBaseCreateInput",
     "KnowledgeBaseUpdateInput",

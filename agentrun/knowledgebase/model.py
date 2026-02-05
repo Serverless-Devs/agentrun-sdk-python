@@ -18,6 +18,8 @@ class KnowledgeBaseProvider(str, Enum):
     """RagFlow 知识库 / RagFlow knowledge base"""
     BAILIAN = "bailian"
     """百炼知识库 / Bailian knowledge base"""
+    ADB = "adb"
+    """ADB (AnalyticDB for PostgreSQL) 知识库 / ADB knowledge base"""
 
 
 # =============================================================================
@@ -76,16 +78,76 @@ class BailianRetrieveSettings(BaseModel):
 
 
 # =============================================================================
+# ADB 配置模型 / ADB Configuration Models
+# =============================================================================
+
+
+class ADBProviderSettings(BaseModel):
+    """ADB (AnalyticDB for PostgreSQL) 提供商设置 / ADB Provider Settings
+
+    配置 ADB 知识库的连接和访问参数。
+    Configure ADB knowledge base connection and access parameters.
+    """
+
+    db_instance_id: str
+    """ADB 实例 ID / ADB instance ID"""
+    namespace: str
+    """命名空间，默认为 public / Namespace, defaults to public"""
+    namespace_password: str
+    """命名空间密码 / Namespace password"""
+    embedding_model: Optional[str] = None
+    """向量化模型名称，如 text-embedding-v3 / Embedding model name"""
+    metrics: Optional[str] = None
+    """相似度算法：l2（欧氏距离）、ip（内积）、cosine（余弦相似度）
+    Similarity algorithm: l2 (Euclidean), ip (inner product), cosine"""
+    metadata: Optional[str] = None
+    """元数据配置，JSON 字符串格式 / Metadata configuration in JSON string format"""
+
+
+class ADBRetrieveSettings(BaseModel):
+    """ADB 检索设置 / ADB Retrieve Settings
+
+    配置 ADB 知识库的检索参数，支持向量检索和全文检索的混合模式。
+    Configure ADB knowledge base retrieval parameters, supporting hybrid
+    vector and full-text retrieval modes.
+    """
+
+    top_k: Optional[int] = None
+    """返回结果的数量 / Number of results to return"""
+    use_full_text_retrieval: Optional[bool] = None
+    """是否启用全文检索（双路召回），默认 false 仅使用向量检索
+    Enable full-text retrieval (dual recall), defaults to false (vector only)"""
+    rerank_factor: Optional[float] = None
+    """重排序因子，取值范围 1 < RerankFactor <= 5
+    Re-ranking factor, value range: 1 < RerankFactor <= 5"""
+    recall_window: Optional[List[int]] = None
+    """召回窗口，格式为 [A, B]，其中 -10 <= A <= 0，0 <= B <= 10
+    Recall window, format [A, B] where -10 <= A <= 0, 0 <= B <= 10"""
+    hybrid_search: Optional[str] = None
+    """混合检索算法：RRF（倒数排名融合）、Weight（加权排序）、Cascaded（级联检索）
+    Hybrid search algorithm: RRF, Weight, or Cascaded"""
+    hybrid_search_args: Optional[Dict[str, Any]] = None
+    """混合检索算法参数，如 {"RRF": {"k": 60}} 或 {"Weight": {"alpha": 0.5}}
+    Hybrid search algorithm parameters"""
+
+
+# =============================================================================
 # 联合类型定义 / Union Type Definitions
 # =============================================================================
 
 ProviderSettings = Union[
-    RagFlowProviderSettings, BailianProviderSettings, Dict[str, Any]
+    RagFlowProviderSettings,
+    BailianProviderSettings,
+    ADBProviderSettings,
+    Dict[str, Any],
 ]
 """提供商设置联合类型 / Provider settings union type"""
 
 RetrieveSettings = Union[
-    RagFlowRetrieveSettings, BailianRetrieveSettings, Dict[str, Any]
+    RagFlowRetrieveSettings,
+    BailianRetrieveSettings,
+    ADBRetrieveSettings,
+    Dict[str, Any],
 ]
 """检索设置联合类型 / Retrieve settings union type"""
 
