@@ -2,6 +2,7 @@
 
 from .control import KnowledgeBaseControlAPI
 from .data import (
+    ADBDataAPI,
     BailianDataAPI,
     get_data_api,
     KnowledgeBaseDataAPI,
@@ -15,5 +16,6 @@ __all__ = [
     "KnowledgeBaseDataAPI",
     "RagFlowDataAPI",
     "BailianDataAPI",
+    "ADBDataAPI",
     "get_data_api",
 ]

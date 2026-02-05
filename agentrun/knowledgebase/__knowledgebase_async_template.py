@@ -14,6 +14,8 @@ from agentrun.utils.resource import ResourceBase
 
 from .api.data import get_data_api
 from .model import (
+    ADBProviderSettings,
+    ADBRetrieveSettings,
     BailianProviderSettings,
     BailianRetrieveSettings,
     KnowledgeBaseCreateInput,
@@ -292,6 +294,54 @@ class KnowledgeBase(
                 elif isinstance(self.retrieve_settings, dict):
                     converted_retrieve_settings = RagFlowRetrieveSettings(
                         **self.retrieve_settings
+                    )
+
+        elif provider == KnowledgeBaseProvider.ADB:
+            # ADB 设置 / ADB settings
+            if self.provider_settings:
+                if isinstance(self.provider_settings, ADBProviderSettings):
+                    converted_provider_settings = self.provider_settings
+                elif isinstance(self.provider_settings, dict):
+                    # ADB provider_settings 使用 PascalCase 键名，需要转换为 snake_case
+                    # ADB provider_settings uses PascalCase keys, need to convert to snake_case
+                    converted_provider_settings = ADBProviderSettings(
+                        db_instance_id=self.provider_settings.get(
+                            "DBInstanceId", ""
+                        ),
+                        namespace=self.provider_settings.get("Namespace", ""),
+                        namespace_password=self.provider_settings.get(
+                            "NamespacePassword", ""
+                        ),
+                        embedding_model=self.provider_settings.get(
+                            "EmbeddingModel"
+                        ),
+                        metrics=self.provider_settings.get("Metrics"),
+                        metadata=self.provider_settings.get("Metadata"),
+                    )
+
+            if self.retrieve_settings:
+                if isinstance(self.retrieve_settings, ADBRetrieveSettings):
+                    converted_retrieve_settings = self.retrieve_settings
+                elif isinstance(self.retrieve_settings, dict):
+                    # ADB retrieve_settings 使用 PascalCase 键名，需要转换为 snake_case
+                    # ADB retrieve_settings uses PascalCase keys, need to convert to snake_case
+                    converted_retrieve_settings = ADBRetrieveSettings(
+                        top_k=self.retrieve_settings.get("TopK"),
+                        use_full_text_retrieval=self.retrieve_settings.get(
+                            "UseFullTextRetrieval"
+                        ),
+                        rerank_factor=self.retrieve_settings.get(
+                            "RerankFactor"
+                        ),
+                        recall_window=self.retrieve_settings.get(
+                            "RecallWindow"
+                        ),
+                        hybrid_search=self.retrieve_settings.get(
+                            "HybridSearch"
+                        ),
+                        hybrid_search_args=self.retrieve_settings.get(
+                            "HybridSearchArgs"
+                        ),
                     )
 
         return get_data_api(
