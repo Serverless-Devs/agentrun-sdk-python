@@ -677,6 +677,11 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                     "metadata": (
                         match.metadata if hasattr(match, "metadata") else None
                     ),
+                    "loader_metadata": (
+                        match.loader_metadata
+                        if hasattr(match, "loader_metadata")
+                        else None
+                    ),
                     "rerank_score": (
                         match.rerank_score
                         if hasattr(match, "rerank_score")
