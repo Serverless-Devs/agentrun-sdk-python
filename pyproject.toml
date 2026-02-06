@@ -42,6 +42,7 @@ agentscope = [
 
 crewai = [
     "crewai>=1.6.0",
+    "onnxruntime==1.23.2; python_version == '3.10'",
 ]
 
 pydantic-ai = [
