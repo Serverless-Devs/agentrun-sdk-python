@@ -6,6 +6,7 @@ Provides memory collection management functionality.
 
 from .client import MemoryCollectionClient
 from .memory_collection import MemoryCollection
+from .memory_conversation import MemoryConversation
 from .model import (
     EmbedderConfig,
     EmbedderConfigConfig,
@@ -23,6 +24,7 @@ from .model import (
 __all__ = [
     "MemoryCollection",
     "MemoryCollectionClient",
+    "MemoryConversation",
     "MemoryCollectionCreateInput",
     "MemoryCollectionUpdateInput",
     "MemoryCollectionListInput",
