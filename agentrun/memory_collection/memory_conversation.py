@@ -2,25 +2,19 @@
 
 提供与 TableStore Memory 的集成能力，自动存储用户和 Agent 的对话历史。
 
-Example (基本使用):
-    >>> from agentrun.server import AgentRunServer, AgentRequest
-    >>> from agentrun.memory_collection import MemoryConversation
-    >>>
-    >>> # 初始化 Memory Conversation
-    >>> memory = MemoryConversation(memory_collection_name="my-memory")
-    >>>
-    >>> # 包装 invoke_agent 函数
-    >>> async def invoke_agent(req: AgentRequest):
-    ...     async for event in memory.wrap_invoke_agent(req, my_agent_handler):
-    ...         yield event
-    >>>
-    >>> server = AgentRunServer(invoke_agent=invoke_agent)
-    >>> server.start()
 """
 
 import json
 import os
-from typing import Any, AsyncIterator, Callable, Dict, Optional, TYPE_CHECKING
+from typing import (
+    Any,
+    AsyncIterator,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    TYPE_CHECKING,
+)
 import uuid
 
 import tablestore
@@ -88,13 +82,17 @@ class MemoryConversation:
         """默认的 user_id 提取器
 
         优先级：
-        1. X-User-ID 请求头
+        1. X-User-ID 请求头（支持多种格式）
         2. user_id 查询参数
         3. 默认值 "default_user"
         """
         if req.raw_request:
             # 从请求头获取
-            user_id = req.raw_request.headers.get("X-User-ID")
+            user_id = (
+                req.raw_request.headers.get("X-AgentRun-User-ID")
+                or req.raw_request.headers.get("x-agentrun-user-id")
+                or req.raw_request.headers.get("X-Agentrun-User-Id")
+            )
             if user_id:
                 return user_id
 
@@ -110,25 +108,19 @@ class MemoryConversation:
         """默认的 session_id 提取器
 
         优先级：
-        1. X-Session-ID 请求头
-        2. sessionId 查询参数
-        3. 从最后一条消息的 id 生成
-        4. 生成新的 UUID
+        1. X-Session-ID 请求头（支持多种格式）
+        2. 生成新的 UUID
         """
         if req.raw_request:
-            # 从请求头获取
-            session_id = req.raw_request.headers.get("X-Conversation-ID")
+            # 从请求头获取（兼容多种格式）
+            # 支持：X-AgentRun-Session-ID, x-agentrun-session-id, X-Agentrun-Session-Id
+            session_id = (
+                req.raw_request.headers.get("X-AgentRun-Session-ID")
+                or req.raw_request.headers.get("x-agentrun-session-id")
+                or req.raw_request.headers.get("X-Agentrun-Session-Id")
+            )
             if session_id:
                 return session_id
-
-            # 从查询参数获取
-            session_id = req.raw_request.query_params.get("sessionId")
-            if session_id:
-                return session_id
-
-        # 从消息 ID 生成（如果有）
-        if req.messages and req.messages[-1].id:
-            return f"session_{req.messages[-1].id}"
 
         # 生成新的 session_id
         return f"session_{uuid.uuid4().hex[:16]}"
@@ -138,13 +130,18 @@ class MemoryConversation:
         """默认的 agent_id 提取器
 
         优先级：
-        1. X-Agent-ID 请求头
+        1. X-Agent-ID 请求头（支持多种格式）
         2. 从 URL 路径中提取 /agent-runtimes/{agent_id}/... 格式
         3. 默认值 "default_agent"
         """
         if req.raw_request:
-            # 从请求头获取
-            agent_id = req.raw_request.headers.get("X-Agent-ID")
+            # 从请求头获取（兼容多种格式）
+            # 支持：X-AgentRun-Agent-ID, x-agentrun-agent-id, X-Agentrun-Agent-Id, X-Agent-ID, x-agent-id
+            agent_id = (
+                req.raw_request.headers.get("X-AgentRun-Agent-ID")
+                or req.raw_request.headers.get("x-agentrun-agent-id")
+                or req.raw_request.headers.get("X-Agentrun-Agent-Id")
+            )
             if agent_id:
                 return agent_id
 
@@ -407,8 +404,12 @@ class MemoryConversation:
                 "content": self._extract_message_content(msg.content),
             })
 
-        # 收集 Agent 响应
+        # 收集 Agent 响应（包括文本和工具调用）
         agent_response_content = ""
+        tool_calls: Dict[str, Dict[str, Any]] = (
+            {}
+        )  # tool_call_id -> tool_call_info
+        tool_results: List[Dict[str, Any]] = []  # 工具执行结果列表
 
         try:
             # 流式处理 Agent 响应
@@ -420,17 +421,80 @@ class MemoryConversation:
                     if event.event == EventType.TEXT and "delta" in event.data:
                         agent_response_content += event.data["delta"]
 
+                    # 收集工具调用信息
+                    elif event.event == EventType.TOOL_CALL:
+                        # 完整的工具调用
+                        tool_id = event.data.get("id", "")
+                        if tool_id:
+                            tool_calls[tool_id] = {
+                                "id": tool_id,
+                                "type": "function",
+                                "function": {
+                                    "name": event.data.get("name", ""),
+                                    "arguments": event.data.get("args", ""),
+                                },
+                            }
+
+                    elif event.event == EventType.TOOL_CALL_CHUNK:
+                        # 工具调用片段（流式场景）
+                        tool_id = event.data.get("id", "")
+                        if tool_id:
+                            if tool_id not in tool_calls:
+                                tool_calls[tool_id] = {
+                                    "id": tool_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": event.data.get("name", ""),
+                                        "arguments": "",
+                                    },
+                                }
+                            # 累积参数片段
+                            if "args_delta" in event.data:
+                                tool_calls[tool_id]["function"][
+                                    "arguments"
+                                ] += event.data["args_delta"]
+
+                    # 收集工具执行结果
+                    elif event.event == EventType.TOOL_RESULT:
+                        tool_id = event.data.get("id", "")
+                        if tool_id:
+                            tool_results.append({
+                                "role": "tool",
+                                "tool_call_id": tool_id,
+                                "content": str(event.data.get("result", "")),
+                            })
+
                 # 透传事件
                 yield event
 
             # 保存完整的对话轮次（输入 + 输出）
-            if agent_response_content:
+            # 只有当有文本内容或工具调用时才保存
+            if agent_response_content or tool_calls or tool_results:
                 try:
-                    # 将助手响应添加到消息列表
-                    output_messages = input_messages + [{
+                    # 构建助手响应消息
+                    assistant_message: Dict[str, Any] = {
                         "role": "assistant",
-                        "content": agent_response_content,
-                    }]
+                    }
+
+                    # 添加文本内容（如果有）
+                    if agent_response_content:
+                        assistant_message["content"] = agent_response_content
+                    else:
+                        # OpenAI 格式要求：如果有 tool_calls，content 可以为 null
+                        assistant_message["content"] = None
+
+                    # 添加工具调用（如果有）
+                    if tool_calls:
+                        assistant_message["tool_calls"] = list(
+                            tool_calls.values()
+                        )
+
+                    # 构建完整的消息列表
+                    output_messages = input_messages + [assistant_message]
+
+                    # 添加工具执行结果（如果有）
+                    if tool_results:
+                        output_messages.extend(tool_results)
 
                     # 将完整的对话历史存储为一条消息
                     # content 字段存储 JSON 格式的消息列表
@@ -446,8 +510,10 @@ class MemoryConversation:
                     await memory_store.update_session(session)
 
                     logger.debug(
-                        f"Saved conversation: {len(output_messages)} messages, "
-                        f"response length: {len(agent_response_content)} chars"
+                        f"Saved conversation: {len(output_messages)} messages,"
+                        f" text length: {len(agent_response_content)} chars,"
+                        f" tool_calls: {len(tool_calls)}, tool_results:"
+                        f" {len(tool_results)}"
                     )
                 except Exception as e:
                     logger.error(

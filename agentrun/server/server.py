@@ -83,6 +83,14 @@ class AgentRunServer:
         ...     invoke_agent=invoke_agent,
         ...     config=ServerConfig(cors_origins=["http://localhost:3000"])
         ... )
+
+    Example (启用会话历史记录):
+        >>> server = AgentRunServer(
+        ...     invoke_agent=invoke_agent,
+        ...     memory_collection_name="my-memory-collection"
+        ... )
+        >>> server.start(port=8000)
+        # 会话历史将自动保存到 TableStore
     """
 
     def __init__(
@@ -90,6 +98,7 @@ class AgentRunServer:
         invoke_agent: InvokeAgentHandler,
         protocols: Optional[List[ProtocolHandler]] = None,
         config: Optional[ServerConfig] = None,
+        memory_collection_name: Optional[str] = None,
     ):
         """初始化 AgentRun Server
 
@@ -107,8 +116,20 @@ class AgentRunServer:
                 - cors_origins: CORS 允许的源列表
                 - openai: OpenAI 协议配置
                 - agui: AG-UI 协议配置
+
+            memory_collection_name: MemoryCollection 名称（可选）
+                - 如果提供，将自动启用会话历史记录功能
+                - 会话历史将保存到指定的 MemoryCollection 中
         """
         self.app = FastAPI(title="AgentRun Server")
+
+        # 如果启用了 memory，包装 invoke_agent
+        if memory_collection_name:
+            invoke_agent = self._wrap_with_memory(
+                invoke_agent,
+                memory_collection_name,
+            )
+
         self.agent_invoker = AgentInvoker(invoke_agent)
 
         # 配置 CORS
@@ -123,6 +144,39 @@ class AgentRunServer:
 
         # 挂载所有协议的 Router
         self._mount_protocols(protocols)
+
+    def _wrap_with_memory(
+        self,
+        invoke_agent: InvokeAgentHandler,
+        memory_collection_name: str,
+    ) -> InvokeAgentHandler:
+        """使用 MemoryConversation 包装 invoke_agent
+
+        Args:
+            invoke_agent: 原始的 invoke_agent 函数
+            memory_collection_name: MemoryCollection 名称
+
+        Returns:
+            包装后的 invoke_agent 函数
+        """
+        from agentrun.memory_collection import MemoryConversation
+
+        # 创建 MemoryConversation 实例
+        memory = MemoryConversation(
+            memory_collection_name=memory_collection_name,
+        )
+
+        logger.info(
+            "Memory integration enabled for collection:"
+            f" {memory_collection_name}"
+        )
+
+        # 包装 invoke_agent
+        async def wrapped_invoke_agent(request: Any):
+            async for event in memory.wrap_invoke_agent(request, invoke_agent):
+                yield event
+
+        return wrapped_invoke_agent
 
     def _setup_cors(self, cors_origins: Optional[Sequence[str]] = None):
         """配置 CORS 中间件
