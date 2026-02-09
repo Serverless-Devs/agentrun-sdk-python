@@ -108,17 +108,23 @@ class MemoryConversation:
         """默认的 session_id 提取器
 
         优先级：
-        1. X-Session-ID 请求头（支持多种格式）
-        2. 生成新的 UUID
+        1. X-Conversation-ID 请求头（支持多种格式）
+        2. sessionId 查询参数
+        3. 生成新的 UUID
         """
         if req.raw_request:
             # 从请求头获取（兼容多种格式）
-            # 支持：X-AgentRun-Session-ID, x-agentrun-session-id, X-Agentrun-Session-Id
+            # 支持：X-AgentRun-Conversation-ID, x-agentrun-conversation-id, X-Agentrun-Conversation-Id
             session_id = (
-                req.raw_request.headers.get("X-AgentRun-Session-ID")
-                or req.raw_request.headers.get("x-agentrun-session-id")
-                or req.raw_request.headers.get("X-Agentrun-Session-Id")
+                req.raw_request.headers.get("X-AgentRun-Conversation-ID")
+                or req.raw_request.headers.get("x-agentrun-conversation-id")
+                or req.raw_request.headers.get("X-Agentrun-Conversation-Id")
             )
+            if session_id:
+                return session_id
+
+            # 从查询参数获取
+            session_id = req.raw_request.query_params.get("sessionId")
             if session_id:
                 return session_id
 
@@ -131,12 +137,11 @@ class MemoryConversation:
 
         优先级：
         1. X-Agent-ID 请求头（支持多种格式）
-        2. 从 URL 路径中提取 /agent-runtimes/{agent_id}/... 格式
-        3. 默认值 "default_agent"
+        2. 默认值 "default_agent"
         """
         if req.raw_request:
             # 从请求头获取（兼容多种格式）
-            # 支持：X-AgentRun-Agent-ID, x-agentrun-agent-id, X-Agentrun-Agent-Id, X-Agent-ID, x-agent-id
+            # 支持：X-AgentRun-Agent-ID, x-agentrun-agent-id, X-Agentrun-Agent-Id
             agent_id = (
                 req.raw_request.headers.get("X-AgentRun-Agent-ID")
                 or req.raw_request.headers.get("x-agentrun-agent-id")
@@ -144,25 +149,6 @@ class MemoryConversation:
             )
             if agent_id:
                 return agent_id
-
-            # 从 URL 路径中提取
-            # 例如：/agent-runtimes/agent-quick-xFGD/invoke -> agent-quick-xFGD
-            try:
-                path = (
-                    req.raw_request.url.path
-                    if hasattr(req.raw_request.url, "path")
-                    else str(req.raw_request.url)
-                )
-                if "/agent-runtimes/" in path:
-                    # 提取 /agent-runtimes/ 后面的部分
-                    parts = path.split("/agent-runtimes/", 1)
-                    if len(parts) > 1:
-                        # 获取下一个路径段
-                        agent_part = parts[1].split("/")[0]
-                        if agent_part:
-                            return agent_part
-            except Exception:
-                pass
 
         return "default_agent"
 
@@ -193,12 +179,19 @@ class MemoryConversation:
         ots_config = await self._get_ots_config_from_memory_collection()
 
         # 创建 AsyncOTSClient
-        self._ots_client = tablestore.AsyncOTSClient(
-            end_point=ots_config["endpoint"],
-            access_key_id=ots_config["access_key_id"],
-            access_key_secret=ots_config["access_key_secret"],
-            instance_name=ots_config["instance_name"],
-        )
+        # 支持使用 STS 临时凭证访问 TableStore
+        client_kwargs = {
+            "end_point": ots_config["endpoint"],
+            "access_key_id": ots_config["access_key_id"],
+            "access_key_secret": ots_config["access_key_secret"],
+            "instance_name": ots_config["instance_name"],
+        }
+
+        # 如果提供了 security_token，则添加到参数中（支持 STS 临时凭证）
+        if ots_config.get("security_token"):
+            client_kwargs["sts_token"] = ots_config["security_token"]
+
+        self._ots_client = tablestore.AsyncOTSClient(**client_kwargs)
 
         # 配置会话表的二级索引元数据字段
         # agent_id 字段用于标识会话所属的 Agent
@@ -258,6 +251,7 @@ class MemoryConversation:
                 - endpoint: OTS endpoint
                 - access_key_id: 访问密钥 ID
                 - access_key_secret: 访问密钥 Secret
+                - security_token: STS 安全令牌（可选，用于临时凭证）
                 - instance_name: OTS 实例名称
         """
         from agentrun.memory_collection import MemoryCollection
@@ -309,6 +303,9 @@ class MemoryConversation:
             "instance_name": vs_config.instance_name or "",
             "access_key_id": self.config.get_access_key_id(),
             "access_key_secret": self.config.get_access_key_secret(),
+            "security_token": (
+                self.config.get_security_token()
+            ),  # 支持 STS 临时凭证
         }
 
         return ots_config

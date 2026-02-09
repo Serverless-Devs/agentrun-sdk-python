@@ -92,10 +92,14 @@ class TestMemoryConversation:
 
     def test_default_session_id_extractor(self):
         """Test default session_id extraction"""
-        # Test with X-Session-ID header
+        # Test with X-AgentRun-Conversation-ID header
         mock_req = Mock()
         mock_headers = Mock()
-        mock_headers.get = Mock(return_value="session456")
+        mock_headers.get = Mock(
+            side_effect=lambda k: {
+                "X-AgentRun-Conversation-ID": "session456"
+            }.get(k)
+        )
         mock_query = Mock()
         mock_query.get = Mock(return_value=None)
 
@@ -109,6 +113,27 @@ class TestMemoryConversation:
 
         session_id = MemoryConversation._default_session_id_extractor(request)
         assert session_id == "session456"
+
+    def test_default_session_id_extractor_from_query(self):
+        """Test session_id extraction from query parameter"""
+        mock_req = Mock()
+        mock_headers = Mock()
+        mock_headers.get = Mock(return_value=None)
+        mock_query = Mock()
+        mock_query.get = Mock(
+            side_effect=lambda k: {"sessionId": "query_session789"}.get(k)
+        )
+
+        mock_req.headers = mock_headers
+        mock_req.query_params = mock_query
+
+        request = AgentRequest.model_construct(
+            messages=[],
+            raw_request=mock_req,
+        )
+
+        session_id = MemoryConversation._default_session_id_extractor(request)
+        assert session_id == "query_session789"
 
     def test_default_session_id_extractor_generate(self):
         """Test session_id generation"""
