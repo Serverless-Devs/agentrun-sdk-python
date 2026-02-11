@@ -105,3 +105,12 @@ dmypy.json
 uv.lock
 coverage.json
 coverage.json
+
+# examples
+examples/conversation_service_adk_example.py
+examples/conversation_service_adk_data.py
+examples/conversation_service_langchain_example.py
+examples/conversation_service_langchain_data.py
+examples/conversation_service_verify.py
+examples/Langchain_His_example.py
+examples/agent-quickstart-langchain/

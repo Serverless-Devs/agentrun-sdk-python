@@ -58,6 +58,10 @@ mcp = [
     "mcp>=1.21.2; python_version >= '3.10'",
 ]
 
+tablestore = [
+    "tablestore>=6.1.0",
+]
+
 [dependency-groups]
 dev = [
     "coverage>=7.10.7",

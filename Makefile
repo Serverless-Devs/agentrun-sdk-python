@@ -149,5 +149,5 @@ mypy-check: ## 运行 mypy 类型检查
 .PHONY: coverage
 coverage: ## 运行测试并显示覆盖率报告（全量代码 + 增量代码）
 	@echo "📊 运行覆盖率测试..."
-	@uv run python scripts/check_coverage.py
+	@uv run --python ${PYTHON_VERSION} --all-extras python scripts/check_coverage.py $(COVERAGE_ARGS)
 
