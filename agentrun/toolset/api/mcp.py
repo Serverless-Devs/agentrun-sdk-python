@@ -26,7 +26,7 @@ class MCPSession:
             headers=self.config.get_headers(),
             timeout=timeout if timeout else 60,
         )
-        (read, write) = await self.client.__aenter__()
+        read, write = await self.client.__aenter__()
 
         self.client_session = ClientSession(read, write)
         session = await self.client_session.__aenter__()

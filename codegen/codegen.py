@@ -205,6 +205,7 @@ def _generate_sync_code_for_file(async_file):
         if in_async_def_indent >= 0:
             content = (
                 line.replace("AsyncClient", "Client")
+                .replace("AsyncOTSClient", "OTSClient")
                 .replace("AsyncOpenAI", "OpenAI")
                 .replace("AsyncMemory", "Memory")
                 .replace("async_playwright", "sync_playwright")

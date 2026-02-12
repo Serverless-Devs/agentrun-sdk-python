@@ -1562,8 +1562,8 @@ def _build_openapi_schema(
         if isinstance(schema, dict):
             properties[name] = {
                 **schema,
-                "description": param.get("description") or schema.get(
-                    "description", ""
+                "description": (
+                    param.get("description") or schema.get("description", "")
                 ),
             }
             if param.get("required"):
