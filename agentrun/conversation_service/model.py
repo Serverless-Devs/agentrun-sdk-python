@@ -21,6 +21,7 @@ DEFAULT_APP_STATE_TABLE = "app_state"
 DEFAULT_USER_STATE_TABLE = "user_state"
 DEFAULT_CONVERSATION_SECONDARY_INDEX = "conversation_secondary_index"
 DEFAULT_CONVERSATION_SEARCH_INDEX = "conversation_search_index"
+DEFAULT_STATE_SEARCH_INDEX = "state_search_index"
 
 
 # ---------------------------------------------------------------------------

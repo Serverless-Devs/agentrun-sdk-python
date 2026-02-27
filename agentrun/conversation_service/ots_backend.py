@@ -52,6 +52,7 @@ from agentrun.conversation_service.model import (
     DEFAULT_CONVERSATION_SECONDARY_INDEX,
     DEFAULT_CONVERSATION_TABLE,
     DEFAULT_EVENT_TABLE,
+    DEFAULT_STATE_SEARCH_INDEX,
     DEFAULT_STATE_TABLE,
     DEFAULT_USER_STATE_TABLE,
     StateData,
@@ -107,15 +108,17 @@ class OTSBackend:
         self._conversation_search_index = (
             f"{table_prefix}{DEFAULT_CONVERSATION_SEARCH_INDEX}"
         )
+        self._state_search_index = f"{table_prefix}{DEFAULT_STATE_SEARCH_INDEX}"
 
     # -----------------------------------------------------------------------
     # 建表（异步）/ Table creation (async)
     # -----------------------------------------------------------------------
 
     async def init_tables_async(self) -> None:
-        """创建五张表和 Conversation 二级索引（异步）。
+        """创建五张表、二级索引和多元索引（异步）。
 
-        表已存在时跳过（catch OTSServiceError 并 log warning）。
+        包括 Conversation 二级索引、Conversation 多元索引和 State 多元索引。
+        表或索引已存在时跳过（catch OTSServiceError 并 log warning）。
         """
         await self._create_conversation_table_async()
         await self._create_event_table_async()
@@ -135,11 +138,13 @@ class OTSBackend:
             self._user_state_table,
             [("agent_id", "STRING"), ("user_id", "STRING")],
         )
+        await self.init_search_index_async()
 
     def init_tables(self) -> None:
-        """创建五张表和 Conversation 二级索引（同步）。
+        """创建五张表、二级索引和多元索引（同步）。
 
-        表已存在时跳过（catch OTSServiceError 并 log warning）。
+        包括 Conversation 二级索引、Conversation 多元索引和 State 多元索引。
+        表或索引已存在时跳过（catch OTSServiceError 并 log warning）。
         """
         self._create_conversation_table()
         self._create_event_table()
@@ -159,6 +164,7 @@ class OTSBackend:
             self._user_state_table,
             [("agent_id", "STRING"), ("user_id", "STRING")],
         )
+        self.init_search_index()
 
     async def init_core_tables_async(self) -> None:
         """创建核心表（Conversation + Event）和二级索引（异步）。"""
@@ -209,12 +215,20 @@ class OTSBackend:
         )
 
     async def init_search_index_async(self) -> None:
-        """创建 Conversation 多元索引（异步）。按需调用。"""
+        """创建 Conversation 和 State 多元索引（异步）。
+
+        索引已存在时跳过，可重复调用。
+        """
         await self._create_conversation_search_index_async()
+        await self._create_state_search_index_async()
 
     def init_search_index(self) -> None:
-        """创建 Conversation 多元索引（同步）。按需调用。"""
+        """创建 Conversation 和 State 多元索引（同步）。
+
+        索引已存在时跳过，可重复调用。
+        """
         self._create_conversation_search_index()
+        self._create_state_search_index()
 
     async def _create_conversation_table_async(self) -> None:
         """创建 Conversation 表 + 二级索引（异步）。"""
@@ -567,6 +581,87 @@ class OTSBackend:
             else:
                 raise
 
+    async def _create_state_search_index_async(self) -> None:
+        """创建 State 表的多元索引（异步）。
+
+        支持按 session_id 独立精确匹配查询，不受主键前缀限制。
+        索引已存在时跳过。
+        """
+        from tablestore import FieldType  # type: ignore[import-untyped]
+        from tablestore import IndexSetting  # type: ignore[import-untyped]
+        from tablestore import SortOrder  # type: ignore[import-untyped]
+        from tablestore import FieldSchema
+        from tablestore import (
+            FieldSort as OTSFieldSort,
+        )  # type: ignore[import-untyped]
+        from tablestore import SearchIndexMeta
+        from tablestore import Sort as OTSSort  # type: ignore[import-untyped]
+
+        fields = [
+            FieldSchema(
+                "agent_id",
+                FieldType.KEYWORD,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+            FieldSchema(
+                "user_id",
+                FieldType.KEYWORD,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+            FieldSchema(
+                "session_id",
+                FieldType.KEYWORD,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+            FieldSchema(
+                "created_at",
+                FieldType.LONG,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+            FieldSchema(
+                "updated_at",
+                FieldType.LONG,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+        ]
+
+        index_setting = IndexSetting(routing_fields=["agent_id"])
+        index_sort = OTSSort(
+            sorters=[OTSFieldSort("updated_at", sort_order=SortOrder.DESC)]
+        )
+        index_meta = SearchIndexMeta(
+            fields,
+            index_setting=index_setting,
+            index_sort=index_sort,
+        )
+
+        try:
+            await self._async_client.create_search_index(
+                self._state_table,
+                self._state_search_index,
+                index_meta,
+            )
+            logger.info(
+                "Created search index: %s on table: %s",
+                self._state_search_index,
+                self._state_table,
+            )
+        except OTSServiceError as e:
+            if "already exist" in str(e).lower() or (
+                hasattr(e, "code") and e.code == "OTSObjectAlreadyExist"
+            ):
+                logger.warning(
+                    "Search index %s already exists, skipping.",
+                    self._state_search_index,
+                )
+            else:
+                raise
+
     # -----------------------------------------------------------------------
     # Session CRUD（异步）/ Session CRUD (async)
     # -----------------------------------------------------------------------
@@ -674,6 +769,87 @@ class OTSBackend:
                 logger.warning(
                     "Search index %s already exists, skipping.",
                     self._conversation_search_index,
+                )
+            else:
+                raise
+
+    def _create_state_search_index(self) -> None:
+        """创建 State 表的多元索引（同步）。
+
+        支持按 session_id 独立精确匹配查询，不受主键前缀限制。
+        索引已存在时跳过。
+        """
+        from tablestore import FieldType  # type: ignore[import-untyped]
+        from tablestore import IndexSetting  # type: ignore[import-untyped]
+        from tablestore import SortOrder  # type: ignore[import-untyped]
+        from tablestore import FieldSchema
+        from tablestore import (
+            FieldSort as OTSFieldSort,
+        )  # type: ignore[import-untyped]
+        from tablestore import SearchIndexMeta
+        from tablestore import Sort as OTSSort  # type: ignore[import-untyped]
+
+        fields = [
+            FieldSchema(
+                "agent_id",
+                FieldType.KEYWORD,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+            FieldSchema(
+                "user_id",
+                FieldType.KEYWORD,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+            FieldSchema(
+                "session_id",
+                FieldType.KEYWORD,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+            FieldSchema(
+                "created_at",
+                FieldType.LONG,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+            FieldSchema(
+                "updated_at",
+                FieldType.LONG,
+                index=True,
+                enable_sort_and_agg=True,
+            ),
+        ]
+
+        index_setting = IndexSetting(routing_fields=["agent_id"])
+        index_sort = OTSSort(
+            sorters=[OTSFieldSort("updated_at", sort_order=SortOrder.DESC)]
+        )
+        index_meta = SearchIndexMeta(
+            fields,
+            index_setting=index_setting,
+            index_sort=index_sort,
+        )
+
+        try:
+            self._client.create_search_index(
+                self._state_table,
+                self._state_search_index,
+                index_meta,
+            )
+            logger.info(
+                "Created search index: %s on table: %s",
+                self._state_search_index,
+                self._state_table,
+            )
+        except OTSServiceError as e:
+            if "already exist" in str(e).lower() or (
+                hasattr(e, "code") and e.code == "OTSObjectAlreadyExist"
+            ):
+                logger.warning(
+                    "Search index %s already exists, skipping.",
+                    self._state_search_index,
                 )
             else:
                 raise
