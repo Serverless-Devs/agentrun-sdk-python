@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import threading
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
 from agentrun.integration.utils.tool import CommonToolSet, tool
 from agentrun.sandbox import Sandbox, TemplateType
@@ -11,6 +11,18 @@ from agentrun.sandbox.client import SandboxClient
 from agentrun.sandbox.code_interpreter_sandbox import CodeInterpreterSandbox
 from agentrun.utils.config import Config
 from agentrun.utils.log import logger
+
+if TYPE_CHECKING:
+    from agentrun.sandbox.api.playwright_sync import BrowserPlaywrightSync
+
+try:
+    from playwright.sync_api import Error as PlaywrightError
+except ImportError:
+
+    class PlaywrightError(Exception):  # type: ignore[no-redef]
+        """Fallback Playwright error used when Playwright is not installed."""
+
+        pass
 
 
 class SandboxToolSet(CommonToolSet):
@@ -47,6 +59,8 @@ class SandboxToolSet(CommonToolSet):
                 self.sandbox.stop()
             except Exception as e:
                 logger.debug("delete sandbox failed, due to %s", e)
+            self.sandbox = None
+            self.sandbox_id = ""
 
     def _ensure_sandbox(self):
         """确保沙箱实例存在，如果不存在则创建"""
@@ -689,6 +703,126 @@ class BrowserToolSet(SandboxToolSet):
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
             config=config,
         )
+        self._playwright_sync: Optional["BrowserPlaywrightSync"] = None
+
+    def _get_playwright(self, sb: BrowserSandbox) -> "BrowserPlaywrightSync":
+        """获取或创建 Playwright 连接 / Get or create Playwright connection
+
+        复用已有连接以减少连接建立开销和瞬态错误。
+        使用双重检查锁定避免并发调用时创建多个连接导致资源泄漏。
+        Reuses existing connection to reduce connection overhead and transient errors.
+        Uses double-checked locking to avoid leaking connections under concurrent calls.
+        """
+        if self._playwright_sync is not None:
+            return self._playwright_sync
+
+        with self.lock:
+            if self._playwright_sync is None:
+                playwright_sync = sb.sync_playwright()
+                playwright_sync.open()
+                self._playwright_sync = playwright_sync
+            return self._playwright_sync
+
+    def _reset_playwright(self) -> None:
+        """重置 Playwright 连接 / Reset Playwright connection
+
+        在沙箱重建时调用，清理旧的连接。
+        Called when sandbox is recreated, cleans up old connection.
+        """
+        with self.lock:
+            if self._playwright_sync is not None:
+                try:
+                    self._playwright_sync.close()
+                except Exception as e:
+                    logger.debug(
+                        "Error while closing Playwright connection: %s",
+                        e,
+                        exc_info=True,
+                    )
+                self._playwright_sync = None
+
+    def _run_in_sandbox(self, callback: Callable[[Sandbox], Any]) -> Any:
+        """在沙箱中执行操作，智能区分错误类型 / Execute in sandbox with smart error handling
+
+        与基类不同，此方法区分两类错误：
+        - 基础设施错误（连接断开、沙箱崩溃）：重建沙箱并重试
+        - 工具级错误（JS 执行失败、元素找不到）：直接返回错误，不重建
+
+        Unlike the base class, this method distinguishes two types of errors:
+        - Infrastructure errors (connection lost, sandbox crashed): recreate sandbox and retry
+        - Tool-level errors (JS execution failed, element not found): return error without recreating
+        """
+        sb = self._ensure_sandbox()
+        try:
+            return callback(sb)
+        except (ConnectionError, OSError, BrokenPipeError) as e:
+            logger.debug(
+                "Browser sandbox infrastructure error: %s, recreating sandbox",
+                e,
+            )
+            self._reset_playwright()
+            self.sandbox = None
+            try:
+                sb = self._ensure_sandbox()
+                return callback(sb)
+            except Exception as e2:
+                logger.debug("Recreated sandbox run failed: %s", e2)
+                return {"error": f"{e!s}"}
+        except PlaywrightError as e:
+            error_msg = str(e)
+            if self._is_infrastructure_error(error_msg):
+                logger.debug(
+                    "Browser sandbox CDP connection error: %s, recreating"
+                    " sandbox",
+                    e,
+                )
+                self._reset_playwright()
+                self.sandbox = None
+                try:
+                    sb = self._ensure_sandbox()
+                    return callback(sb)
+                except Exception as e2:
+                    logger.debug("Recreated sandbox run failed: %s", e2)
+                    return {"error": f"{e!s}"}
+            else:
+                logger.debug(
+                    "Browser tool-level error (no sandbox rebuild): %s", e
+                )
+                return {"error": f"{e!s}"}
+        except Exception as e:
+            logger.debug("Unexpected error in browser sandbox: %s", e)
+            return {"error": f"{e!s}"}
+
+    def _is_infrastructure_error(self, error_msg: str) -> bool:
+        """判断是否为基础设施错误 / Check if error is infrastructure-level
+
+        基础设施错误表示沙箱或 CDP 连接出现问题，需要重建。
+        工具级错误（如 JS 执行失败、元素找不到）不需要重建。
+
+        Infrastructure errors indicate sandbox or CDP connection issues, requiring rebuild.
+        Tool-level errors (e.g., JS execution failed, element not found) don't need rebuild.
+        """
+        infrastructure_patterns = [
+            "Target closed",
+            "Connection closed",
+            "Browser closed",
+            "Protocol error",
+            "WebSocket",
+            "ECONNREFUSED",
+            "ECONNRESET",
+            "EPIPE",
+            "Target page, context or browser has been closed",
+        ]
+        error_lower = error_msg.lower()
+        return any(
+            pattern.lower() in error_lower
+            for pattern in infrastructure_patterns
+        )
+
+    def close(self) -> None:
+        """关闭并释放沙箱和 Playwright 资源 / Close and release sandbox and Playwright resources"""
+        self._reset_playwright()
+        super().close()
 
     # ==================== 健康检查 / Health Check ====================
 
@@ -731,13 +865,13 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                response = p.goto(url, wait_until=wait_until, timeout=timeout)
-                return {
-                    "url": url,
-                    "success": True,
-                    "status": response.status if response else None,
-                }
+            p = self._get_playwright(sb)
+            response = p.goto(url, wait_until=wait_until, timeout=timeout)
+            return {
+                "url": url,
+                "success": True,
+                "status": response.status if response else None,
+            }
 
         return self._run_in_sandbox(inner)
 
@@ -770,12 +904,12 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                response = p.go_back(wait_until=wait_until, timeout=timeout)
-                return {
-                    "success": True,
-                    "status": response.status if response else None,
-                }
+            p = self._get_playwright(sb)
+            response = p.go_back(wait_until=wait_until, timeout=timeout)
+            return {
+                "success": True,
+                "status": response.status if response else None,
+            }
 
         return self._run_in_sandbox(inner)
 
@@ -796,12 +930,12 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                response = p.go_forward(wait_until=wait_until, timeout=timeout)
-                return {
-                    "success": True,
-                    "status": response.status if response else None,
-                }
+            p = self._get_playwright(sb)
+            response = p.go_forward(wait_until=wait_until, timeout=timeout)
+            return {
+                "success": True,
+                "status": response.status if response else None,
+            }
 
         return self._run_in_sandbox(inner)
 
@@ -827,14 +961,14 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                p.click(
-                    selector,
-                    button=button,
-                    click_count=click_count,
-                    timeout=timeout,
-                )
-                return {"selector": selector, "success": True}
+            p = self._get_playwright(sb)
+            p.click(
+                selector,
+                button=button,
+                click_count=click_count,
+                timeout=timeout,
+            )
+            return {"selector": selector, "success": True}
 
         return self._run_in_sandbox(inner)
 
@@ -867,9 +1001,9 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                p.dblclick(selector, timeout=timeout)
-                return {"selector": selector, "success": True}
+            p = self._get_playwright(sb)
+            p.dblclick(selector, timeout=timeout)
+            return {"selector": selector, "success": True}
 
         return self._run_in_sandbox(inner)
 
@@ -890,15 +1024,13 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                p.drag_and_drop(
-                    source_selector, target_selector, timeout=timeout
-                )
-                return {
-                    "source": source_selector,
-                    "target": target_selector,
-                    "success": True,
-                }
+            p = self._get_playwright(sb)
+            p.drag_and_drop(source_selector, target_selector, timeout=timeout)
+            return {
+                "source": source_selector,
+                "target": target_selector,
+                "success": True,
+            }
 
         return self._run_in_sandbox(inner)
 
@@ -918,9 +1050,9 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                p.hover(selector, timeout=timeout)
-                return {"selector": selector, "success": True}
+            p = self._get_playwright(sb)
+            p.hover(selector, timeout=timeout)
+            return {"selector": selector, "success": True}
 
         return self._run_in_sandbox(inner)
 
@@ -947,9 +1079,9 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                p.type(selector, text, delay=delay, timeout=timeout)
-                return {"selector": selector, "text": text, "success": True}
+            p = self._get_playwright(sb)
+            p.type(selector, text, delay=delay, timeout=timeout)
+            return {"selector": selector, "text": text, "success": True}
 
         return self._run_in_sandbox(inner)
 
@@ -972,9 +1104,9 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                p.fill(selector, value, timeout=timeout)
-                return {"selector": selector, "value": value, "success": True}
+            p = self._get_playwright(sb)
+            p.fill(selector, value, timeout=timeout)
+            return {"selector": selector, "value": value, "success": True}
 
         return self._run_in_sandbox(inner)
 
@@ -1005,10 +1137,10 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                html = p.html_content()
-                title = p.title()
-                return {"html": html, "title": title}
+            p = self._get_playwright(sb)
+            html = p.html_content()
+            title = p.title()
+            return {"html": html, "title": title}
 
         return self._run_in_sandbox(inner)
 
@@ -1042,16 +1174,16 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                screenshot_bytes = p.screenshot(full_page=full_page, type=type)
-                screenshot_base64 = base64.b64encode(screenshot_bytes).decode(
-                    "utf-8"
-                )
-                return {
-                    "screenshot": screenshot_base64,
-                    "format": type,
-                    "full_page": full_page,
-                }
+            p = self._get_playwright(sb)
+            screenshot_bytes = p.screenshot(full_page=full_page, type=type)
+            screenshot_base64 = base64.b64encode(screenshot_bytes).decode(
+                "utf-8"
+            )
+            return {
+                "screenshot": screenshot_base64,
+                "format": type,
+                "full_page": full_page,
+            }
 
         return self._run_in_sandbox(inner)
 
@@ -1067,9 +1199,9 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                title = p.title()
-                return {"title": title}
+            p = self._get_playwright(sb)
+            title = p.title()
+            return {"title": title}
 
         return self._run_in_sandbox(inner)
 
@@ -1088,16 +1220,16 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                pages = p.list_pages()
-                tabs = []
-                for i, page in enumerate(pages):
-                    tabs.append({
-                        "index": i,
-                        "url": page.url,
-                        "title": page.title(),
-                    })
-                return {"tabs": tabs, "count": len(tabs)}
+            p = self._get_playwright(sb)
+            pages = p.list_pages()
+            tabs = []
+            for i, page in enumerate(pages):
+                tabs.append({
+                    "index": i,
+                    "url": page.url,
+                    "title": page.title(),
+                })
+            return {"tabs": tabs, "count": len(tabs)}
 
         return self._run_in_sandbox(inner)
 
@@ -1114,15 +1246,15 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                page = p.new_page()
-                if url:
-                    page.goto(url)
-                return {
-                    "success": True,
-                    "url": page.url,
-                    "title": page.title(),
-                }
+            p = self._get_playwright(sb)
+            page = p.new_page()
+            if url:
+                page.goto(url)
+            return {
+                "success": True,
+                "url": page.url,
+                "title": page.title(),
+            }
 
         return self._run_in_sandbox(inner)
 
@@ -1139,14 +1271,14 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                page = p.select_tab(index)
-                return {
-                    "success": True,
-                    "index": index,
-                    "url": page.url,
-                    "title": page.title(),
-                }
+            p = self._get_playwright(sb)
+            page = p.select_tab(index)
+            return {
+                "success": True,
+                "index": index,
+                "url": page.url,
+                "title": page.title(),
+            }
 
         return self._run_in_sandbox(inner)
 
@@ -1171,9 +1303,9 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                result = p.evaluate(expression, arg=arg)
-                return {"result": result}
+            p = self._get_playwright(sb)
+            result = p.evaluate(expression, arg=arg)
+            return {"result": result}
 
         return self._run_in_sandbox(inner)
 
@@ -1204,9 +1336,9 @@ class BrowserToolSet(SandboxToolSet):
 
         def inner(sb: Sandbox):
             assert isinstance(sb, BrowserSandbox)
-            with sb.sync_playwright() as p:
-                p.wait(timeout)
-                return {"success": True, "waited_ms": timeout}
+            p = self._get_playwright(sb)
+            p.wait(timeout)
+            return {"success": True, "waited_ms": timeout}
 
         return self._run_in_sandbox(inner)
 

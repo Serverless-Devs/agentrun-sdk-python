@@ -149,3 +149,25 @@ class DeleteResourceError(AgentRunError):
             msg += f" Reason: {message}"
 
         super().__init__(msg)
+
+
+class BrowserToolError(AgentRunError):
+    """浏览器工具级错误 / Browser tool-level error
+
+    此类异常表示浏览器操作失败（如 JS 执行错误、元素找不到等），
+    但不代表沙箱基础设施故障，不应触发沙箱重建。
+
+    This exception indicates browser operation failures (e.g., JS execution errors,
+    element not found), but does not indicate sandbox infrastructure failure
+    and should not trigger sandbox recreation.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        operation: Optional[str] = None,
+    ):
+        self.operation = operation
+        if operation:
+            message = f"{operation}: {message}"
+        super().__init__(message)
