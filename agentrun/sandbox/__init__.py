@@ -17,6 +17,7 @@ from .model import (
     OSSMountPoint,
     PageableInput,
     PolarFsConfig,
+    PolarFsMountConfig,
     SandboxInput,
     TemplateArmsConfiguration,
     TemplateContainerConfiguration,
@@ -66,6 +67,6 @@ __all__ = [
     "OSSMountConfig",
     "OSSMountPoint",
     "PolarFsConfig",
-    "PolarFsConfig",
+    "PolarFsMountConfig",
     "CustomSandbox",
 ]

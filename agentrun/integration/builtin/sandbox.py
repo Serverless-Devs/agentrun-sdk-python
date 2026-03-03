@@ -14,6 +14,7 @@ from agentrun.utils.log import logger
 
 if TYPE_CHECKING:
     from agentrun.sandbox.api.playwright_sync import BrowserPlaywrightSync
+    from agentrun.sandbox.model import NASConfig, OSSMountConfig, PolarFsConfig
 
 try:
     from playwright.sync_api import Error as PlaywrightError
@@ -38,6 +39,9 @@ class SandboxToolSet(CommonToolSet):
         *,
         sandbox_idle_timeout_seconds: int,
         config: Optional[Config],
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        nas_config: Optional["NASConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
     ):
         super().__init__()
 
@@ -48,6 +52,10 @@ class SandboxToolSet(CommonToolSet):
         self.template_name = template_name
         self.template_type = template_type
         self.sandbox_idle_timeout_seconds = sandbox_idle_timeout_seconds
+
+        self.oss_mount_config = oss_mount_config
+        self.nas_config = nas_config
+        self.polar_fs_config = polar_fs_config
 
         self.sandbox: Optional[Sandbox] = None
         self.sandbox_id = ""
@@ -73,6 +81,9 @@ class SandboxToolSet(CommonToolSet):
                     template_type=self.template_type,
                     template_name=self.template_name,
                     sandbox_idle_timeout_seconds=self.sandbox_idle_timeout_seconds,
+                    oss_mount_config=self.oss_mount_config,
+                    nas_config=self.nas_config,
+                    polar_fs_config=self.polar_fs_config,
                     config=self.config,
                 )
                 self.sandbox_id = self.sandbox.sandbox_id
@@ -182,12 +193,18 @@ class CodeInterpreterToolSet(SandboxToolSet):
         template_name: str,
         config: Optional[Config],
         sandbox_idle_timeout_seconds: int,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        nas_config: Optional["NASConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
     ) -> None:
         super().__init__(
             template_name=template_name,
             template_type=TemplateType.CODE_INTERPRETER,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
             config=config,
+            oss_mount_config=oss_mount_config,
+            nas_config=nas_config,
+            polar_fs_config=polar_fs_config,
         )
 
     # ==================== 健康检查 / Health Check ====================
@@ -695,6 +712,9 @@ class BrowserToolSet(SandboxToolSet):
         template_name: str,
         config: Optional[Config],
         sandbox_idle_timeout_seconds: int,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        nas_config: Optional["NASConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
     ) -> None:
 
         super().__init__(
@@ -702,6 +722,9 @@ class BrowserToolSet(SandboxToolSet):
             template_type=TemplateType.BROWSER,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
             config=config,
+            oss_mount_config=oss_mount_config,
+            nas_config=nas_config,
+            polar_fs_config=polar_fs_config,
         )
         self._playwright_sync: Optional["BrowserPlaywrightSync"] = None
 
@@ -1349,6 +1372,9 @@ def sandbox_toolset(
     template_type: TemplateType = TemplateType.CODE_INTERPRETER,
     config: Optional[Config] = None,
     sandbox_idle_timeout_seconds: int = 5 * 60,
+    oss_mount_config: Optional["OSSMountConfig"] = None,
+    nas_config: Optional["NASConfig"] = None,
+    polar_fs_config: Optional["PolarFsConfig"] = None,
 ) -> CommonToolSet:
     """将沙箱模板封装为 LangChain ``StructuredTool`` 列表。"""
 
@@ -1357,10 +1383,16 @@ def sandbox_toolset(
             template_name=template_name,
             config=config,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            oss_mount_config=oss_mount_config,
+            nas_config=nas_config,
+            polar_fs_config=polar_fs_config,
         )
     else:
         return CodeInterpreterToolSet(
             template_name=template_name,
             config=config,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            oss_mount_config=oss_mount_config,
+            nas_config=nas_config,
+            polar_fs_config=polar_fs_config,
         )
