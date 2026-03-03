@@ -6,6 +6,8 @@ This module defines the high-level API for sandbox template resources.
 
 from typing import Dict, List, Optional
 
+from pydantic import Field
+
 from agentrun.sandbox.model import (
     PageableInput,
     TemplateContainerConfiguration,
@@ -52,7 +54,9 @@ class Template(BaseModel):
     """执行角色 ARN / Execution Role ARN"""
     sandbox_idle_timeout_in_seconds: Optional[int] = None
     """沙箱空闲超时时间（秒） / Sandbox Idle Timeout (seconds)"""
-    sandbox_ttlin_seconds: Optional[int] = None
+    sandbox_ttlin_seconds: Optional[int] = Field(
+        None, alias="sandboxTTLInSeconds"
+    )
     """沙箱存活时间（秒） / Sandbox TTL (seconds)"""
     share_concurrency_limit_per_sandbox: Optional[int] = None
     """每个沙箱的最大并发会话数 / Max Concurrency Limit Per Sandbox"""

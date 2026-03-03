@@ -15,6 +15,8 @@ from typing import (
     Union,
 )
 
+from pydantic import Field
+
 from agentrun.sandbox.model import TemplateType
 from agentrun.utils.config import Config
 from agentrun.utils.model import BaseModel
@@ -56,7 +58,9 @@ class Sandbox(BaseModel):
     """沙箱全局唯一资源名称 / Sandbox ARN"""
     sandbox_id: Optional[str] = None
     """沙箱 ID / Sandbox ID"""
-    sandbox_idle_ttlin_seconds: Optional[int] = None
+    sandbox_idle_ttlin_seconds: Optional[int] = Field(
+        None, alias="sandboxIdleTTLInSeconds"
+    )
     """沙箱空闲 TTL（秒） / Sandbox Idle TTL (seconds)"""
     sandbox_idle_timeout_seconds: Optional[int] = None
     """沙箱空闲超时时间（秒） / Sandbox Idle Timeout (seconds)"""

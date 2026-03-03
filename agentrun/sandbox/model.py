@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import uuid
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from agentrun.utils.model import BaseModel
 
@@ -264,7 +264,9 @@ class TemplateInput(BaseModel):
     """执行角色 ARN / Execution Role ARN"""
     sandbox_idle_timeout_in_seconds: Optional[int] = 1800
     """沙箱空闲超时时间（秒） / Sandbox Idle Timeout (seconds)"""
-    sandbox_ttlin_seconds: Optional[int] = 21600
+    sandbox_ttlin_seconds: Optional[int] = Field(
+        21600, alias="sandboxTTLInSeconds"
+    )
     """沙箱存活时间（秒） / Sandbox TTL (seconds)"""
     share_concurrency_limit_per_sandbox: Optional[int] = 200
     """每个沙箱的最大并发会话数 / Max Concurrency Limit Per Sandbox"""

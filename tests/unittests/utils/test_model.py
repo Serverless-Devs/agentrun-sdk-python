@@ -204,3 +204,81 @@ class TestStatus:
         """测试实例方法 is_final"""
         assert Status.READY.is_final() is True
         assert Status.CREATING.is_final() is False
+
+
+class TestTTLAliasFixIssue53:
+    """测试 TTL 字段的显式 alias 修复 (Issue #53)
+
+    验证含有连续大写缩写词 (TTL) 的字段能正确从 API 返回的 camelCase key 解析。
+    """
+
+    def test_template_sandbox_ttlin_seconds_from_api_data(self):
+        """Template.sandbox_ttlin_seconds 应能通过 sandboxTTLInSeconds 正确解析"""
+        from agentrun.sandbox.template import Template
+
+        api_data = {
+            "templateName": "code-interpreter-01",
+            "sandboxIdleTimeoutInSeconds": 900,
+            "sandboxTTLInSeconds": 3600,
+        }
+        t = Template.model_validate(api_data, by_alias=True)
+        assert t.sandbox_idle_timeout_in_seconds == 900
+        assert t.sandbox_ttlin_seconds == 3600
+        assert t.model_extra.get("sandboxTTLInSeconds") is None
+
+    def test_template_sandbox_ttlin_seconds_by_field_name(self):
+        """Template.sandbox_ttlin_seconds 也应支持通过字段名直接赋值"""
+        from agentrun.sandbox.template import Template
+
+        t = Template(sandbox_ttlin_seconds=1800)
+        assert t.sandbox_ttlin_seconds == 1800
+
+    def test_template_sandbox_ttlin_seconds_serialization(self):
+        """Template 序列化时应使用正确的 alias sandboxTTLInSeconds"""
+        from agentrun.sandbox.template import Template
+
+        t = Template(sandbox_ttlin_seconds=7200)
+        data = t.model_dump(by_alias=True)
+        assert data["sandboxTTLInSeconds"] == 7200
+
+    def test_template_input_sandbox_ttlin_seconds_serialization(self):
+        """TemplateInput.sandbox_ttlin_seconds 序列化应使用 sandboxTTLInSeconds"""
+        from agentrun.sandbox.model import TemplateInput, TemplateType
+
+        inp = TemplateInput(
+            template_type=TemplateType.CODE_INTERPRETER,
+            sandbox_ttlin_seconds=600,
+        )
+        data = inp.model_dump(by_alias=True)
+        assert data["sandboxTTLInSeconds"] == 600
+
+    def test_sandbox_idle_ttlin_seconds_from_api_data(self):
+        """Sandbox.sandbox_idle_ttlin_seconds 应能通过 sandboxIdleTTLInSeconds 正确解析"""
+        from agentrun.sandbox.sandbox import Sandbox
+
+        api_data = {
+            "sandboxId": "sb-123",
+            "sandboxIdleTTLInSeconds": 300,
+            "sandboxIdleTimeoutSeconds": 600,
+        }
+        s = Sandbox.model_validate(api_data, by_alias=True)
+        assert s.sandbox_idle_ttlin_seconds == 300
+        assert s.sandbox_idle_timeout_seconds == 600
+        assert s.model_extra.get("sandboxIdleTTLInSeconds") is None
+
+    def test_template_from_inner_object_with_ttl(self):
+        """Template.from_inner_object 应正确解析 sandboxTTLInSeconds"""
+        from agentrun.sandbox.template import Template
+
+        class MockDaraModel:
+
+            def to_map(self):
+                return {
+                    "templateName": "test-template",
+                    "sandboxIdleTimeoutInSeconds": 900,
+                    "sandboxTTLInSeconds": 3600,
+                }
+
+        t = Template.from_inner_object(MockDaraModel())
+        assert t.sandbox_ttlin_seconds == 3600
+        assert t.sandbox_idle_timeout_in_seconds == 900
