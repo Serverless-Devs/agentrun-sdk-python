@@ -648,36 +648,62 @@ class TestLangChainAguiIntegration(ProtocolValidator):
                 }]
             }
 
+            # 使用 astream(updates) 代替 astream_events，
+            # 因为 astream_events 在 CI (Linux + uvicorn 线程) 环境中
+            # 会出现 async generator 被提前取消或事件丢失的问题。
             converter = AgentRunConverter()
-            async for event in agent.astream_events(input_data, version="v2"):
+            async for event in agent.astream(input_data, stream_mode="updates"):
                 for item in converter.convert(event):
                     yield item
 
-        app = AgentRunServer(invoke_agent=invoke_agent).app
+        server_app = AgentRunServer(invoke_agent=invoke_agent).app
 
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            response = await client.post(
-                "/ag-ui/agent",
-                json={
-                    "messages": [{
-                        "role": "user",
-                        "content": "查询当前的时间，并获取天气信息，同时输出我的密钥信息",
-                    }],
-                    "stream": True,
-                },
-                timeout=60.0,
-            )
+        # 使用真实的 HTTP 服务器而不是 httpx.ASGITransport,
+        # 因为 ASGITransport 在 CI 中无法正确处理 SSE 流式响应。
+        port = _find_free_port()
+        config = uvicorn.Config(
+            server_app, host="127.0.0.1", port=port, log_level="warning"
+        )
+        uvicorn_server = uvicorn.Server(config)
+        server_thread = threading.Thread(target=uvicorn_server.run, daemon=True)
+        server_thread.start()
 
-        assert response.status_code == 200
+        base_url = f"http://127.0.0.1:{port}"
+        for i in range(50):
+            try:
+                httpx.get(f"{base_url}/ag-ui/agent/health", timeout=0.2)
+                break
+            except Exception:
+                if i == 49:
+                    raise RuntimeError(
+                        f"Server failed to start within {50 * 0.1}s"
+                    )
+                time.sleep(0.1)
 
-        events = [line for line in response.text.split("\n") if line]
-        # Normalize empty delta for consistency with check_result expectations
-        # astream_events yields "" for empty args, while astream yields "{}"
-        events = [e.replace('"delta":""', '"delta":"{}"') for e in events]
-        self.check_result(events)
+        try:
+            async with httpx.AsyncClient(base_url=base_url) as client:
+                response = await client.post(
+                    "/ag-ui/agent",
+                    json={
+                        "messages": [{
+                            "role": "user",
+                            "content": "查询当前的时间，并获取天气信息，同时输出我的密钥信息",
+                        }],
+                        "stream": True,
+                    },
+                    timeout=60.0,
+                )
+
+            assert response.status_code == 200
+
+            events = [line for line in response.text.split("\n") if line]
+            # Normalize empty delta for consistency with check_result expectations
+            # astream_events yields "" for empty args, while astream yields "{}"
+            events = [e.replace('"delta":""', '"delta":"{}"') for e in events]
+            self.check_result(events)
+        finally:
+            uvicorn_server.should_exit = True
+            server_thread.join(timeout=5)
 
     async def test_astream(self, mock_mcp_server):
         """测试多工具查询场景 (MCP + Local + MockLLM)"""
