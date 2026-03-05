@@ -83,6 +83,7 @@ class SandboxDataAPI(DataAPI):
         self,
         template_name: str,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        sandbox_id: Optional[str] = None,
         nas_config: Optional[Dict[str, Any]] = None,
         oss_mount_config: Optional[Dict[str, Any]] = None,
         polar_fs_config: Optional[Dict[str, Any]] = None,
@@ -93,18 +94,21 @@ class SandboxDataAPI(DataAPI):
             "templateName": template_name,
             "sandboxIdleTimeoutSeconds": sandbox_idle_timeout_seconds,
         }
+        if sandbox_id is not None:
+            data["sandboxId"] = sandbox_id
         if nas_config is not None:
             data["nasConfig"] = nas_config
         if oss_mount_config is not None:
             data["ossMountConfig"] = oss_mount_config
         if polar_fs_config is not None:
             data["polarFsConfig"] = polar_fs_config
-        return await self.post_async("/", data=data)
+        return await self.post_async("/", data=data, config=config)
 
     def create_sandbox(
         self,
         template_name: str,
         sandbox_idle_timeout_seconds: Optional[int] = 600,
+        sandbox_id: Optional[str] = None,
         nas_config: Optional[Dict[str, Any]] = None,
         oss_mount_config: Optional[Dict[str, Any]] = None,
         polar_fs_config: Optional[Dict[str, Any]] = None,
@@ -115,40 +119,42 @@ class SandboxDataAPI(DataAPI):
             "templateName": template_name,
             "sandboxIdleTimeoutSeconds": sandbox_idle_timeout_seconds,
         }
+        if sandbox_id is not None:
+            data["sandboxId"] = sandbox_id
         if nas_config is not None:
             data["nasConfig"] = nas_config
         if oss_mount_config is not None:
             data["ossMountConfig"] = oss_mount_config
         if polar_fs_config is not None:
             data["polarFsConfig"] = polar_fs_config
-        return self.post("/", data=data)
+        return self.post("/", data=data, config=config)
 
     async def delete_sandbox_async(
         self, sandbox_id: str, config: Optional[Config] = None
     ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return await self.delete_async("/")
+        return await self.delete_async("/", config=config)
 
     def delete_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return self.delete("/")
+        return self.delete("/", config=config)
 
     async def stop_sandbox_async(
         self, sandbox_id: str, config: Optional[Config] = None
     ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return await self.post_async("/stop")
+        return await self.post_async("/stop", config=config)
 
     def stop_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return self.post("/stop")
+        return self.post("/stop", config=config)
 
     async def get_sandbox_async(
         self, sandbox_id: str, config: Optional[Config] = None
     ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return await self.get_async("/")
+        return await self.get_async("/", config=config)
 
     def get_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return self.get("/")
+        return self.get("/", config=config)

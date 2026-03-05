@@ -153,9 +153,8 @@ omit = [
     "*.egg-info/*",
     # 缓存目录
     "*__pycache__*",
-    # server 和 sandbox 模块
+    # server 模块
     "agentrun/server/*",
-    "agentrun/sandbox/*",
     # integration 模块（第三方集成，单独测试）
     "agentrun/integration/*",
     # MCP 客户端（需要外部 MCP 服务器）
