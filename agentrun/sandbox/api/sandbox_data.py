@@ -99,7 +99,7 @@ class SandboxDataAPI(DataAPI):
             data["ossMountConfig"] = oss_mount_config
         if polar_fs_config is not None:
             data["polarFsConfig"] = polar_fs_config
-        return await self.post_async("/", data=data)
+        return await self.post_async("/", data=data, config=config)
 
     def create_sandbox(
         self,
@@ -121,34 +121,34 @@ class SandboxDataAPI(DataAPI):
             data["ossMountConfig"] = oss_mount_config
         if polar_fs_config is not None:
             data["polarFsConfig"] = polar_fs_config
-        return self.post("/", data=data)
+        return self.post("/", data=data, config=config)
 
     async def delete_sandbox_async(
         self, sandbox_id: str, config: Optional[Config] = None
     ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return await self.delete_async("/")
+        return await self.delete_async("/", config=config)
 
     def delete_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return self.delete("/")
+        return self.delete("/", config=config)
 
     async def stop_sandbox_async(
         self, sandbox_id: str, config: Optional[Config] = None
     ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return await self.post_async("/stop")
+        return await self.post_async("/stop", config=config)
 
     def stop_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return self.post("/stop")
+        return self.post("/stop", config=config)
 
     async def get_sandbox_async(
         self, sandbox_id: str, config: Optional[Config] = None
     ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return await self.get_async("/")
+        return await self.get_async("/", config=config)
 
     def get_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
-        return self.get("/")
+        return self.get("/", config=config)

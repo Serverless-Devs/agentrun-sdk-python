@@ -637,7 +637,7 @@ class SandboxClient:
         """
         try:
             result = await self.__sandbox_data_api.stop_sandbox_async(
-                sandbox_id
+                sandbox_id, config=config
             )
 
             # 判断返回结果是否成功
@@ -676,7 +676,9 @@ class SandboxClient:
             ServerError: 服务器错误
         """
         try:
-            result = self.__sandbox_data_api.stop_sandbox(sandbox_id)
+            result = self.__sandbox_data_api.stop_sandbox(
+                sandbox_id, config=config
+            )
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
@@ -715,7 +717,7 @@ class SandboxClient:
         """
         try:
             result = await self.__sandbox_data_api.delete_sandbox_async(
-                sandbox_id
+                sandbox_id, config=config
             )
 
             # 判断返回结果是否成功
@@ -754,7 +756,9 @@ class SandboxClient:
             ServerError: 服务器错误
         """
         try:
-            result = self.__sandbox_data_api.delete_sandbox(sandbox_id)
+            result = self.__sandbox_data_api.delete_sandbox(
+                sandbox_id, config=config
+            )
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
@@ -794,7 +798,9 @@ class SandboxClient:
             ServerError: 服务器错误
         """
         try:
-            result = await self.__sandbox_data_api.get_sandbox_async(sandbox_id)
+            result = await self.__sandbox_data_api.get_sandbox_async(
+                sandbox_id, config=config
+            )
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
@@ -834,7 +840,9 @@ class SandboxClient:
             ServerError: 服务器错误
         """
         try:
-            result = self.__sandbox_data_api.get_sandbox(sandbox_id)
+            result = self.__sandbox_data_api.get_sandbox(
+                sandbox_id, config=config
+            )
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
