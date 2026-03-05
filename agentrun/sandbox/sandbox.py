@@ -535,7 +535,9 @@ class Sandbox(BaseModel):
 
         Args:
             sandbox_id: Sandbox ID
-            type: 可选的类型参数，用于类型提示和运行时验证
+            template_type: 可选的类型参数，用于类型提示和运行时类型决定。
+                提供时直接使用该类型决定返回的子类，不调用 get_template（无需 AKSK）。
+                未提供时通过 get_template 获取类型（需要 AKSK）。
             config: 配置对象
 
         Returns:
@@ -552,25 +554,16 @@ class Sandbox(BaseModel):
             sandbox_id, config=config
         )
 
-        # 根据 template_name 获取 template 类型
-        if sandbox.template_name is None:
-            raise ValueError(f"Sandbox {sandbox_id} has no template_name")
+        resolved_type = template_type
+        if resolved_type is None:
+            if sandbox.template_name is None:
+                raise ValueError(f"Sandbox {sandbox_id} has no template_name")
 
-        template = await cls.get_template_async(
-            sandbox.template_name, config=config
-        )
-
-        # 如果提供了 type 参数，验证类型是否匹配
-        if (
-            template_type is not None
-            and template.template_type != template_type
-        ):
-            raise ValueError(
-                f"Sandbox {sandbox_id} has template type"
-                f" {template.template_type}, but expected {template_type}"
+            template = await cls.get_template_async(
+                sandbox.template_name, config=config
             )
+            resolved_type = template.template_type
 
-        # 根据 template 类型创建相应的 Sandbox 子类
         from agentrun.sandbox.aio_sandbox import AioSandbox
         from agentrun.sandbox.browser_sandbox import BrowserSandbox
         from agentrun.sandbox.code_interpreter_sandbox import (
@@ -578,21 +571,21 @@ class Sandbox(BaseModel):
         )
 
         result = None
-        if template.template_type == TemplateType.CODE_INTERPRETER:
+        if resolved_type == TemplateType.CODE_INTERPRETER:
             result = CodeInterpreterSandbox.model_validate(
                 sandbox.model_dump(by_alias=False)
             )
-        elif template.template_type == TemplateType.BROWSER:
+        elif resolved_type == TemplateType.BROWSER:
             result = BrowserSandbox.model_validate(
                 sandbox.model_dump(by_alias=False)
             )
-        elif template.template_type == TemplateType.AIO:
+        elif resolved_type == TemplateType.AIO:
             result = AioSandbox.model_validate(
                 sandbox.model_dump(by_alias=False)
             )
         else:
             raise ValueError(
-                f"Unsupported template type: {template.template_type}. "
+                f"Unsupported template type: {resolved_type}. "
                 "Expected 'code-interpreter', 'browser' or 'aio'"
             )
 
@@ -612,7 +605,9 @@ class Sandbox(BaseModel):
 
         Args:
             sandbox_id: Sandbox ID
-            type: 可选的类型参数，用于类型提示和运行时验证
+            template_type: 可选的类型参数，用于类型提示和运行时类型决定。
+                提供时直接使用该类型决定返回的子类，不调用 get_template（无需 AKSK）。
+                未提供时通过 get_template 获取类型（需要 AKSK）。
             config: 配置对象
 
         Returns:
@@ -627,23 +622,14 @@ class Sandbox(BaseModel):
         # 先获取 sandbox 信息
         sandbox = cls.__get_client().get_sandbox(sandbox_id, config=config)
 
-        # 根据 template_name 获取 template 类型
-        if sandbox.template_name is None:
-            raise ValueError(f"Sandbox {sandbox_id} has no template_name")
+        resolved_type = template_type
+        if resolved_type is None:
+            if sandbox.template_name is None:
+                raise ValueError(f"Sandbox {sandbox_id} has no template_name")
 
-        template = cls.get_template(sandbox.template_name, config=config)
+            template = cls.get_template(sandbox.template_name, config=config)
+            resolved_type = template.template_type
 
-        # 如果提供了 type 参数，验证类型是否匹配
-        if (
-            template_type is not None
-            and template.template_type != template_type
-        ):
-            raise ValueError(
-                f"Sandbox {sandbox_id} has template type"
-                f" {template.template_type}, but expected {template_type}"
-            )
-
-        # 根据 template 类型创建相应的 Sandbox 子类
         from agentrun.sandbox.aio_sandbox import AioSandbox
         from agentrun.sandbox.browser_sandbox import BrowserSandbox
         from agentrun.sandbox.code_interpreter_sandbox import (
@@ -651,21 +637,21 @@ class Sandbox(BaseModel):
         )
 
         result = None
-        if template.template_type == TemplateType.CODE_INTERPRETER:
+        if resolved_type == TemplateType.CODE_INTERPRETER:
             result = CodeInterpreterSandbox.model_validate(
                 sandbox.model_dump(by_alias=False)
             )
-        elif template.template_type == TemplateType.BROWSER:
+        elif resolved_type == TemplateType.BROWSER:
             result = BrowserSandbox.model_validate(
                 sandbox.model_dump(by_alias=False)
             )
-        elif template.template_type == TemplateType.AIO:
+        elif resolved_type == TemplateType.AIO:
             result = AioSandbox.model_validate(
                 sandbox.model_dump(by_alias=False)
             )
         else:
             raise ValueError(
-                f"Unsupported template type: {template.template_type}. "
+                f"Unsupported template type: {resolved_type}. "
                 "Expected 'code-interpreter', 'browser' or 'aio'"
             )
 
