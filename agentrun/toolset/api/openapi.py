@@ -829,6 +829,8 @@ class OpenAPI:
         request_kwargs, timeout, raise_for_status = self._prepare_request(
             name, arguments, config
         )
+
+        print(request_kwargs)
         with httpx.Client(timeout=timeout) as client:
             response = client.request(**request_kwargs)
             if raise_for_status:
@@ -943,6 +945,7 @@ class OpenAPI:
 
     def _extract_base_url(self, schema: Dict[str, Any]) -> Optional[str]:
         servers = schema.get("servers") or []
+        print("======", servers)
         return self._pick_server_url(servers)
 
     def _convert_to_native(self, value: Any) -> Any:

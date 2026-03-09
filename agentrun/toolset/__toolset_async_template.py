@@ -94,11 +94,18 @@ class ToolSet(BaseModel):
         return headers, query
 
     def _get_openapi_base_url(self) -> Optional[str]:
-        return pydash.get(
-            self,
-            "status.outputs.urls.intranet_url",
-            None,
-        ) or pydash.get(self, "status.outputs.urls.internet_url", None)
+        import os
+
+        fc_region = os.getenv("FC_REGION")
+        arn = pydash.get(self, "status.outputs.function_arn", "")
+
+        if fc_region and arn and pydash.get(arn.split(":"), "[2]"):
+            # 在同一个 region，则使用内网地址
+            return pydash.get(
+                self,
+                "status.outputs.urls.intranet_url",
+                None,
+            )
 
     async def get_async(self, config: Optional[Config] = None):
         if self.name is None:
