@@ -671,7 +671,7 @@ class TestLangChainAguiIntegration(ProtocolValidator):
         base_url = f"http://127.0.0.1:{port}"
         for i in range(50):
             try:
-                httpx.get(f"{base_url}/ag-ui/agent/health", timeout=0.2)
+                httpx.get(f"{base_url}/health", timeout=0.2)
                 break
             except Exception:
                 if i == 49:

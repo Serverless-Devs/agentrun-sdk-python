@@ -44,22 +44,6 @@ class TestAGUIProtocolEndpoints:
         return TestClient(server.as_fastapi_app())
 
     @pytest.mark.asyncio
-    async def test_health_check(self):
-        """测试健康检查端点"""
-
-        def invoke_agent(request: AgentRequest):
-            return "Hello"
-
-        client = self.get_client(invoke_agent)
-        response = client.get("/ag-ui/agent/health")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "ok"
-        assert data["protocol"] == "ag-ui"
-        assert data["version"] == "1.0"
-
-    @pytest.mark.asyncio
     async def test_value_error_handling(self):
         """测试 ValueError 处理"""
 

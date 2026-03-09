@@ -124,6 +124,43 @@ class TestServer(ProtocolValidator):
 
         return TestClient(app)
 
+    async def test_health_check(self):
+        """测试 /health 健康检查路由"""
+
+        client = self.get_client(self.get_invoke_agent_non_streaming())
+
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+    async def test_health_check_post_not_allowed(self):
+        """测试 POST /health 不被允许"""
+
+        client = self.get_client(self.get_invoke_agent_non_streaming())
+
+        response = client.post("/health")
+
+        # FastAPI 对不匹配的方法返回 405
+        assert response.status_code == 405
+
+    async def test_health_check_with_custom_protocols(self):
+        """测试自定义协议列表时 /health 仍可用"""
+        from agentrun.server.openai_protocol import OpenAIProtocolHandler
+
+        server = AgentRunServer(
+            invoke_agent=self.get_invoke_agent_non_streaming(),
+            protocols=[OpenAIProtocolHandler()],
+        )
+        from fastapi.testclient import TestClient
+
+        client = TestClient(server.as_fastapi_app())
+
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
     async def test_server_non_streaming_protocols(self):
         """测试非流式的 OpenAI 和 AGUI 服务器响应功能"""
 

@@ -132,6 +132,9 @@ class AgentRunServer:
 
         self.agent_invoker = AgentInvoker(invoke_agent)
 
+        # 注册 health check 路由
+        self._register_health_check()
+
         # 配置 CORS
         self._setup_cors(config.cors_origins if config else None)
 
@@ -144,6 +147,13 @@ class AgentRunServer:
 
         # 挂载所有协议的 Router
         self._mount_protocols(protocols)
+
+    def _register_health_check(self):
+        """注册 /health 健康检查路由 / Register /health health check route"""
+
+        @self.app.get("/health")
+        async def health_check():
+            return {"status": "ok"}
 
     def _wrap_with_memory(
         self,
