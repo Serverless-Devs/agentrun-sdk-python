@@ -4,6 +4,8 @@
 Tests ToolSet resource class functionality.
 """
 
+import os
+import unittest.mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -275,8 +277,8 @@ class TestToolSetGetOpenAPIBaseUrl:
         toolset = ToolSet()
         assert toolset._get_openapi_base_url() is None
 
-    def test_intranet_url_preferred(self):
-        """测试优先使用内网 URL"""
+    def test_intranet_url_preferred_on_fc(self):
+        """测试在 FC 环境下优先使用内网 URL"""
         toolset = ToolSet(
             status=ToolSetStatus(
                 outputs=ToolSetStatusOutputs(
@@ -287,10 +289,31 @@ class TestToolSetGetOpenAPIBaseUrl:
                 )
             )
         )
-        assert toolset._get_openapi_base_url() == "https://internal.example.com"
+        with unittest.mock.patch.dict(os.environ, {"FC_REGION": "cn-hangzhou"}):
+            assert (
+                toolset._get_openapi_base_url()
+                == "https://internal.example.com"
+            )
+
+    def test_internet_url_when_not_on_fc(self):
+        """测试非 FC 环境使用公网 URL"""
+        toolset = ToolSet(
+            status=ToolSetStatus(
+                outputs=ToolSetStatusOutputs(
+                    urls=ToolSetStatusOutputsUrls(
+                        internet_url="https://public.example.com",
+                        intranet_url="https://internal.example.com",
+                    )
+                )
+            )
+        )
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            assert (
+                toolset._get_openapi_base_url() == "https://public.example.com"
+            )
 
     def test_internet_url_fallback(self):
-        """测试公网 URL 作为回退"""
+        """测试只有公网 URL 时作为回退"""
         toolset = ToolSet(
             status=ToolSetStatus(
                 outputs=ToolSetStatusOutputs(
@@ -682,5 +705,5 @@ class TestToolSetToApiset:
                 )
             ),
         )
-        with pytest.raises(AssertionError, match="MCP server URL is missing"):
+        with pytest.raises(ValueError, match="MCP server URL is missing"):
             toolset.to_apiset()

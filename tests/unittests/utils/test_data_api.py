@@ -47,21 +47,14 @@ class TestDataAPIInit:
             assert api.resource_name == "test-resource"
             assert api.resource_type == ResourceType.Runtime
             assert api.namespace == "agents"
-            assert api.access_token is None
-
-    def test_init_with_token_in_config(self):
-        """测试使用 config 中的 token 初始化"""
-        config = Config(token="my-token", account_id="test-account")
-        api = DataAPI(
-            resource_name="test-resource",
-            resource_type=ResourceType.Runtime,
-            config=config,
-        )
-        assert api.access_token == "my-token"
 
     def test_init_with_custom_namespace(self):
         """测试自定义 namespace"""
-        config = Config(account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test-resource",
             resource_type=ResourceType.Runtime,
@@ -165,21 +158,34 @@ class TestDataAPIWithPath:
 
 
 class TestDataAPIAuth:
-    """测试 DataAPI.auth"""
+    """测试 DataAPI.auth（仅 RAM 签名鉴权）"""
 
-    def test_auth_with_existing_token(self):
-        """测试已有 token 的认证"""
-        config = Config(token="my-token", account_id="test-account")
+    def test_auth_without_ak_sk_returns_no_auth_header(self):
+        """无 AK/SK 时 auth 不添加鉴权头"""
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
             config=config,
         )
         url, headers, query = api.auth("https://example.com", {}, None)
-        assert headers["Agentrun-Access-Token"] == "my-token"
+        assert "Agentrun-Access-Token" not in headers
+        assert "Agentrun-Authorization" not in headers
 
-    def test_auth_fetches_token_on_demand(self):
-        """测试按需获取 token"""
+    @patch("agentrun.utils.data_api.get_agentrun_signed_headers")
+    def test_auth_uses_ram_signature_when_ak_sk_provided(
+        self, mock_signed_headers
+    ):
+        """测试配置了 AK/SK 且无 token 时使用 RAM 签名鉴权"""
+        mock_signed_headers.return_value = {
+            "Agentrun-Authorization": "mock-sig",
+            "x-acs-date": "2025-01-01T00:00:00Z",
+            "x-acs-content-sha256": "UNSIGNED-PAYLOAD",
+        }
         config = Config(
             access_key_id="ak",
             access_key_secret="sk",
@@ -191,19 +197,22 @@ class TestDataAPIAuth:
             config=config,
         )
 
-        # Mock the token fetch - ControlAPI is imported inside the auth method
-        with patch("agentrun.utils.control_api.ControlAPI") as mock_control:
-            mock_client = MagicMock()
-            mock_response = MagicMock()
-            mock_response.body.data.access_token = "fetched-token"
-            mock_client.get_access_token.return_value = mock_response
-            mock_control.return_value._get_client.return_value = mock_client
+        url = "https://test-account-ram.agentrun-data.cn-hangzhou.aliyuncs.com/agents/resources"
+        url, headers, query = api.auth(url, {}, None, method="GET", body=None)
+        assert "Agentrun-Authorization" in headers
+        assert headers["Agentrun-Authorization"] == "mock-sig"
+        assert "x-acs-date" in headers
+        assert "x-acs-content-sha256" in headers
+        assert headers.get("x-acs-content-sha256") == "UNSIGNED-PAYLOAD"
 
-            url, headers, query = api.auth("https://example.com", {}, None)
-            assert api.access_token == "fetched-token"
-
-    def test_auth_handles_fetch_error(self):
-        """测试获取 token 失败的处理"""
+    @patch("agentrun.utils.data_api.get_agentrun_signed_headers")
+    def test_auth_with_ak_sk_returns_signed_headers(self, mock_signed_headers):
+        """测试有 AK/SK 时 auth 返回签名头且不抛异常"""
+        mock_signed_headers.return_value = {
+            "Agentrun-Authorization": "mock-sig",
+            "x-acs-date": "2025-01-01T00:00:00Z",
+            "x-acs-content-sha256": "UNSIGNED-PAYLOAD",
+        }
         config = Config(
             access_key_id="ak",
             access_key_secret="sk",
@@ -215,15 +224,14 @@ class TestDataAPIAuth:
             config=config,
         )
 
-        # Mock the token fetch to fail - ControlAPI is imported inside the auth method
-        with patch("agentrun.utils.control_api.ControlAPI") as mock_control:
-            mock_control.return_value._get_client.side_effect = Exception(
-                "Failed"
-            )
-
-            # 不应该抛出异常
-            url, headers, query = api.auth("https://example.com", {}, None)
-            assert api.access_token is None
+        url, headers, query = api.auth(
+            "https://test-account-ram.agentrun-data.cn-hangzhou.aliyuncs.com/path",
+            {},
+            None,
+            method="GET",
+        )
+        assert "Agentrun-Authorization" in headers
+        assert headers["Agentrun-Authorization"] == "mock-sig"
 
 
 class TestDataAPIPrepareRequest:
@@ -231,7 +239,11 @@ class TestDataAPIPrepareRequest:
 
     def test_prepare_request_with_dict_data(self):
         """测试使用字典数据准备请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -246,7 +258,11 @@ class TestDataAPIPrepareRequest:
 
     def test_prepare_request_with_string_data(self):
         """测试使用字符串数据准备请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -260,7 +276,11 @@ class TestDataAPIPrepareRequest:
 
     def test_prepare_request_with_query(self):
         """测试带查询参数的请求准备"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -273,7 +293,11 @@ class TestDataAPIPrepareRequest:
 
     def test_prepare_request_with_list_query(self):
         """测试带多值列表查询参数的请求准备"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -289,7 +313,11 @@ class TestDataAPIPrepareRequest:
 
     def test_prepare_request_with_non_standard_data(self):
         """测试使用非 dict/str 类型数据准备请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -309,7 +337,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_get(self):
         """测试 GET 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -326,7 +358,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_post(self):
         """测试 POST 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -343,7 +379,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_put(self):
         """测试 PUT 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -360,7 +400,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_patch(self):
         """测试 PATCH 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -377,7 +421,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_delete(self):
         """测试 DELETE 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -394,7 +442,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_empty_response(self):
         """测试空响应"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -411,7 +463,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_bad_gateway_error(self):
         """测试 502 Bad Gateway 错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -433,7 +489,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_json_parse_error(self):
         """测试 JSON 解析错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -451,7 +511,11 @@ class TestDataAPIHTTPMethods:
     @respx.mock
     def test_request_error(self):
         """测试请求错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -474,7 +538,11 @@ class TestDataAPIAsyncMethods:
     @pytest.mark.asyncio
     async def test_get_async(self):
         """测试异步 GET 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -492,7 +560,11 @@ class TestDataAPIAsyncMethods:
     @pytest.mark.asyncio
     async def test_post_async(self):
         """测试异步 POST 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -510,7 +582,11 @@ class TestDataAPIAsyncMethods:
     @pytest.mark.asyncio
     async def test_put_async(self):
         """测试异步 PUT 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -528,7 +604,11 @@ class TestDataAPIAsyncMethods:
     @pytest.mark.asyncio
     async def test_patch_async(self):
         """测试异步 PATCH 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -546,7 +626,11 @@ class TestDataAPIAsyncMethods:
     @pytest.mark.asyncio
     async def test_delete_async(self):
         """测试异步 DELETE 请求"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -564,7 +648,11 @@ class TestDataAPIAsyncMethods:
     @pytest.mark.asyncio
     async def test_async_empty_response(self):
         """测试异步空响应"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -582,7 +670,11 @@ class TestDataAPIAsyncMethods:
     @pytest.mark.asyncio
     async def test_async_request_error(self):
         """测试异步请求错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -604,7 +696,11 @@ class TestDataAPIFileOperations:
     @respx.mock
     def test_post_file(self):
         """测试同步上传文件"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -629,7 +725,11 @@ class TestDataAPIFileOperations:
     @pytest.mark.asyncio
     async def test_post_file_async(self):
         """测试异步上传文件"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -655,7 +755,11 @@ class TestDataAPIFileOperations:
     @respx.mock
     def test_get_file(self):
         """测试同步下载文件"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -685,7 +789,11 @@ class TestDataAPIFileOperations:
     @pytest.mark.asyncio
     async def test_get_file_async(self):
         """测试异步下载文件"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -711,7 +819,11 @@ class TestDataAPIFileOperations:
     @respx.mock
     def test_get_video(self):
         """测试同步下载视频"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -736,7 +848,11 @@ class TestDataAPIFileOperations:
     @pytest.mark.asyncio
     async def test_get_video_async(self):
         """测试异步下载视频"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -760,7 +876,11 @@ class TestDataAPIFileOperations:
     @respx.mock
     def test_post_file_http_error(self):
         """测试上传文件时的 HTTP 错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -784,7 +904,11 @@ class TestDataAPIFileOperations:
     @respx.mock
     def test_get_file_http_error(self):
         """测试下载文件时的 HTTP 错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -812,7 +936,11 @@ class TestDataAPIHTTPStatusError:
     @respx.mock
     def test_http_status_error_with_response_text(self):
         """测试 HTTPStatusError 带响应文本"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -842,7 +970,11 @@ class TestDataAPIHTTPStatusError:
     @pytest.mark.asyncio
     async def test_async_http_status_error(self):
         """测试异步 HTTPStatusError"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -871,7 +1003,11 @@ class TestDataAPIHTTPStatusError:
     @pytest.mark.asyncio
     async def test_async_bad_gateway_error(self):
         """测试异步 502 Bad Gateway 错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -894,7 +1030,11 @@ class TestDataAPIHTTPStatusError:
     @pytest.mark.asyncio
     async def test_async_json_parse_error(self):
         """测试异步 JSON 解析错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -917,7 +1057,11 @@ class TestDataAPIFileOperationsErrors:
     @pytest.mark.asyncio
     async def test_post_file_async_http_error(self):
         """测试异步上传文件时的 HTTP 错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -944,7 +1088,11 @@ class TestDataAPIFileOperationsErrors:
     @pytest.mark.asyncio
     async def test_get_file_async_http_error(self):
         """测试异步下载文件时的 HTTP 错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -968,7 +1116,11 @@ class TestDataAPIFileOperationsErrors:
     @respx.mock
     def test_get_video_http_error(self):
         """测试同步下载视频时的 HTTP 错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -993,7 +1145,11 @@ class TestDataAPIFileOperationsErrors:
     @pytest.mark.asyncio
     async def test_get_video_async_http_error(self):
         """测试异步下载视频时的 HTTP 错误"""
-        config = Config(token="token", account_id="test-account")
+        config = Config(
+            account_id="test-account",
+            access_key_id="",
+            access_key_secret="",
+        )
         api = DataAPI(
             resource_name="test",
             resource_type=ResourceType.Runtime,
@@ -1016,10 +1172,18 @@ class TestDataAPIFileOperationsErrors:
 
 
 class TestDataAPIAuthWithSandbox:
-    """测试 DataAPI 针对 Sandbox 资源类型的认证"""
+    """测试 DataAPI 针对 Sandbox 资源类型的认证（RAM 鉴权下与其它资源类型一致）"""
 
-    def test_auth_with_sandbox_resource_type(self):
-        """测试 Sandbox 资源类型使用 resource_id"""
+    @patch("agentrun.utils.data_api.get_agentrun_signed_headers")
+    def test_auth_with_sandbox_uses_ram_when_ak_sk_provided(
+        self, mock_signed_headers
+    ):
+        """测试 Sandbox 资源类型在配置 AK/SK 时同样使用 RAM 签名"""
+        mock_signed_headers.return_value = {
+            "Agentrun-Authorization": "mock-sig",
+            "x-acs-date": "2025-01-01T00:00:00Z",
+            "x-acs-content-sha256": "UNSIGNED-PAYLOAD",
+        }
         config = Config(
             access_key_id="ak",
             access_key_secret="sk",
@@ -1031,17 +1195,14 @@ class TestDataAPIAuthWithSandbox:
             config=config,
         )
 
-        # Mock the token fetch - ControlAPI is imported inside the auth method
-        with patch("agentrun.utils.control_api.ControlAPI") as mock_control:
-            mock_client = MagicMock()
-            mock_response = MagicMock()
-            mock_response.body.data.access_token = "sandbox-token"
-            mock_client.get_access_token.return_value = mock_response
-            mock_control.return_value._get_client.return_value = mock_client
-
-            url, headers, query = api.auth("https://example.com", {}, None)
-
-            # 验证调用使用了 resource_id 而不是 resource_name
-            call_args = mock_client.get_access_token.call_args
-            request_obj = call_args[0][0]
-            assert hasattr(request_obj, "resource_id")
+        url, headers, query = api.auth(
+            "https://test-account-ram.agentrun-data.cn-hangzhou.aliyuncs.com/sandboxes/sandbox-123/health",
+            {},
+            None,
+            method="GET",
+        )
+        assert "Agentrun-Authorization" in headers
+        assert (
+            api.get_base_url().startswith("https://")
+            and "-ram." in api.get_base_url()
+        )

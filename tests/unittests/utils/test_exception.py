@@ -4,6 +4,7 @@ import pytest
 
 from agentrun.utils.exception import (
     AgentRunError,
+    BrowserToolError,
     ClientError,
     DeleteResourceError,
     HTTPError,
@@ -216,3 +217,29 @@ class TestDeleteResourceError:
         result = str(error)
         assert "Failed to delete resource" in result
         assert "Resource is locked" in result
+
+
+class TestBrowserToolError:
+    """测试 BrowserToolError 异常类"""
+
+    def test_init_without_operation(self):
+        """测试不带 operation 的初始化"""
+        error = BrowserToolError("Element not found")
+        assert str(error) == "Element not found"
+        assert error.operation is None
+
+    def test_init_with_operation(self):
+        """测试带 operation 的初始化"""
+        error = BrowserToolError("Element not found", operation="click")
+        assert "click" in str(error)
+        assert "Element not found" in str(error)
+        assert error.operation == "click"
+
+
+class TestAgentRunErrorEdgeCases:
+    """测试 AgentRunError 边界情况"""
+
+    def test_init_with_empty_message(self):
+        """测试空消息的初始化"""
+        error = AgentRunError("")
+        assert error.message == ""
