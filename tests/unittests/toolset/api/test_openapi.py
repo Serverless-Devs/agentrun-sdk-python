@@ -3,15 +3,18 @@
 测试内容：
 1. $ref 解析是否正确展开内部引用
 2. Mock 服务端验证请求参数是否符合预期
+3. agentrun-data 域名自动 RAM 签名注入
 """
 
 import json
+from unittest.mock import patch
 
 import httpx
 import respx
 
 from agentrun.toolset.api.openapi import ApiSet, OpenAPI
 from agentrun.toolset.model import ToolInfo, ToolSchema
+from agentrun.utils.config import Config
 
 
 class TestOpenAPIRefResolution:
@@ -1210,3 +1213,132 @@ class TestCoffeeShopSchema:
         assert json_schema["type"] == "object"
         assert "items" in json_schema["properties"]
         assert json_schema["properties"]["items"]["type"] == "array"
+
+
+AGENTRUN_DATA_SCHEMA = {
+    "openapi": "3.0.1",
+    "info": {"title": "Test", "version": "1.0"},
+    "servers": [{
+        "url": "https://1431999136518149.agentrun-data.cn-hangzhou.aliyuncs.com/tools/test/"
+    }],
+    "paths": {
+        "/invoke": {
+            "post": {
+                "operationId": "test_tool",
+                "summary": "Test tool",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {
+                                        "type": "string",
+                                    }
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {"200": {"description": "OK"}},
+            }
+        }
+    },
+}
+
+
+class TestOpenAPIRamAuth:
+    """测试 agentrun-data 域名 OpenAPI 调用时自动注入 RAM 签名"""
+
+    def _make_openapi(
+        self,
+        base_url: str | None = None,
+        config: Config | None = None,
+    ) -> OpenAPI:
+        return OpenAPI(
+            schema=AGENTRUN_DATA_SCHEMA,
+            base_url=base_url,
+            config=config,
+        )
+
+    def test_ram_auth_applied_for_agentrun_data_url(self):
+        """agentrun-data 域名应自动注入 RAM 签名 headers 并改写为 -ram 端点"""
+        cfg = Config(
+            access_key_id="test-ak",
+            access_key_secret="test-sk",
+            region_id="cn-hangzhou",
+        )
+        openapi = self._make_openapi(config=cfg)
+        request_kwargs, _, _ = openapi._prepare_request(
+            "test_tool", {"query": "hello"}, cfg
+        )
+        assert "Agentrun-Authorization" in request_kwargs["headers"]
+        assert "-ram." in request_kwargs["url"]
+        assert request_kwargs["headers"]["Agentrun-Authorization"].startswith(
+            "AGENTRUN4-HMAC-SHA256 "
+        )
+
+    def test_ram_auth_not_applied_for_non_agentrun_url(self):
+        """非 agentrun-data 域名不应注入 RAM 签名"""
+        cfg = Config(
+            access_key_id="test-ak",
+            access_key_secret="test-sk",
+            region_id="cn-hangzhou",
+        )
+        openapi = self._make_openapi(
+            base_url="https://example.com/api",
+            config=cfg,
+        )
+        request_kwargs, _, _ = openapi._prepare_request(
+            "test_tool", {"query": "hello"}, cfg
+        )
+        assert "Agentrun-Authorization" not in request_kwargs["headers"]
+        assert "-ram." not in request_kwargs["url"]
+
+    def test_ram_auth_skipped_without_ak_sk(self):
+        """没有 AK/SK 时应跳过 RAM 签名"""
+        with patch.dict(
+            "os.environ",
+            {},
+            clear=True,
+        ):
+            cfg = Config(region_id="cn-hangzhou")
+            openapi = self._make_openapi(config=cfg)
+            request_kwargs, _, _ = openapi._prepare_request(
+                "test_tool", {"query": "hello"}, cfg
+            )
+            assert "Agentrun-Authorization" not in request_kwargs["headers"]
+
+    def test_ram_auth_url_rewrite(self):
+        """验证 URL 被正确改写为 -ram 端点"""
+        cfg = Config(
+            access_key_id="test-ak",
+            access_key_secret="test-sk",
+            region_id="cn-hangzhou",
+        )
+        openapi = self._make_openapi(config=cfg)
+        request_kwargs, _, _ = openapi._prepare_request(
+            "test_tool", {"query": "hello"}, cfg
+        )
+        assert request_kwargs["url"].startswith(
+            "https://1431999136518149-ram.agentrun-data."
+        )
+
+    def test_ram_auth_preserves_existing_headers(self):
+        """RAM 签名不应覆盖用户自定义 headers"""
+        cfg = Config(
+            access_key_id="test-ak",
+            access_key_secret="test-sk",
+            region_id="cn-hangzhou",
+        )
+        openapi = OpenAPI(
+            schema=AGENTRUN_DATA_SCHEMA,
+            headers={"X-Custom": "value"},
+            config=cfg,
+        )
+        request_kwargs, _, _ = openapi._prepare_request(
+            "test_tool", {"query": "hello"}, cfg
+        )
+        assert "Agentrun-Authorization" in request_kwargs["headers"]
+        assert request_kwargs["headers"]["X-Custom"] == "value"

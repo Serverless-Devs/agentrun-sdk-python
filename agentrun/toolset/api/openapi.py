@@ -7,6 +7,7 @@ Handles tool invocations for OpenAPI specification.
 from copy import deepcopy
 import json
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from pydash import get as pg
@@ -15,6 +16,7 @@ from agentrun.integration.utils.tool import normalize_tool_name
 from agentrun.utils.config import Config
 from agentrun.utils.log import logger
 from agentrun.utils.model import BaseModel
+from agentrun.utils.ram_signature import get_agentrun_signed_headers
 
 from ..model import ToolInfo, ToolSchema
 
@@ -830,11 +832,21 @@ class OpenAPI:
             name, arguments, config
         )
 
-        print(request_kwargs)
         with httpx.Client(timeout=timeout) as client:
             response = client.request(**request_kwargs)
             if raise_for_status:
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError:
+                    logger.error(
+                        "OpenAPI tool request failed: status=%s url=%s "
+                        "response_headers=%s response_body=%s",
+                        response.status_code,
+                        response.request.url,
+                        dict(response.headers),
+                        response.text[:2000],
+                    )
+                    raise
             return self._format_response(response)
 
     async def invoke_tool_async(
@@ -850,7 +862,18 @@ class OpenAPI:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.request(**request_kwargs)
             if raise_for_status:
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError:
+                    logger.error(
+                        "OpenAPI tool request failed: status=%s url=%s "
+                        "response_headers=%s response_body=%s",
+                        response.status_code,
+                        response.request.url,
+                        dict(response.headers),
+                        response.text[:2000],
+                    )
+                    raise
             return self._format_response(response)
 
     def _load_schema(self, schema: Any) -> Dict[str, Any]:
@@ -945,7 +968,6 @@ class OpenAPI:
 
     def _extract_base_url(self, schema: Dict[str, Any]) -> Optional[str]:
         servers = schema.get("servers") or []
-        print("======", servers)
         return self._pick_server_url(servers)
 
     def _convert_to_native(self, value: Any) -> Any:
@@ -1177,7 +1199,65 @@ class OpenAPI:
                 args,
             )
 
+        self._apply_ram_auth(request_kwargs, combined_config)
+
         return request_kwargs, timeout, raise_for_status
+
+    def _apply_ram_auth(
+        self,
+        request_kwargs: Dict[str, Any],
+        config: Optional[Config],
+    ) -> None:
+        """当目标是 agentrun-data 域名时，自动注入 RAM 签名鉴权 headers 并改写为 -ram 端点。"""
+        url = request_kwargs.get("url", "")
+        parsed = urlparse(url)
+        if ".agentrun-data." not in (parsed.netloc or ""):
+            return
+
+        cfg = Config.with_configs(config)
+        ak = cfg.get_access_key_id()
+        sk = cfg.get_access_key_secret()
+        if not ak or not sk:
+            return
+
+        parts = parsed.netloc.split(".", 1)
+        if len(parts) == 2:
+            ram_netloc = parts[0] + "-ram." + parts[1]
+            url = urlunparse((
+                parsed.scheme,
+                ram_netloc,
+                parsed.path or "",
+                parsed.params,
+                parsed.query,
+                parsed.fragment,
+            ))
+            request_kwargs["url"] = url
+
+        method = request_kwargs.get("method", "GET")
+        body_bytes: Optional[bytes] = None
+        json_body = request_kwargs.get("json")
+        if json_body is not None:
+            body_bytes = json.dumps(json_body).encode("utf-8")
+
+        try:
+            signed = get_agentrun_signed_headers(
+                url=url,
+                method=method,
+                access_key_id=ak,
+                access_key_secret=sk,
+                security_token=cfg.get_security_token() or None,
+                region=cfg.get_region_id(),
+                product="agentrun",
+                body=body_bytes,
+            )
+            existing_headers: Dict[str, str] = request_kwargs.get("headers", {})
+            request_kwargs["headers"] = {**signed, **existing_headers}
+            logger.debug(
+                "applied RAM signature for OpenAPI tool request to %s",
+                url[:80] + "..." if len(url) > 80 else url,
+            )
+        except ValueError as e:
+            logger.warning("RAM signing skipped for OpenAPI tool: %s", e)
 
     def _format_response(self, response: httpx.Response) -> Dict[str, Any]:
         try:
