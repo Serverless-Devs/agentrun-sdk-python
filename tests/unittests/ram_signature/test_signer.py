@@ -5,7 +5,13 @@ from urllib.parse import urlparse
 
 import pytest
 
-from agentrun.ram_signature.python.signer import get_agentrun_signed_headers
+from agentrun.utils.ram_signature.signer import (
+    _canonical_headers,
+    _canonical_uri,
+    _percent_encode,
+    get_agentrun_signed_headers,
+    get_agentrun_signed_headers_with_debug,
+)
 
 
 class TestRamSignatureStandalone:
@@ -290,3 +296,159 @@ class TestRamSignatureFixedQueryBodyHeader:
         )
         if ref is not None:
             assert sig == ref, "SDK 与官方包(ref) 签名应一致"
+
+
+class TestSignerHelperFunctions:
+    """测试签名辅助函数的边界情况"""
+
+    def test_percent_encode_none(self):
+        """测试 _percent_encode(None) 返回空字符串"""
+        assert _percent_encode(None) == ""
+
+    def test_percent_encode_tilde(self):
+        """测试 _percent_encode 正确处理 ~ 字符"""
+        assert "~" in _percent_encode("a~b")
+
+    def test_canonical_uri_empty(self):
+        """测试 _canonical_uri 空字符串返回 /"""
+        assert _canonical_uri("") == "/"
+
+    def test_canonical_uri_none(self):
+        """测试 _canonical_uri None 返回 /"""
+        assert _canonical_uri(None) == "/"
+
+    def test_canonical_uri_normal(self):
+        """测试 _canonical_uri 正常路径"""
+        assert _canonical_uri("/path/to/resource") == "/path/to/resource"
+
+    def test_canonical_headers_skips_none_values(self):
+        """测试 _canonical_headers 跳过 value 为 None 的 header"""
+        headers = {
+            "host": "example.com",
+            "x-acs-date": "2026-01-01T00:00:00Z",
+            "x-acs-skip": None,
+        }
+        canon, signed = _canonical_headers(headers)
+        assert "x-acs-skip" not in signed
+        assert "host" in signed
+
+
+class TestSignerNaiveDatetime:
+    """测试 naive datetime（无时区信息）的处理"""
+
+    def test_naive_datetime_gets_utc(self):
+        """测试 naive datetime 被自动设置为 UTC"""
+        naive_time = datetime(2026, 1, 1, 12, 0, 0)
+        headers = get_agentrun_signed_headers(
+            url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/path",
+            access_key_id="ak",
+            access_key_secret="sk",
+            sign_time=naive_time,
+        )
+        assert headers["x-acs-date"] == "2026-01-01T12:00:00Z"
+
+
+class TestSignerWithDebug:
+    """测试 get_agentrun_signed_headers_with_debug 函数"""
+
+    def test_returns_headers_and_debug(self):
+        """测试返回 headers 和 debug 信息"""
+        t = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        headers, debug = get_agentrun_signed_headers_with_debug(
+            url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/path",
+            access_key_id="ak",
+            access_key_secret="sk",
+            sign_time=t,
+        )
+        assert "Agentrun-Authorization" in headers
+        assert "x-acs-date" in headers
+        assert "canonical_request" in debug
+        assert "string_to_sign" in debug
+        assert "signing_key_hex" in debug
+        assert "signature" in debug
+
+    def test_debug_signature_matches_headers(self):
+        """测试 debug 中的 signature 与 headers 中的一致"""
+        t = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        headers, debug = get_agentrun_signed_headers_with_debug(
+            url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/path",
+            access_key_id="ak",
+            access_key_secret="sk",
+            sign_time=t,
+        )
+        auth = headers["Agentrun-Authorization"]
+        sig_in_auth = auth.split("Signature=")[-1]
+        assert sig_in_auth == debug["signature"]
+
+    def test_debug_matches_non_debug_version(self):
+        """测试 debug 版本与非 debug 版本签名一致"""
+        t = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        opts = dict(
+            url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/path?a=1",
+            method="POST",
+            access_key_id="ak",
+            access_key_secret="sk",
+            sign_time=t,
+        )
+        headers_normal = get_agentrun_signed_headers(**opts)
+        headers_debug, _ = get_agentrun_signed_headers_with_debug(**opts)
+        assert (
+            headers_normal["Agentrun-Authorization"]
+            == headers_debug["Agentrun-Authorization"]
+        )
+
+    def test_debug_requires_ak_sk(self):
+        """测试 debug 版本也要求 ak/sk"""
+        with pytest.raises(ValueError, match="Access Key ID and Secret"):
+            get_agentrun_signed_headers_with_debug(
+                url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/",
+                access_key_id="",
+                access_key_secret="sk",
+            )
+
+    def test_debug_with_security_token(self):
+        """测试 debug 版本带 security_token"""
+        t = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        headers, debug = get_agentrun_signed_headers_with_debug(
+            url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/path",
+            access_key_id="ak",
+            access_key_secret="sk",
+            security_token="sts-token",
+            sign_time=t,
+        )
+        assert "x-acs-security-token" in headers
+        assert "x-acs-security-token" in headers["Agentrun-Authorization"]
+
+    def test_debug_with_content_type(self):
+        """测试 debug 版本带 content_type"""
+        t = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        headers, debug = get_agentrun_signed_headers_with_debug(
+            url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/path",
+            access_key_id="ak",
+            access_key_secret="sk",
+            content_type="application/json",
+            sign_time=t,
+        )
+        assert "content-type" in headers["Agentrun-Authorization"]
+
+    def test_debug_with_query_params(self):
+        """测试 debug 版本带 query 参数"""
+        t = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        headers, debug = get_agentrun_signed_headers_with_debug(
+            url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/path?foo=bar&zoo=",
+            access_key_id="ak",
+            access_key_secret="sk",
+            sign_time=t,
+        )
+        assert "foo=bar" in debug["canonical_request"]
+
+    def test_debug_naive_datetime(self):
+        """测试 debug 版本处理 naive datetime"""
+        naive_time = datetime(2026, 1, 1, 12, 0, 0)
+        headers, debug = get_agentrun_signed_headers_with_debug(
+            url="https://x.agentrun-data.cn-hangzhou.aliyuncs.com/path",
+            access_key_id="ak",
+            access_key_secret="sk",
+            sign_time=naive_time,
+        )
+        assert headers["x-acs-date"] == "2026-01-01T12:00:00Z"
