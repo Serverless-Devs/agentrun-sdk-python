@@ -91,6 +91,7 @@ class TestBrowserToolSetRunInSandbox:
         with patch.object(BrowserToolSet, "__init__", lambda self: None):
             ts = BrowserToolSet()
             ts._playwright_sync = None
+            ts._playwright_thread = None
             ts.sandbox = mock_sandbox
             ts.sandbox_id = "test-sandbox-id"
             ts.lock = MagicMock()
@@ -218,6 +219,7 @@ class TestBrowserToolSetPlaywrightCaching:
         with patch.object(BrowserToolSet, "__init__", lambda self: None):
             ts = BrowserToolSet()
             ts._playwright_sync = None
+            ts._playwright_thread = None
             ts.sandbox = mock_sandbox
             ts.sandbox_id = "test-sandbox-id"
             ts.lock = threading.Lock()
@@ -255,14 +257,22 @@ class TestBrowserToolSetPlaywrightCaching:
     def test_concurrent_get_playwright_creates_only_one_connection(
         self, toolset, mock_sandbox
     ):
-        """测试并发调用 _get_playwright 只创建一个连接，不会泄漏"""
-        barrier = threading.Barrier(5)
+        """测试并发调用 _get_playwright 只创建一个连接，不会泄漏
+
+        所有工作线程在同一 executor 内并发运行（即创建线程仍存活），
+        应复用同一连接，不会触发重建。
+        """
+        start_barrier = threading.Barrier(5)
+        # Keep all threads alive until every thread has obtained playwright,
+        # simulating concurrent workers within the same executor context.
+        hold_barrier = threading.Barrier(5)
         results: list = []
 
         def worker():
-            barrier.wait()
+            start_barrier.wait()
             p = toolset._get_playwright(mock_sandbox)
             results.append(p)
+            hold_barrier.wait()  # stay alive so is_alive() == True for peers
 
         threads = [threading.Thread(target=worker) for _ in range(5)]
         for t in threads:
@@ -289,6 +299,7 @@ class TestBrowserToolSetClose:
         with patch.object(BrowserToolSet, "__init__", lambda self: None):
             ts = BrowserToolSet()
             ts._playwright_sync = MagicMock()
+            ts._playwright_thread = threading.current_thread()
             ts.sandbox = mock_sandbox
             ts.sandbox_id = "test-sandbox-id"
             ts.lock = threading.Lock()
@@ -307,3 +318,173 @@ class TestBrowserToolSetClose:
         mock_sandbox.stop.assert_called_once()
         assert toolset.sandbox is None
         assert toolset.sandbox_id == ""
+
+
+class TestBrowserToolSetThreadAwareness:
+    """测试 _get_playwright 的线程感知行为 / Tests for thread-aware Playwright caching"""
+
+    @pytest.fixture
+    def mock_sandbox(self):
+        """创建模拟的沙箱"""
+        sb = MagicMock()
+        sb.sync_playwright.return_value = MagicMock()
+        return sb
+
+    @pytest.fixture
+    def toolset(self, mock_sandbox):
+        """创建带有模拟沙箱的 BrowserToolSet 实例"""
+        with patch.object(BrowserToolSet, "__init__", lambda self: None):
+            ts = BrowserToolSet()
+            ts._playwright_sync = None
+            ts._playwright_thread = None
+            ts.sandbox = mock_sandbox
+            ts.sandbox_id = "test-sandbox-id"
+            ts.lock = threading.Lock()
+            return ts
+
+    def test_get_playwright_records_creating_thread(self, toolset, mock_sandbox):
+        """测试 _get_playwright 记录创建连接的线程"""
+        toolset._get_playwright(mock_sandbox)
+
+        assert toolset._playwright_thread is threading.current_thread()
+
+    def test_get_playwright_same_thread_reuses_connection(
+        self, toolset, mock_sandbox
+    ):
+        """测试同一线程多次调用复用连接"""
+        p1 = toolset._get_playwright(mock_sandbox)
+        p2 = toolset._get_playwright(mock_sandbox)
+
+        assert p1 is p2
+        mock_sandbox.sync_playwright.assert_called_once()
+
+    def test_get_playwright_dead_thread_recreates_connection(
+        self, toolset, mock_sandbox
+    ):
+        """测试创建线程退出后重建 Playwright 连接（Bug 1 修复）
+
+        模拟 LangGraph ToolNode 的行为：每次工具调用在不同的线程上执行。
+        当创建连接的工作线程退出后，缓存的 Playwright 实例必须重建，
+        因为 Playwright 内部 greenlet 绑定到创建它的线程。
+        """
+        first_instance: list = []
+        second_instance: list = []
+
+        def first_call():
+            p = toolset._get_playwright(mock_sandbox)
+            first_instance.append(p)
+
+        t1 = threading.Thread(target=first_call)
+        t1.start()
+        t1.join()
+        # t1 has now exited — its greenlet binding is dead
+
+        def second_call():
+            p = toolset._get_playwright(mock_sandbox)
+            second_instance.append(p)
+
+        t2 = threading.Thread(target=second_call)
+        t2.start()
+        t2.join()
+
+        assert len(first_instance) == 1
+        assert len(second_instance) == 1
+        # A new connection must have been created for the second call
+        assert mock_sandbox.sync_playwright.call_count == 2
+
+    def test_get_playwright_live_thread_not_recreated(
+        self, toolset, mock_sandbox
+    ):
+        """测试创建线程仍存活时不重建连接（并发安全）
+
+        即使在不同线程中调用，只要创建线程仍然存活，就应复用同一连接。
+        这模拟同一 executor 内并发工具调用的场景。
+        """
+        results: list = []
+
+        # Create connection in main thread first
+        toolset._get_playwright(mock_sandbox)
+        # The creating thread (main test thread) is still alive
+
+        # Another thread should reuse the same connection
+        def worker():
+            p = toolset._get_playwright(mock_sandbox)
+            results.append(p)
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+
+        assert len(results) == 1
+        assert results[0] is toolset._playwright_sync
+        mock_sandbox.sync_playwright.assert_called_once()
+
+    def test_reset_playwright_clears_thread(self, toolset, mock_sandbox):
+        """测试 _reset_playwright 清理线程引用"""
+        toolset._get_playwright(mock_sandbox)
+        assert toolset._playwright_thread is not None
+
+        toolset._reset_playwright()
+
+        assert toolset._playwright_thread is None
+        assert toolset._playwright_sync is None
+
+
+class TestBrowserToolSetGreenletErrorHandling:
+    """测试 _run_in_sandbox 对 greenlet 死亡错误的处理（Bug 3 修复）"""
+
+    @pytest.fixture
+    def mock_sandbox(self):
+        """创建模拟的沙箱"""
+        return MagicMock()
+
+    @pytest.fixture
+    def toolset(self, mock_sandbox):
+        """创建带有模拟沙箱的 BrowserToolSet 实例"""
+        with patch.object(BrowserToolSet, "__init__", lambda self: None):
+            ts = BrowserToolSet()
+            ts._playwright_sync = None
+            ts._playwright_thread = None
+            ts.sandbox = mock_sandbox
+            ts.sandbox_id = "test-sandbox-id"
+            ts.lock = MagicMock()
+            ts._reset_playwright = MagicMock()
+            ts._ensure_sandbox = MagicMock(return_value=mock_sandbox)
+            return ts
+
+    def test_greenlet_thread_error_resets_playwright_and_sandbox(
+        self, toolset, mock_sandbox
+    ):
+        """测试 greenlet 线程绑定错误触发 Playwright 和沙箱重置
+
+        当 'cannot switch to a different thread' 错误发生时，
+        必须重置缓存的 Playwright 实例，避免后续调用持续失败。
+        """
+
+        def callback(sb):
+            raise Exception(
+                "cannot switch to a different thread (which happens to have"
+                " exited)"
+            )
+
+        result = toolset._run_in_sandbox(callback)
+
+        assert "error" in result
+        assert "cannot switch to" in result["error"]
+        toolset._reset_playwright.assert_called_once()
+        assert toolset.sandbox is None
+
+    def test_non_greenlet_unexpected_error_does_not_reset(
+        self, toolset, mock_sandbox
+    ):
+        """测试普通未知错误不触发 Playwright 重置"""
+        original_sandbox = toolset.sandbox
+
+        def callback(sb):
+            raise ValueError("Some other unexpected error")
+
+        result = toolset._run_in_sandbox(callback)
+
+        assert "error" in result
+        toolset._reset_playwright.assert_not_called()
+        assert toolset.sandbox is original_sandbox
