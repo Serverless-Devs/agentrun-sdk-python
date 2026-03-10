@@ -21,7 +21,7 @@ from .mock_llm_server import MockLLMServer
 from .scenarios import Scenarios
 
 
-class TestToolSet(CommonToolSet):
+class SampleToolSet(CommonToolSet):
     """测试用工具集"""
 
     def __init__(self, timezone: str = "UTC"):
@@ -208,9 +208,9 @@ class TestGoogleADKIntegration(GoogleADKTestMixin):
         return model("mock-model")
 
     @pytest.fixture
-    def mocked_toolset(self) -> TestToolSet:
+    def mocked_toolset(self) -> SampleToolSet:
         """创建 mock 的工具集"""
-        return TestToolSet(timezone="UTC")
+        return SampleToolSet(timezone="UTC")
 
     # =========================================================================
     # 测试：简单对话（无工具调用）
@@ -252,7 +252,7 @@ class TestGoogleADKIntegration(GoogleADKTestMixin):
         self,
         mock_server: MockLLMServer,
         mocked_model: CommonModel,
-        mocked_toolset: TestToolSet,
+        mocked_toolset: SampleToolSet,
     ):
         """测试单次工具调用"""
         # 配置场景
@@ -284,7 +284,7 @@ class TestGoogleADKIntegration(GoogleADKTestMixin):
         self,
         mock_server: MockLLMServer,
         mocked_model: CommonModel,
-        mocked_toolset: TestToolSet,
+        mocked_toolset: SampleToolSet,
     ):
         """测试多工具同时调用"""
         # 使用默认的多工具场景
@@ -315,7 +315,7 @@ class TestGoogleADKIntegration(GoogleADKTestMixin):
         self,
         mock_server: MockLLMServer,
         mocked_model: CommonModel,
-        mocked_toolset: TestToolSet,
+        mocked_toolset: SampleToolSet,
     ):
         """测试 stream_options 在请求中的正确性"""
         # 使用默认场景

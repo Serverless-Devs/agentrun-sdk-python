@@ -26,6 +26,16 @@ except ImportError:
         pass
 
 
+try:
+    from greenlet import error as GreenletError
+except ImportError:
+
+    class GreenletError(Exception):  # type: ignore[no-redef]
+        """Fallback greenlet error used when greenlet is not installed."""
+
+        pass
+
+
 class SandboxToolSet(CommonToolSet):
     """沙箱工具集基类
 
@@ -727,24 +737,47 @@ class BrowserToolSet(SandboxToolSet):
             polar_fs_config=polar_fs_config,
         )
         self._playwright_sync: Optional["BrowserPlaywrightSync"] = None
+        self._playwright_thread: Optional[threading.Thread] = None
 
     def _get_playwright(self, sb: BrowserSandbox) -> "BrowserPlaywrightSync":
         """获取或创建 Playwright 连接 / Get or create Playwright connection
 
         复用已有连接以减少连接建立开销和瞬态错误。
         使用双重检查锁定避免并发调用时创建多个连接导致资源泄漏。
+        当创建连接的线程已退出时，自动重建连接（Playwright greenlet 绑定到创建它的线程）。
+
         Reuses existing connection to reduce connection overhead and transient errors.
         Uses double-checked locking to avoid leaking connections under concurrent calls.
+        Automatically recreates the connection when the thread that created it has exited,
+        because Playwright's internal greenlet is bound to the thread that created it.
         """
-        if self._playwright_sync is not None:
-            return self._playwright_sync
+        if self._playwright_sync is not None and self._playwright_thread is not None:
+            current_thread = threading.current_thread()
+            creator_thread = self._playwright_thread
+            if not creator_thread.is_alive() or current_thread is not creator_thread:
+                if not creator_thread.is_alive():
+                    logger.debug(
+                        "Playwright creating thread (id=%s) has exited, recreating"
+                        " connection",
+                        creator_thread.ident,
+                    )
+                else:
+                    logger.debug(
+                        "Playwright creating thread (id=%s) differs from current"
+                        " thread (id=%s), recreating connection",
+                        creator_thread.ident,
+                        current_thread.ident,
+                    )
+                self._reset_playwright()
 
-        with self.lock:
-            if self._playwright_sync is None:
-                playwright_sync = sb.sync_playwright()
-                playwright_sync.open()
-                self._playwright_sync = playwright_sync
-            return self._playwright_sync
+        if self._playwright_sync is None:
+            with self.lock:
+                if self._playwright_sync is None:
+                    playwright_sync = sb.sync_playwright()
+                    playwright_sync.open()
+                    self._playwright_sync = playwright_sync
+                    self._playwright_thread = threading.current_thread()
+        return self._playwright_sync
 
     def _reset_playwright(self) -> None:
         """重置 Playwright 连接 / Reset Playwright connection
@@ -763,6 +796,7 @@ class BrowserToolSet(SandboxToolSet):
                         exc_info=True,
                     )
                 self._playwright_sync = None
+            self._playwright_thread = None
 
     def _run_in_sandbox(self, callback: Callable[[Sandbox], Any]) -> Any:
         """在沙箱中执行操作，智能区分错误类型 / Execute in sandbox with smart error handling
@@ -810,6 +844,22 @@ class BrowserToolSet(SandboxToolSet):
             else:
                 logger.debug(
                     "Browser tool-level error (no sandbox rebuild): %s", e
+                )
+                return {"error": f"{e!s}"}
+        except GreenletError as e:
+            logger.debug(
+                "Greenlet thread-binding error, resetting Playwright: %s",
+                e,
+            )
+            # Keep the existing sandbox (it is still healthy); only the
+            # Playwright connection needs to be recreated on this thread.
+            try:
+                self._reset_playwright()
+                return callback(sb)
+            except Exception as e2:
+                logger.debug(
+                    "Retry after Playwright reset failed: %s",
+                    e2,
                 )
                 return {"error": f"{e!s}"}
         except Exception as e:
@@ -881,7 +931,7 @@ class BrowserToolSet(SandboxToolSet):
     def browser_navigate(
         self,
         url: str,
-        wait_until: str = "load",
+        wait_until: str = "domcontentloaded",
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """导航到 URL / Navigate to URL"""
