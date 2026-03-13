@@ -639,7 +639,7 @@ class TestLangChainAguiIntegration(ProtocolValidator):
                 tools=tools,
             )
 
-            input_data = {
+            input_data: Any = {
                 "messages": [{
                     "role": "user",
                     "content": (

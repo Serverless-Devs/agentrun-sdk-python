@@ -751,20 +751,26 @@ class BrowserToolSet(SandboxToolSet):
         Automatically recreates the connection when the thread that created it has exited,
         because Playwright's internal greenlet is bound to the thread that created it.
         """
-        if self._playwright_sync is not None and self._playwright_thread is not None:
+        if (
+            self._playwright_sync is not None
+            and self._playwright_thread is not None
+        ):
             current_thread = threading.current_thread()
             creator_thread = self._playwright_thread
-            if not creator_thread.is_alive() or current_thread is not creator_thread:
+            if (
+                not creator_thread.is_alive()
+                or current_thread is not creator_thread
+            ):
                 if not creator_thread.is_alive():
                     logger.debug(
-                        "Playwright creating thread (id=%s) has exited, recreating"
-                        " connection",
+                        "Playwright creating thread (id=%s) has exited,"
+                        " recreating connection",
                         creator_thread.ident,
                     )
                 else:
                     logger.debug(
-                        "Playwright creating thread (id=%s) differs from current"
-                        " thread (id=%s), recreating connection",
+                        "Playwright creating thread (id=%s) differs from"
+                        " current thread (id=%s), recreating connection",
                         creator_thread.ident,
                         current_thread.ident,
                     )
@@ -970,7 +976,7 @@ class BrowserToolSet(SandboxToolSet):
     )
     def browser_navigate_back(
         self,
-        wait_until: str = "load",
+        wait_until: str = "domcontentloaded",
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """返回上一页 / Go back to previous page"""
@@ -996,7 +1002,7 @@ class BrowserToolSet(SandboxToolSet):
     )
     def browser_go_forward(
         self,
-        wait_until: str = "load",
+        wait_until: str = "domcontentloaded",
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
         """前进到下一页 / Go forward to next page"""
