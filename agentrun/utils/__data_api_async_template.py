@@ -8,6 +8,7 @@ error handling, type hints, and JSON serialization.
 """
 
 from enum import Enum
+import json
 from typing import Any, Dict, Optional, Union
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -15,8 +16,8 @@ import httpx
 
 from agentrun.utils.config import Config
 from agentrun.utils.exception import ClientError
-from agentrun.utils.helper import mask_password
 from agentrun.utils.log import logger
+from agentrun.utils.ram_signature import get_agentrun_signed_headers
 
 
 class ResourceType(Enum):
@@ -65,25 +66,45 @@ class DataAPI:
 
         self.resource_name = resource_name
         self.resource_type = resource_type
-        self.access_token = None
 
         self.config = Config.with_configs(config)
         self.namespace = namespace
 
-        if self.config.get_token():
-            logger.debug(
-                "using provided access token from config, %s",
-                mask_password(self.config.get_token() or ""),
-            )
-            self.access_token = self.config.get_token()
+    def _use_ram_auth(self, config: Optional[Config] = None) -> bool:
+        """是否使用 RAM 签名鉴权（配置了 AK/SK 时使用）。"""
+        cfg = Config.with_configs(self.config, config)
+        return bool(cfg.get_access_key_id() and cfg.get_access_key_secret())
+
+    def _get_ram_data_endpoint(self, config: Optional[Config] = None) -> str:
+        """返回 RAM 鉴权用的 data endpoint（仅当默认 agentrun-data 域名时在 host 前加 -ram）。"""
+        cfg = Config.with_configs(self.config, config)
+        base = cfg.get_data_endpoint()
+        parsed = urlparse(base)
+        if not parsed.netloc or ".agentrun-data." not in parsed.netloc:
+            return base
+        parts = parsed.netloc.split(".", 1)
+        if len(parts) != 2:
+            return base
+        ram_netloc = parts[0] + "-ram." + parts[1]
+        return urlunparse((
+            parsed.scheme,
+            ram_netloc,
+            parsed.path or "",
+            parsed.params,
+            parsed.query,
+            parsed.fragment,
+        ))
 
     def get_base_url(self) -> str:
         """
         Get the base URL for API requests.
+        当使用 RAM 鉴权时返回 RAM 端点（host 带 -ram）。
 
         Returns:
             The base URL string
         """
+        if self._use_ram_auth():
+            return self._get_ram_data_endpoint()
         return self.config.get_data_endpoint()
 
     def with_path(
@@ -166,81 +187,40 @@ class DataAPI:
         headers: Optional[Dict[str, str]] = None,
         query: Optional[Dict[str, Any]] = None,
         config: Optional[Config] = None,
+        method: str = "GET",
+        body: Optional[bytes] = None,
     ) -> tuple[str, Dict[str, str], Optional[Dict[str, Any]]]:
         """
-        Authentication hook for modifying requests before sending.
-
-        This method can be overridden in subclasses to implement custom
-        authentication logic (e.g., signing requests, adding auth tokens).
-
-        Args:
-            url: The request URL
-            headers: The request headers
-            query: The query parameters
-
-        Returns:
-            Tuple of (modified_url, modified_headers, modified_query)
-
-        Examples:
-            Override this method to add custom authentication:
-
-            >>> class AuthedClient(AgentRunDataClient):
-            ...     def auth(self, url, headers, query):
-            ...         # Add auth token to headers
-            ...         headers["Authorization"] = "Bearer token123"
-            ...         # Or add signature to query
-            ...         query = query or {}
-            ...         query["signature"] = self._sign_request(url)
-            ...         return url, headers, query
+        Authentication: 仅使用 RAM 签名鉴权（Agentrun-Authorization）。需在 config 中配置 AK/SK。
         """
         cfg = Config.with_configs(self.config, config)
 
-        if (
-            self.access_token is None
-            and self.resource_name
-            and self.resource_type
-            and not cfg.get_token()
-        ):
+        if self._use_ram_auth(cfg):
             try:
-                from alibabacloud_agentrun20250910.models import (
-                    GetAccessTokenRequest,
+                signed = get_agentrun_signed_headers(
+                    url=url,
+                    method=method,
+                    access_key_id=cfg.get_access_key_id(),
+                    access_key_secret=cfg.get_access_key_secret(),
+                    security_token=cfg.get_security_token() or None,
+                    region=cfg.get_region_id(),
+                    product="agentrun",
+                    body=body,
                 )
-
-                from .control_api import ControlAPI
-
-                cli = ControlAPI(self.config)._get_client()
-                input = (
-                    GetAccessTokenRequest(
-                        resource_id=self.resource_name,
-                        resource_type=self.resource_type.value,
-                    )
-                    if self.resource_type == ResourceType.Sandbox
-                    else GetAccessTokenRequest(
-                        resource_name=self.resource_name,
-                        resource_type=self.resource_type.value,
-                    )
+                headers = {
+                    **signed,
+                    **cfg.get_headers(),
+                    **(headers or {}),
+                }
+                logger.debug(
+                    "using RAM signature for data API request to %s",
+                    url[:80] + "..." if len(url) > 80 else url,
                 )
-
-                resp = cli.get_access_token(input)
-                self.access_token = resp.body.data.access_token
-
-            except Exception as e:
-                logger.warning(
-                    "Failed to get access token for"
-                    f" {self.resource_type}({self.resource_name}): {e}"
-                )
-
-            logger.debug(
-                "fetching access token for resource %s of type %s, %s",
-                self.resource_name,
-                self.resource_type,
-                mask_password(self.access_token or ""),
-            )
-        headers = {
-            "Agentrun-Access-Token": cfg.get_token() or self.access_token or "",
-            **cfg.get_headers(),
-            **(headers or {}),
-        }
+            except ValueError as e:
+                logger.warning("RAM signing skipped (missing AK/SK): %s", e)
+                headers = {**cfg.get_headers(), **(headers or {})}
+        else:
+            headers = {**cfg.get_headers(), **(headers or {})}
 
         return url, headers, query
 
@@ -267,8 +247,19 @@ class DataAPI:
         if headers:
             req_headers.update(headers)
 
+        body_bytes: Optional[bytes] = None
+        if data is not None:
+            if isinstance(data, dict):
+                body_bytes = json.dumps(data).encode("utf-8")
+            elif isinstance(data, str):
+                body_bytes = data.encode("utf-8")
+            else:
+                body_bytes = str(data).encode("utf-8")
+
         # Apply authentication (may modify URL, headers, and query)
-        url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
+        url, req_headers, query = self.auth(
+            url, req_headers, query, config=cfg, method=method, body=body_bytes
+        )
 
         # Add query parameters to URL if provided
         if query:
@@ -606,7 +597,9 @@ class DataAPI:
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
         cfg = Config.with_configs(self.config, config)
-        url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
+        url, req_headers, query = self.auth(
+            url, req_headers, query, config=cfg, method="POST"
+        )
 
         try:
             with open(local_file_path, "rb") as f:
@@ -659,7 +652,9 @@ class DataAPI:
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
         cfg = Config.with_configs(self.config, config)
-        url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
+        url, req_headers, query = self.auth(
+            url, req_headers, query, config=cfg, method="GET"
+        )
 
         try:
             async with httpx.AsyncClient(
@@ -708,7 +703,9 @@ class DataAPI:
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
         cfg = Config.with_configs(self.config, config)
-        url, req_headers, query = self.auth(url, req_headers, query, config=cfg)
+        url, req_headers, query = self.auth(
+            url, req_headers, query, config=cfg, method="GET"
+        )
 
         try:
             async with httpx.AsyncClient(

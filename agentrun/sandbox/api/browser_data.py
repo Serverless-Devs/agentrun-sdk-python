@@ -102,9 +102,13 @@ class BrowserDataAPI(SandboxDataAPI):
         from .playwright_sync import BrowserPlaywrightSync
 
         cfg = Config.with_configs(self.config, config)
-        _, headers, _ = self.auth(headers=cfg.get_headers(), config=cfg)
+
+        url = self.get_cdp_url(record=record)
+        url, headers, _ = self.auth(
+            url=url, headers=cfg.get_headers(), config=cfg
+        )
         return BrowserPlaywrightSync(
-            self.get_cdp_url(record=record),
+            url,
             browser_type=browser_type,
             headers=headers,
         )
@@ -118,9 +122,13 @@ class BrowserDataAPI(SandboxDataAPI):
         from .playwright_async import BrowserPlaywrightAsync
 
         cfg = Config.with_configs(self.config, config)
-        _, headers, _ = self.auth(headers=cfg.get_headers(), config=cfg)
+
+        url = self.get_cdp_url(record=record)
+        url, headers, _ = self.auth(
+            url=url, headers=cfg.get_headers(), config=cfg
+        )
         return BrowserPlaywrightAsync(
-            self.get_cdp_url(record=record),
+            url,
             browser_type=browser_type,
             headers=headers,
         )

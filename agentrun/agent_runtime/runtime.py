@@ -53,6 +53,8 @@ class AgentRuntime(
     delete, update, query, and endpoint/version management.
     """
 
+    _data_api: Dict[str, AgentRuntimeDataAPI] = {}
+
     @classmethod
     def __get_client(cls):
         """获取客户端实例 / Get client instance
@@ -867,17 +869,20 @@ class AgentRuntime(
         cfg = Config.with_configs(self._config, kwargs.get("config"))
         kwargs["config"] = cfg
 
-        if not self.__data_api:
-            self.__data_api: Dict[str, AgentRuntimeDataAPI] = {}
+        if not self._data_api:
+            self._data_api: Dict[str, AgentRuntimeDataAPI] = {}
 
-        if self.__data_api[agent_runtime_endpoint_name] is None:
-            self.__data_api[agent_runtime_endpoint_name] = AgentRuntimeDataAPI(
+        if (
+            agent_runtime_endpoint_name in self._data_api
+            and self._data_api[agent_runtime_endpoint_name] is None
+        ):
+            self._data_api[agent_runtime_endpoint_name] = AgentRuntimeDataAPI(
                 agent_runtime_name=self.agent_runtime_name or "",
                 agent_runtime_endpoint_name=agent_runtime_endpoint_name or "",
                 config=cfg,
             )
 
-        return await self.__data_api[
+        return await self._data_api[
             agent_runtime_endpoint_name
         ].invoke_openai_async(**kwargs)
 
@@ -889,16 +894,19 @@ class AgentRuntime(
         cfg = Config.with_configs(self._config, kwargs.get("config"))
         kwargs["config"] = cfg
 
-        if not self.__data_api:
-            self.__data_api: Dict[str, AgentRuntimeDataAPI] = {}
+        if not self._data_api:
+            self._data_api: Dict[str, AgentRuntimeDataAPI] = {}
 
-        if self.__data_api[agent_runtime_endpoint_name] is None:
-            self.__data_api[agent_runtime_endpoint_name] = AgentRuntimeDataAPI(
+        if (
+            agent_runtime_endpoint_name not in self._data_api
+            or self._data_api[agent_runtime_endpoint_name] is None
+        ):
+            self._data_api[agent_runtime_endpoint_name] = AgentRuntimeDataAPI(
                 agent_runtime_name=self.agent_runtime_name or "",
                 agent_runtime_endpoint_name=agent_runtime_endpoint_name or "",
                 config=cfg,
             )
 
-        return self.__data_api[agent_runtime_endpoint_name].invoke_openai(
+        return self._data_api[agent_runtime_endpoint_name].invoke_openai(
             **kwargs
         )

@@ -277,3 +277,139 @@ class TestControlAPIGetDevsClient:
         config_arg = call_args[0][0]
         assert config_arg.connect_timeout == 300
         assert config_arg.read_timeout == 60000
+
+
+class TestControlAPIGetBailianClient:
+    """测试 ControlAPI._get_bailian_client"""
+
+    @patch("agentrun.utils.control_api.BailianClient")
+    def test_get_bailian_client_basic(self, mock_client_class):
+        """测试获取基本百炼客户端"""
+        config = Config(
+            access_key_id="ak",
+            access_key_secret="sk",
+            region_id="cn-hangzhou",
+        )
+        api = ControlAPI(config=config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        result = api._get_bailian_client()
+
+        assert mock_client_class.called
+        call_args = mock_client_class.call_args
+        config_arg = call_args[0][0]
+        assert config_arg.access_key_id == "ak"
+        assert config_arg.access_key_secret == "sk"
+        assert config_arg.region_id == "cn-hangzhou"
+
+    @patch("agentrun.utils.control_api.BailianClient")
+    def test_get_bailian_client_strips_https_prefix(self, mock_client_class):
+        """测试获取百炼客户端时去除 https:// 前缀"""
+        config = Config(
+            access_key_id="ak",
+            access_key_secret="sk",
+            bailian_endpoint="https://bailian.cn-hangzhou.aliyuncs.com",
+        )
+        api = ControlAPI(config=config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        api._get_bailian_client()
+
+        call_args = mock_client_class.call_args
+        config_arg = call_args[0][0]
+        assert config_arg.endpoint == "bailian.cn-hangzhou.aliyuncs.com"
+
+    @patch("agentrun.utils.control_api.BailianClient")
+    def test_get_bailian_client_strips_http_prefix(self, mock_client_class):
+        """测试获取百炼客户端时去除 http:// 前缀"""
+        config = Config(
+            access_key_id="ak",
+            access_key_secret="sk",
+            bailian_endpoint="http://bailian.custom.com",
+        )
+        api = ControlAPI(config=config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        api._get_bailian_client()
+
+        call_args = mock_client_class.call_args
+        config_arg = call_args[0][0]
+        assert config_arg.endpoint == "bailian.custom.com"
+
+
+class TestControlAPIGetGPDBClient:
+    """测试 ControlAPI._get_gpdb_client"""
+
+    @patch("agentrun.utils.control_api.GPDBClient")
+    def test_get_gpdb_client_known_region(self, mock_client_class):
+        """测试已知 region 使用通用 endpoint"""
+        config = Config(
+            access_key_id="ak",
+            access_key_secret="sk",
+            region_id="cn-hangzhou",
+        )
+        api = ControlAPI(config=config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        api._get_gpdb_client()
+
+        call_args = mock_client_class.call_args
+        config_arg = call_args[0][0]
+        assert config_arg.endpoint == "gpdb.aliyuncs.com"
+
+    @patch("agentrun.utils.control_api.GPDBClient")
+    def test_get_gpdb_client_unknown_region(self, mock_client_class):
+        """测试未知 region 使用区域级别 endpoint"""
+        config = Config(
+            access_key_id="ak",
+            access_key_secret="sk",
+            region_id="us-west-1",
+        )
+        api = ControlAPI(config=config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        api._get_gpdb_client()
+
+        call_args = mock_client_class.call_args
+        config_arg = call_args[0][0]
+        assert config_arg.endpoint == "gpdb.us-west-1.aliyuncs.com"
+
+    @patch("agentrun.utils.control_api.GPDBClient")
+    def test_get_gpdb_client_all_known_regions(self, mock_client_class):
+        """测试所有已知 region 使用通用 endpoint"""
+        known_regions = [
+            "cn-beijing",
+            "cn-hangzhou",
+            "cn-shanghai",
+            "cn-shenzhen",
+            "cn-hongkong",
+            "ap-southeast-1",
+        ]
+        for region in known_regions:
+            config = Config(
+                access_key_id="ak",
+                access_key_secret="sk",
+                region_id=region,
+            )
+            api = ControlAPI(config=config)
+
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            api._get_gpdb_client()
+
+            call_args = mock_client_class.call_args
+            config_arg = call_args[0][0]
+            assert (
+                config_arg.endpoint == "gpdb.aliyuncs.com"
+            ), f"Region {region} should use gpdb.aliyuncs.com"

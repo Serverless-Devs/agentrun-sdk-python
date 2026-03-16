@@ -37,8 +37,15 @@ class AgentRuntimeDataAPI(DataAPI):
         config = kwargs.get("config", None)
 
         cfg = Config.with_configs(self.config, config)
-        api_base = self.with_path("openai/v1")
-        _, headers, _ = self.auth(headers=cfg.get_headers())
+        api_base = self.with_path("openai/v1", config=cfg)
+        # Sign the actual request URL (OpenAI client will POST to base + /chat/completions)
+        chat_completions_url = api_base.rstrip("/") + "/chat/completions"
+        _, headers, _ = self.auth(
+            url=chat_completions_url,
+            headers=cfg.get_headers(),
+            config=cfg,
+            method="POST",
+        )
 
         from httpx import AsyncClient
         from openai import AsyncOpenAI
