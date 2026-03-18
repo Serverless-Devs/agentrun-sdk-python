@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Union
 from alibabacloud_bailian20231229 import models as bailian_models
 from alibabacloud_gpdb20160503 import models as gpdb_models
 import httpx
+from tablestore_agent_storage import AgentStorageClient
 
 from agentrun.utils.config import Config
 from agentrun.utils.control_api import ControlAPI
@@ -35,6 +36,8 @@ from ..model import (
     BailianProviderSettings,
     BailianRetrieveSettings,
     KnowledgeBaseProvider,
+    OTSProviderSettings,
+    OTSRetrieveSettings,
     RagFlowProviderSettings,
     RagFlowRetrieveSettings,
 )
@@ -804,6 +807,280 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
             }
 
 
+class OTSDataAPI(KnowledgeBaseDataAPI):
+    """OTS (TableStore) 知识库数据链路 API / OTS KnowledgeBase Data API
+
+    实现 OTS 知识库的检索逻辑，通过 tablestore-agent-storage 包调用 retrieve 接口。
+    Implements retrieval logic for OTS knowledge base via tablestore-agent-storage retrieve API.
+    """
+
+    def __init__(
+        self,
+        knowledge_base_name: str,
+        config: Optional[Config] = None,
+        provider_settings: Optional[OTSProviderSettings] = None,
+        retrieve_settings: Optional[OTSRetrieveSettings] = None,
+    ):
+        """初始化 OTS 知识库数据链路 API / Initialize OTS KnowledgeBase Data API
+
+        Args:
+            knowledge_base_name: 知识库名称 / Knowledge base name
+            config: 配置 / Configuration
+            provider_settings: OTS 提供商设置 / OTS provider settings
+            retrieve_settings: OTS 检索设置 / OTS retrieve settings
+        """
+        super().__init__(knowledge_base_name, config)
+        self.provider_settings = provider_settings
+        self.retrieve_settings = retrieve_settings
+
+    def _build_agent_storage_client(
+        self, config: Optional[Config] = None
+    ) -> AgentStorageClient:
+        """构建 AgentStorageClient / Build AgentStorageClient
+
+        Args:
+            config: 配置 / Configuration
+
+        Returns:
+            AgentStorageClient: OTS 存储客户端
+        """
+        if self.provider_settings is None:
+            raise ValueError("provider_settings is required for OTS retrieval")
+
+        cfg = Config.with_configs(self.config, config)
+        region_id = cfg.get_region_id()
+        ots_endpoint = f"http://ots-{region_id}.aliyuncs.com"
+
+        return AgentStorageClient(
+            access_key_id=cfg.get_access_key_id(),
+            access_key_secret=cfg.get_access_key_secret(),
+            ots_endpoint=ots_endpoint,
+            ots_instance_name=self.provider_settings.ots_instance_name,
+        )
+
+    def _build_retrieval_configuration(self) -> Optional[Dict[str, Any]]:
+        """将 OTSRetrieveSettings 转换为 tablestore-agent-storage 的 dict 格式
+        Convert OTSRetrieveSettings to tablestore-agent-storage dict format
+
+        Returns:
+            Optional[Dict[str, Any]]: 检索配置字典 / Retrieval configuration dict
+        """
+        if self.retrieve_settings is None:
+            return None
+
+        config: Dict[str, Any] = {}
+
+        if self.retrieve_settings.search_type is not None:
+            config["searchType"] = self.retrieve_settings.search_type
+
+        if self.retrieve_settings.dense_vector_search_configuration is not None:
+            dvsc = self.retrieve_settings.dense_vector_search_configuration
+            dv_config: Dict[str, Any] = {}
+            if dvsc.number_of_results is not None:
+                dv_config["numberOfResults"] = dvsc.number_of_results
+            config["denseVectorSearchConfiguration"] = dv_config
+
+        if self.retrieve_settings.full_text_search_configuration is not None:
+            ftsc = self.retrieve_settings.full_text_search_configuration
+            ft_config: Dict[str, Any] = {}
+            if ftsc.number_of_results is not None:
+                ft_config["numberOfResults"] = ftsc.number_of_results
+            config["fullTextSearchConfiguration"] = ft_config
+
+        if self.retrieve_settings.reranking_configuration is not None:
+            rc = self.retrieve_settings.reranking_configuration
+            rr_config: Dict[str, Any] = {}
+
+            if rc.type is not None:
+                rr_config["type"] = rc.type
+            if rc.number_of_results is not None:
+                rr_config["numberOfResults"] = rc.number_of_results
+
+            if rc.rrf_configuration is not None:
+                rrf: Dict[str, Any] = {}
+                if rc.rrf_configuration.dense_vector_search_weight is not None:
+                    rrf["denseVectorSearchWeight"] = (
+                        rc.rrf_configuration.dense_vector_search_weight
+                    )
+                if rc.rrf_configuration.full_text_search_weight is not None:
+                    rrf["fullTextSearchWeight"] = (
+                        rc.rrf_configuration.full_text_search_weight
+                    )
+                if rc.rrf_configuration.k is not None:
+                    rrf["k"] = rc.rrf_configuration.k
+                rr_config["rrfConfiguration"] = rrf
+
+            if rc.weight_configuration is not None:
+                wc: Dict[str, Any] = {}
+                if (
+                    rc.weight_configuration.dense_vector_search_weight
+                    is not None
+                ):
+                    wc["denseVectorSearchWeight"] = (
+                        rc.weight_configuration.dense_vector_search_weight
+                    )
+                if rc.weight_configuration.full_text_search_weight is not None:
+                    wc["fullTextSearchWeight"] = (
+                        rc.weight_configuration.full_text_search_weight
+                    )
+                rr_config["weightConfiguration"] = wc
+
+            if rc.model_configuration is not None:
+                mc: Dict[str, Any] = {}
+                if rc.model_configuration.provider is not None:
+                    mc["provider"] = rc.model_configuration.provider
+                if rc.model_configuration.model is not None:
+                    mc["model"] = rc.model_configuration.model
+                rr_config["modelConfiguration"] = mc
+
+            config["rerankingConfiguration"] = rr_config
+
+        if self.retrieve_settings.filter is not None:
+            config["filter"] = self.retrieve_settings.filter
+
+        return config if config else None
+
+    def _parse_retrieve_response(
+        self, response: Dict[str, Any], query: str
+    ) -> Dict[str, Any]:
+        """解析 OTS 检索响应 / Parse OTS retrieve response
+
+        Args:
+            response: AgentStorageClient.retrieve 的响应 / Response from retrieve
+            query: 原始查询文本 / Original query text
+
+        Returns:
+            Dict[str, Any]: 格式化的检索结果 / Formatted retrieval results
+        """
+        all_results: List[Dict[str, Any]] = []
+
+        data = response.get("data", {})
+        retrieval_results = data.get("retrievalResults", [])
+
+        for item in retrieval_results:
+            all_results.append({
+                "content": item.get("content"),
+                "score": item.get("score"),
+                "doc_id": item.get("docId"),
+                "chunk_id": item.get("chunkId"),
+                "subspace": item.get("subspace"),
+                "oss_key": item.get("ossKey"),
+                "metadata": item.get("metadata"),
+            })
+
+        return {
+            "data": all_results,
+            "query": query,
+            "knowledge_base_name": self.knowledge_base_name,
+        }
+
+    async def retrieve_async(
+        self,
+        query: str,
+        config: Optional[Config] = None,
+    ) -> Dict[str, Any]:
+        """OTS 检索（异步）/ OTS retrieval asynchronously
+
+        通过 tablestore-agent-storage 调用 retrieve 接口进行知识库检索。
+        Retrieves from OTS knowledge base via tablestore-agent-storage retrieve API.
+
+        Args:
+            query: 查询文本 / Query text
+            config: 配置 / Configuration
+
+        Returns:
+            Dict[str, Any]: 检索结果 / Retrieval results
+        """
+        try:
+            if self.provider_settings is None:
+                raise ValueError(
+                    "provider_settings is required for OTS retrieval"
+                )
+
+            client = self._build_agent_storage_client(config)
+
+            retrieval_config = self._build_retrieval_configuration()
+
+            request: Dict[str, Any] = {
+                "knowledgeBaseName": self.knowledge_base_name,
+                "retrievalQuery": {"text": query, "type": "TEXT"},
+            }
+
+            if retrieval_config:
+                request["retrievalConfiguration"] = retrieval_config
+
+            logger.debug(f"OTS retrieve request: {request}")
+            response = client.retrieve(request)
+            logger.debug(f"OTS retrieve response: {response}")
+
+            return self._parse_retrieve_response(response, query)
+
+        except Exception as e:
+            logger.warning(
+                "Failed to retrieve from OTS knowledge base "
+                f"'{self.knowledge_base_name}': {e}"
+            )
+            return {
+                "data": f"Failed to retrieve: {e}",
+                "query": query,
+                "knowledge_base_name": self.knowledge_base_name,
+                "error": True,
+            }
+
+    def retrieve(
+        self,
+        query: str,
+        config: Optional[Config] = None,
+    ) -> Dict[str, Any]:
+        """OTS 检索（同步）/ OTS retrieval synchronously
+
+        通过 tablestore-agent-storage 调用 retrieve 接口进行知识库检索。
+        Retrieves from OTS knowledge base via tablestore-agent-storage retrieve API.
+
+        Args:
+            query: 查询文本 / Query text
+            config: 配置 / Configuration
+
+        Returns:
+            Dict[str, Any]: 检索结果 / Retrieval results
+        """
+        try:
+            if self.provider_settings is None:
+                raise ValueError(
+                    "provider_settings is required for OTS retrieval"
+                )
+
+            client = self._build_agent_storage_client(config)
+
+            retrieval_config = self._build_retrieval_configuration()
+
+            request: Dict[str, Any] = {
+                "knowledgeBaseName": self.knowledge_base_name,
+                "retrievalQuery": {"text": query, "type": "TEXT"},
+            }
+
+            if retrieval_config:
+                request["retrievalConfiguration"] = retrieval_config
+
+            logger.debug(f"OTS retrieve request: {request}")
+            response = client.retrieve(request)
+            logger.debug(f"OTS retrieve response: {response}")
+
+            return self._parse_retrieve_response(response, query)
+
+        except Exception as e:
+            logger.warning(
+                "Failed to retrieve from OTS knowledge base "
+                f"'{self.knowledge_base_name}': {e}"
+            )
+            return {
+                "data": f"Failed to retrieve: {e}",
+                "query": query,
+                "knowledge_base_name": self.knowledge_base_name,
+                "error": True,
+            }
+
+
 def get_data_api(
     provider: KnowledgeBaseProvider,
     knowledge_base_name: str,
@@ -813,6 +1090,7 @@ def get_data_api(
             RagFlowProviderSettings,
             BailianProviderSettings,
             ADBProviderSettings,
+            OTSProviderSettings,
         ]
     ] = None,
     retrieve_settings: Optional[
@@ -820,6 +1098,7 @@ def get_data_api(
             RagFlowRetrieveSettings,
             BailianRetrieveSettings,
             ADBRetrieveSettings,
+            OTSRetrieveSettings,
         ]
     ] = None,
     credential_name: Optional[str] = None,
@@ -891,6 +1170,23 @@ def get_data_api(
             config,
             provider_settings=adb_provider_settings,
             retrieve_settings=adb_retrieve_settings,
+        )
+    elif provider == KnowledgeBaseProvider.OTS or provider == "ots":
+        ots_provider_settings = (
+            provider_settings
+            if isinstance(provider_settings, OTSProviderSettings)
+            else None
+        )
+        ots_retrieve_settings = (
+            retrieve_settings
+            if isinstance(retrieve_settings, OTSRetrieveSettings)
+            else None
+        )
+        return OTSDataAPI(
+            knowledge_base_name,
+            config,
+            provider_settings=ots_provider_settings,
+            retrieve_settings=ots_retrieve_settings,
         )
     else:
         raise ValueError(f"Unsupported provider type: {provider}")

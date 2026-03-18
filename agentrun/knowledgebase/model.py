@@ -20,6 +20,8 @@ class KnowledgeBaseProvider(str, Enum):
     """百炼知识库 / Bailian knowledge base"""
     ADB = "adb"
     """ADB (AnalyticDB for PostgreSQL) 知识库 / ADB knowledge base"""
+    OTS = "ots"
+    """OTS (TableStore) 知识库 / OTS (TableStore) knowledge base"""
 
 
 # =============================================================================
@@ -132,6 +134,137 @@ class ADBRetrieveSettings(BaseModel):
 
 
 # =============================================================================
+# OTS 配置模型 / OTS Configuration Models
+# =============================================================================
+
+
+class OTSMetadataField(BaseModel):
+    """OTS 元数据字段定义 / OTS Metadata Field Definition
+
+    支持的类型：string / long / double / boolean / date /
+    string_list / long_list / double_list / boolean_list / date_list
+    """
+
+    name: str
+    """字段名 / Field name"""
+    type: str
+    """字段类型 / Field type"""
+
+
+class OTSEmbeddingConfiguration(BaseModel):
+    """OTS 向量化配置 / OTS Embedding Configuration"""
+
+    provider: str
+    """向量化服务提供商，如 "bailian" / Embedding provider"""
+    model: str
+    """向量化模型名称，如 "text-embedding-v3" / Embedding model name"""
+    dimension: int
+    """向量维度，如 1024 / Vector dimension"""
+    url: Optional[str] = None
+    """向量化服务地址（可选）/ Embedding service URL (optional)"""
+    api_key: Optional[str] = None
+    """向量化服务 API Key（可选）/ Embedding API key (optional)"""
+
+
+class OTSProviderSettings(BaseModel):
+    """OTS (TableStore) 提供商设置 / OTS Provider Settings
+
+    配置 OTS 知识库的连接和访问参数。
+    Configure OTS knowledge base connection and access parameters.
+    """
+
+    ots_instance_name: str
+    """OTS 实例名称 / OTS instance name"""
+    tags: Optional[List[str]] = None
+    """标签列表 / Tag list"""
+    metadata: Optional[List[OTSMetadataField]] = None
+    """元数据字段定义列表 / Metadata field definitions"""
+    embedding_configuration: Optional[OTSEmbeddingConfiguration] = None
+    """向量化配置 / Embedding configuration"""
+
+
+class OTSDenseVectorSearchConfig(BaseModel):
+    """OTS 向量检索配置 / OTS Dense Vector Search Configuration"""
+
+    number_of_results: Optional[int] = None
+    """向量检索返回结果数量 / Number of dense vector search results"""
+
+
+class OTSFullTextSearchConfig(BaseModel):
+    """OTS 全文检索配置 / OTS Full Text Search Configuration"""
+
+    number_of_results: Optional[int] = None
+    """全文检索返回结果数量 / Number of full text search results"""
+
+
+class OTSRRFConfig(BaseModel):
+    """OTS RRF 重排序配置 / OTS RRF Reranking Configuration"""
+
+    dense_vector_search_weight: Optional[float] = None
+    """向量检索权重，默认 1.0 / Dense vector search weight"""
+    full_text_search_weight: Optional[float] = None
+    """全文检索权重，默认 1.0 / Full text search weight"""
+    k: Optional[int] = None
+    """RRF 参数 k，默认 60 / RRF parameter k"""
+
+
+class OTSWeightConfig(BaseModel):
+    """OTS Weight 重排序配置 / OTS Weight Reranking Configuration"""
+
+    dense_vector_search_weight: Optional[float] = None
+    """向量检索权重 / Dense vector search weight"""
+    full_text_search_weight: Optional[float] = None
+    """全文检索权重 / Full text search weight"""
+
+
+class OTSModelConfig(BaseModel):
+    """OTS Model 重排序配置 / OTS Model Reranking Configuration"""
+
+    provider: Optional[str] = None
+    """重排序模型提供商 / Reranking model provider"""
+    model: Optional[str] = None
+    """重排序模型名称 / Reranking model name"""
+
+
+class OTSRerankingConfig(BaseModel):
+    """OTS 重排序配置 / OTS Reranking Configuration"""
+
+    type: Optional[str] = None
+    """重排序类型：RRF / WEIGHT / MODEL / Reranking type"""
+    number_of_results: Optional[int] = None
+    """重排序后返回结果数量 / Number of results after reranking"""
+    rrf_configuration: Optional[OTSRRFConfig] = None
+    """RRF 配置（当 type=RRF 时）/ RRF config (when type=RRF)"""
+    weight_configuration: Optional[OTSWeightConfig] = None
+    """Weight 配置（当 type=WEIGHT 时）/ Weight config (when type=WEIGHT)"""
+    model_configuration: Optional[OTSModelConfig] = None
+    """Model 配置（当 type=MODEL 时）/ Model config (when type=MODEL)"""
+
+
+class OTSRetrieveSettings(BaseModel):
+    """OTS 检索设置 / OTS Retrieve Settings
+
+    配置 OTS 知识库的检索参数，支持向量检索、全文检索和混合检索。
+    Configure OTS knowledge base retrieval parameters, supporting
+    dense vector, full-text, and hybrid search.
+    """
+
+    search_type: Optional[List[str]] = None
+    """检索类型列表，支持 DENSE_VECTOR 和 FULL_TEXT
+    Search type list, supports DENSE_VECTOR and FULL_TEXT"""
+    dense_vector_search_configuration: Optional[OTSDenseVectorSearchConfig] = (
+        None
+    )
+    """向量检索配置 / Dense vector search configuration"""
+    full_text_search_configuration: Optional[OTSFullTextSearchConfig] = None
+    """全文检索配置 / Full text search configuration"""
+    reranking_configuration: Optional[OTSRerankingConfig] = None
+    """重排序配置 / Reranking configuration"""
+    filter: Optional[Dict[str, Any]] = None
+    """元数据过滤条件 / Metadata filter"""
+
+
+# =============================================================================
 # 联合类型定义 / Union Type Definitions
 # =============================================================================
 
@@ -139,6 +272,7 @@ ProviderSettings = Union[
     RagFlowProviderSettings,
     BailianProviderSettings,
     ADBProviderSettings,
+    OTSProviderSettings,
     Dict[str, Any],
 ]
 """提供商设置联合类型 / Provider settings union type"""
@@ -147,6 +281,7 @@ RetrieveSettings = Union[
     RagFlowRetrieveSettings,
     BailianRetrieveSettings,
     ADBRetrieveSettings,
+    OTSRetrieveSettings,
     Dict[str, Any],
 ]
 """检索设置联合类型 / Retrieve settings union type"""
