@@ -6,6 +6,7 @@ from .data import (
     BailianDataAPI,
     get_data_api,
     KnowledgeBaseDataAPI,
+    OTSDataAPI,
     RagFlowDataAPI,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "RagFlowDataAPI",
     "BailianDataAPI",
     "ADBDataAPI",
+    "OTSDataAPI",
     "get_data_api",
 ]
