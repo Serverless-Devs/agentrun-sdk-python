@@ -600,6 +600,7 @@ class TestOTSDataAPIBuildClient:
         mock_config.get_region_id.return_value = "cn-hangzhou"
         mock_config.get_access_key_id.return_value = "test-ak"
         mock_config.get_access_key_secret.return_value = "test-sk"
+        mock_config.get_security_token.return_value = "test-sts"
 
         with patch.object(Config, "with_configs", return_value=mock_config):
             api = OTSDataAPI(
@@ -613,6 +614,7 @@ class TestOTSDataAPIBuildClient:
         mock_client_class.assert_called_once_with(
             access_key_id="test-ak",
             access_key_secret="test-sk",
+            sts_token="test-sts",
             ots_endpoint="http://ots-cn-hangzhou.aliyuncs.com",
             ots_instance_name="test-instance",
         )
