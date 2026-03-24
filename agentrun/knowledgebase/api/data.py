@@ -854,6 +854,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
         return AgentStorageClient(
             access_key_id=cfg.get_access_key_id(),
             access_key_secret=cfg.get_access_key_secret(),
+            sts_token=cfg.get_security_token(),
             ots_endpoint=ots_endpoint,
             ots_instance_name=self.provider_settings.ots_instance_name,
         )
