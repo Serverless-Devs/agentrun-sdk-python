@@ -94,11 +94,17 @@ class ToolSet(BaseModel):
         return headers, query
 
     def _get_openapi_base_url(self) -> Optional[str]:
-        return pydash.get(
-            self,
-            "status.outputs.urls.intranet_url",
-            None,
-        ) or pydash.get(self, "status.outputs.urls.internet_url", None)
+        import os
+
+        fc_region = os.getenv("FC_REGION")
+        if fc_region:
+            intranet_url: Optional[str] = pydash.get(
+                self, "status.outputs.urls.intranet_url", None
+            )
+            if intranet_url:
+                return intranet_url
+
+        return pydash.get(self, "status.outputs.urls.internet_url", None)
 
     async def get_async(self, config: Optional[Config] = None):
         if self.name is None:
@@ -154,6 +160,25 @@ class ToolSet(BaseModel):
         logger.debug("invoke tool %s got result %s", name, result)
         return result
 
+    def _get_mcp_url(self) -> str:
+        """获取 MCP 工具的最佳 URL / Get the best URL for MCP tool
+
+        优先使用 agentrun-data 代理入口（支持 RAM 签名认证），
+        回退到 mcp_server_config.url（直连）。
+        Priority: agentrun-data proxy endpoint (with RAM auth) > mcp_server_config.url (direct).
+        """
+        proxy_url = self._get_openapi_base_url()
+        if proxy_url:
+            return proxy_url
+
+        mcp_server_config: MCPServerConfig = pydash.get(
+            self, "status.outputs.mcp_server_config", None
+        )
+        if mcp_server_config and mcp_server_config.url:
+            return mcp_server_config.url
+
+        raise ValueError("MCP server URL is missing.")
+
     def to_apiset(self, config: Optional[Config] = None):
         """将 ToolSet 转换为统一的 ApiSet 对象
 
@@ -168,16 +193,16 @@ class ToolSet(BaseModel):
             mcp_server_config: MCPServerConfig = pydash.get(
                 self, "status.outputs.mcp_server_config", None
             )
-            assert (
-                mcp_server_config.url is not None
-            ), "MCP server URL is missing."
 
-            cfg = Config.with_configs(
-                config, Config(headers=mcp_server_config.headers)
+            mcp_url = self._get_mcp_url()
+
+            mcp_headers = (
+                mcp_server_config.headers if mcp_server_config else None
             )
+            cfg = Config.with_configs(config, Config(headers=mcp_headers))
 
             mcp_client = MCPToolSet(
-                url=mcp_server_config.url,
+                url=mcp_url,
                 config=cfg,
             )
 
