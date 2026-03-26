@@ -45,11 +45,17 @@ class SessionStore:
         self._backend = ots_backend
 
     async def init_tables_async(self) -> None:
-        """创建所有 OTS 表和索引（异步）。代理到 OTSBackend.init_tables_async()。"""
+        """创建所有 OTS 表、二级索引和多元索引（异步）。
+
+        包括建表和创建搜索索引，无需再单独调用 init_search_index_async()。
+        """
         await self._backend.init_tables_async()
 
     def init_tables(self) -> None:
-        """创建所有 OTS 表和索引（同步）。代理到 OTSBackend.init_tables()。"""
+        """创建所有 OTS 表、二级索引和多元索引（同步）。
+
+        包括建表和创建搜索索引，无需再单独调用 init_search_index()。
+        """
         self._backend.init_tables()
 
     async def init_core_tables_async(self) -> None:
@@ -69,7 +75,10 @@ class SessionStore:
         self._backend.init_state_tables()
 
     async def init_search_index_async(self) -> None:
-        """创建 Conversation 多元索引（异步）。按需调用。"""
+        """创建 Conversation 和 State 多元索引（异步）。
+
+        索引已存在时跳过，可重复调用。
+        """
         await self._backend.init_search_index_async()
 
     # -------------------------------------------------------------------
@@ -77,7 +86,10 @@ class SessionStore:
     # -------------------------------------------------------------------
 
     def init_search_index(self) -> None:
-        """创建 Conversation 多元索引（同步）。按需调用。"""
+        """创建 Conversation 和 State 多元索引（同步）。
+
+        索引已存在时跳过，可重复调用。
+        """
         self._backend.init_search_index()
 
     # -------------------------------------------------------------------

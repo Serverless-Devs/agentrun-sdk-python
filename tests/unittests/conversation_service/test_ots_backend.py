@@ -223,7 +223,7 @@ class TestInitTables:
         client = _make_mock_client()
         backend = _make_backend(client)
         backend.init_search_index()
-        client.create_search_index.assert_called_once()
+        assert client.create_search_index.call_count == 2
 
     def test_init_search_index_already_exist(self) -> None:
         client = _make_mock_client()
@@ -237,8 +237,16 @@ class TestInitTables:
 
     def test_init_search_index_other_error(self) -> None:
         client = _make_mock_client()
-        err = OTSServiceError(500, "InternalError", "internal error")
-        client.create_search_index.side_effect = err
+        call_count = 0
+
+        def _side_effect(*args: object, **kwargs: object) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return None
+            raise OTSServiceError(500, "InternalError", "internal error")
+
+        client.create_search_index.side_effect = _side_effect
 
         backend = _make_backend(client)
         with pytest.raises(OTSServiceError):
@@ -252,6 +260,7 @@ class TestInitTables:
         assert backend._state_table == "myprefix_state"
         assert backend._app_state_table == "myprefix_app_state"
         assert backend._user_state_table == "myprefix_user_state"
+        assert backend._state_search_index == "myprefix_state_search_index"
 
 
 # ---------------------------------------------------------------------------
@@ -1225,6 +1234,7 @@ class TestInitTablesAsync:
         async_client = MagicMock()
         err = OTSServiceError(409, "OTSObjectAlreadyExist", "already exist")
         async_client.create_table = AsyncMock(side_effect=err)
+        async_client.create_search_index = AsyncMock(side_effect=err)
         backend = _make_async_backend(async_client)
         await backend.init_tables_async()
 
@@ -1233,6 +1243,7 @@ class TestInitTablesAsync:
         async_client = MagicMock()
         err = OTSServiceError(500, "InternalError", "error")
         async_client.create_table = AsyncMock(side_effect=err)
+        async_client.create_search_index = AsyncMock(side_effect=err)
         backend = _make_async_backend(async_client)
         with pytest.raises(OTSServiceError):
             await backend.init_tables_async()
@@ -1253,7 +1264,7 @@ class TestInitTablesAsync:
     async def test_init_search_index(self) -> None:
         backend = _make_async_backend()
         await backend.init_search_index_async()
-        backend._async_client.create_search_index.assert_called_once()
+        assert backend._async_client.create_search_index.call_count == 2
 
     @pytest.mark.asyncio
     async def test_init_search_index_already_exist(self) -> None:
@@ -1268,8 +1279,16 @@ class TestInitTablesAsync:
     async def test_init_search_index_other_error(self) -> None:
         async_client = MagicMock()
         async_client.create_table = AsyncMock()
-        err = OTSServiceError(500, "InternalError", "error")
-        async_client.create_search_index = AsyncMock(side_effect=err)
+        call_count = 0
+
+        async def _side_effect(*args: object, **kwargs: object) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return None
+            raise OTSServiceError(500, "InternalError", "error")
+
+        async_client.create_search_index = AsyncMock(side_effect=_side_effect)
         backend = _make_async_backend(async_client)
         with pytest.raises(OTSServiceError):
             await backend.init_search_index_async()
