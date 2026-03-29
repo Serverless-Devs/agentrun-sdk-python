@@ -17,6 +17,8 @@ class ToolType(str, Enum):
     """MCP 协议工具 / MCP Protocol Tool"""
     FUNCTIONCALL = "FUNCTIONCALL"
     """函数调用工具 / Function Call Tool"""
+    SKILL = "SKILL"
+    """技能工具 / Skill Tool"""
 
 
 class McpConfig(BaseModel):

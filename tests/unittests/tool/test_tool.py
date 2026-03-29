@@ -380,6 +380,281 @@ class TestTool:
 
         assert result == {"result": "success"}
 
+    # ==================== SKILL 相关测试 ====================
+
+    def test_get_tool_type_skill(self):
+        """测试获取 SKILL 工具类型"""
+        tool = Tool(tool_type="SKILL")
+        assert tool._get_tool_type() == ToolType.SKILL
+
+    def test_get_skill_download_url_with_data_endpoint(self):
+        """测试使用 data_endpoint 构造 skill 下载 URL"""
+        tool = Tool(
+            tool_name="my-skill",
+            data_endpoint="https://example.com",
+        )
+        url = tool._get_skill_download_url()
+        assert url == "https://example.com/tools/my-skill/download"
+
+    def test_get_skill_download_url_uses_name_fallback(self):
+        """测试 tool_name 为空时使用 name 作为 fallback"""
+        tool = Tool(
+            name="fallback-skill",
+            data_endpoint="https://example.com",
+        )
+        url = tool._get_skill_download_url()
+        assert url == "https://example.com/tools/fallback-skill/download"
+
+    def test_get_skill_download_url_tool_name_takes_priority(self):
+        """测试 tool_name 优先于 name"""
+        tool = Tool(
+            tool_name="primary-skill",
+            name="fallback-skill",
+            data_endpoint="https://example.com",
+        )
+        url = tool._get_skill_download_url()
+        assert url == "https://example.com/tools/primary-skill/download"
+
+    @patch("agentrun.tool.tool.Config")
+    def test_get_skill_download_url_config_fallback(self, mock_config_class):
+        """测试 data_endpoint 为空时从 Config 获取"""
+        mock_config = Mock()
+        mock_config._data_endpoint = "https://config-endpoint.com"
+        mock_config_class.with_configs.return_value = mock_config
+
+        tool = Tool(tool_name="my-skill")
+        url = tool._get_skill_download_url()
+        assert url == "https://config-endpoint.com/tools/my-skill/download"
+
+    def test_get_skill_download_url_no_name(self):
+        """测试没有 name 时返回 None"""
+        tool = Tool(data_endpoint="https://example.com")
+        url = tool._get_skill_download_url()
+        assert url is None
+
+    @patch("agentrun.tool.tool.Config")
+    def test_get_skill_download_url_no_endpoint(self, mock_config_class):
+        """测试没有 data_endpoint 且 Config 也没有时返回 None"""
+        mock_config = Mock()
+        mock_config._data_endpoint = None
+        mock_config_class.with_configs.return_value = mock_config
+
+        tool = Tool(tool_name="my-skill")
+        url = tool._get_skill_download_url()
+        assert url is None
+
+    @patch("httpx.AsyncClient")
+    @patch("agentrun.utils.config.Config")
+    async def test_download_skill_async_success(
+        self, mock_config_class, mock_async_client_class
+    ):
+        """测试成功下载并解压 skill 包"""
+        import io
+        import os
+        import shutil
+        import tempfile
+        import zipfile
+
+        mock_config = Mock()
+        mock_config.get_headers.return_value = {"Authorization": "Bearer token"}
+        mock_config_class.with_configs.return_value = mock_config
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            zf.writestr("SKILL.md", "# Test Skill")
+            zf.writestr("main.py", "print('hello')")
+        zip_content = zip_buffer.getvalue()
+
+        mock_response = Mock()
+        mock_response.content = zip_content
+        mock_response.raise_for_status = Mock()
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.get.return_value = mock_response
+        mock_client_instance.__aenter__ = AsyncMock(
+            return_value=mock_client_instance
+        )
+        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
+        mock_async_client_class.return_value = mock_client_instance
+
+        tool = Tool(
+            tool_name="test-skill",
+            tool_type="SKILL",
+            data_endpoint="https://example.com",
+        )
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            result = await tool.download_skill_async(target_dir=tmp_dir)
+
+            expected_dir = os.path.join(tmp_dir, "test-skill")
+            assert result == expected_dir
+            assert os.path.exists(expected_dir)
+            assert os.path.isfile(os.path.join(expected_dir, "SKILL.md"))
+            assert os.path.isfile(os.path.join(expected_dir, "main.py"))
+
+            with open(os.path.join(expected_dir, "SKILL.md")) as f:
+                assert f.read() == "# Test Skill"
+        finally:
+            shutil.rmtree(tmp_dir)
+
+    @patch("httpx.AsyncClient")
+    @patch("agentrun.utils.config.Config")
+    async def test_download_skill_async_overwrites_existing(
+        self, mock_config_class, mock_async_client_class
+    ):
+        """测试下载 skill 时覆盖已存在的目录"""
+        import io
+        import os
+        import shutil
+        import tempfile
+        import zipfile
+
+        mock_config = Mock()
+        mock_config.get_headers.return_value = {}
+        mock_config_class.with_configs.return_value = mock_config
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            zf.writestr("new_file.txt", "new content")
+        zip_content = zip_buffer.getvalue()
+
+        mock_response = Mock()
+        mock_response.content = zip_content
+        mock_response.raise_for_status = Mock()
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.get.return_value = mock_response
+        mock_client_instance.__aenter__ = AsyncMock(
+            return_value=mock_client_instance
+        )
+        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
+        mock_async_client_class.return_value = mock_client_instance
+
+        tool = Tool(
+            tool_name="test-skill",
+            tool_type="SKILL",
+            data_endpoint="https://example.com",
+        )
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            existing_dir = os.path.join(tmp_dir, "test-skill")
+            os.makedirs(existing_dir)
+            with open(os.path.join(existing_dir, "old_file.txt"), "w") as f:
+                f.write("old content")
+
+            result = await tool.download_skill_async(target_dir=tmp_dir)
+
+            assert os.path.isfile(os.path.join(result, "new_file.txt"))
+            assert not os.path.exists(os.path.join(result, "old_file.txt"))
+        finally:
+            shutil.rmtree(tmp_dir)
+
+    async def test_download_skill_async_wrong_type(self):
+        """测试非 SKILL 类型调用 download_skill_async 抛出 ValueError"""
+        tool = Tool(tool_type="MCP", tool_name="my-tool")
+
+        with pytest.raises(ValueError, match="only available for SKILL"):
+            await tool.download_skill_async()
+
+    async def test_download_skill_async_no_url(self):
+        """测试无法构造下载 URL 时抛出 ValueError"""
+        tool = Tool(tool_type="SKILL")
+
+        with pytest.raises(ValueError, match="Cannot construct download URL"):
+            await tool.download_skill_async()
+
+    @patch("httpx.AsyncClient")
+    @patch("agentrun.utils.config.Config")
+    async def test_download_skill_async_http_error(
+        self, mock_config_class, mock_async_client_class
+    ):
+        """测试下载失败时抛出 HTTPStatusError"""
+        import httpx
+
+        mock_config = Mock()
+        mock_config.get_headers.return_value = {}
+        mock_config_class.with_configs.return_value = mock_config
+
+        mock_response = Mock()
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Not Found",
+            request=Mock(),
+            response=Mock(status_code=404),
+        )
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.get.return_value = mock_response
+        mock_client_instance.__aenter__ = AsyncMock(
+            return_value=mock_client_instance
+        )
+        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
+        mock_async_client_class.return_value = mock_client_instance
+
+        tool = Tool(
+            tool_name="test-skill",
+            tool_type="SKILL",
+            data_endpoint="https://example.com",
+        )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await tool.download_skill_async()
+
+    @patch("agentrun.tool.tool.httpx.Client")
+    @patch("agentrun.tool.tool.Config")
+    def test_download_skill_sync_success(
+        self, mock_config_class, mock_client_class
+    ):
+        """测试同步版本 download_skill 成功"""
+        import io
+        import os
+        import shutil
+        import tempfile
+        import zipfile
+
+        mock_config = Mock()
+        mock_config.get_headers.return_value = {}
+        mock_config_class.with_configs.return_value = mock_config
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            zf.writestr("skill.py", "print('skill')")
+        zip_content = zip_buffer.getvalue()
+
+        mock_response = Mock()
+        mock_response.content = zip_content
+        mock_response.raise_for_status = Mock()
+
+        mock_client_instance = Mock()
+        mock_client_instance.get.return_value = mock_response
+        mock_client_instance.__enter__ = Mock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = Mock(return_value=False)
+        mock_client_class.return_value = mock_client_instance
+
+        tool = Tool(
+            tool_name="sync-skill",
+            tool_type="SKILL",
+            data_endpoint="https://example.com",
+        )
+
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            result = tool.download_skill(target_dir=tmp_dir)
+
+            expected_dir = os.path.join(tmp_dir, "sync-skill")
+            assert result == expected_dir
+            assert os.path.isfile(os.path.join(expected_dir, "skill.py"))
+        finally:
+            shutil.rmtree(tmp_dir)
+
+    def test_download_skill_sync_wrong_type(self):
+        """测试同步版本非 SKILL 类型抛出 ValueError"""
+        tool = Tool(tool_type="FUNCTIONCALL", tool_name="my-tool")
+
+        with pytest.raises(ValueError, match="only available for SKILL"):
+            tool.download_skill()
+
 
 class TestToolClient:
     """测试 ToolClient"""
