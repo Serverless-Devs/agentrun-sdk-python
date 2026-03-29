@@ -3,11 +3,18 @@
 提供与 Google Agent Development Kit 的模型与沙箱工具集成。 / 提供with Google Agent Development Kit 的模型with沙箱工具集成。
 """
 
-from .builtin import knowledgebase_toolset, model, sandbox_toolset, toolset
+from .builtin import (
+    knowledgebase_toolset,
+    model,
+    sandbox_toolset,
+    tool_resource,
+    toolset,
+)
 
 __all__ = [
     "model",
     "toolset",
     "sandbox_toolset",
     "knowledgebase_toolset",
+    "tool_resource",
 ]

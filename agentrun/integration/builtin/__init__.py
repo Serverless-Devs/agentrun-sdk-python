@@ -7,12 +7,14 @@ This module provides built-in integration functions for quickly creating models 
 from .knowledgebase import knowledgebase_toolset
 from .model import model, ModelArgs
 from .sandbox import sandbox_toolset
+from .tool_resource import tool_resource
 from .toolset import toolset
 
 __all__ = [
     "model",
     "ModelArgs",
     "toolset",
+    "tool_resource",
     "sandbox_toolset",
     "knowledgebase_toolset",
 ]
