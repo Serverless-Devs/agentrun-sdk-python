@@ -7,6 +7,7 @@ from .builtin import (
     knowledgebase_toolset,
     model,
     sandbox_toolset,
+    skill_tools,
     tool_resource,
     toolset,
 )
@@ -17,4 +18,5 @@ __all__ = [
     "sandbox_toolset",
     "knowledgebase_toolset",
     "tool_resource",
+    "skill_tools",
 ]

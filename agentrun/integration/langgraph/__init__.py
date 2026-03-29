@@ -15,8 +15,8 @@
     >>> from agentrun.integration.langgraph import AgentRunConverter
     >>>
     >>> async for event in agent.astream_events(input_data, version="v2"):
-    ...     for item in AgentRunConverter.to_agui_events(event):
-    ...         yield item
+    ...         for item in AgentRunConverter.to_agui_events(event):
+    ...             yield item
 
 支持多种调用方式：
 - agent.astream_events(input, version="v2") - 支持 token by token
@@ -29,6 +29,7 @@ from .builtin import (
     knowledgebase_toolset,
     model,
     sandbox_toolset,
+    skill_tools,
     tool_resource,
     toolset,
 )
@@ -40,4 +41,5 @@ __all__ = [
     "sandbox_toolset",
     "knowledgebase_toolset",
     "tool_resource",
+    "skill_tools",
 ]
