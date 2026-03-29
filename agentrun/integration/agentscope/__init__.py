@@ -3,11 +3,18 @@
 提供 AgentRun 模型与沙箱工具的 AgentScope 适配入口。 / 提供 AgentRun 模型with沙箱工具的 AgentScope 适配入口。
 """
 
-from .builtin import knowledgebase_toolset, model, sandbox_toolset, toolset
+from .builtin import (
+    knowledgebase_toolset,
+    model,
+    sandbox_toolset,
+    tool_resource,
+    toolset,
+)
 
 __all__ = [
     "model",
     "toolset",
     "sandbox_toolset",
     "knowledgebase_toolset",
+    "tool_resource",
 ]

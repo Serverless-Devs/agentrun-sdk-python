@@ -25,7 +25,13 @@
 """
 
 from .agent_converter import AgentRunConverter
-from .builtin import knowledgebase_toolset, model, sandbox_toolset, toolset
+from .builtin import (
+    knowledgebase_toolset,
+    model,
+    sandbox_toolset,
+    tool_resource,
+    toolset,
+)
 
 __all__ = [
     "AgentRunConverter",
@@ -33,4 +39,5 @@ __all__ = [
     "toolset",
     "sandbox_toolset",
     "knowledgebase_toolset",
+    "tool_resource",
 ]

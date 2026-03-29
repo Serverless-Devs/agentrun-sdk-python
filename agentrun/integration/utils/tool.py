@@ -47,6 +47,7 @@ from pydantic import (
 )
 
 if TYPE_CHECKING:
+    from agentrun.tool.tool import Tool as ToolResource
     from agentrun.toolset import ToolSet
 
 from agentrun.utils.log import logger
@@ -848,6 +849,57 @@ class CommonToolSet:
             tool = _build_tool_from_meta(toolset, meta, config)
             if tool:
                 # 检测工具名冲突
+                if tool.name in seen_names:
+                    logger.warning(
+                        f"Duplicate tool name '{tool.name}' detected, "
+                        "second occurrence will be skipped"
+                    )
+                    continue
+                seen_names.add(tool.name)
+                integration_tools.append(tool)
+
+        return CommonToolSet(integration_tools)
+
+    @classmethod
+    def from_agentrun_tool(
+        cls,
+        tool_resource: "ToolResource",
+        config: Optional[Any] = None,
+        refresh: bool = False,
+    ) -> "CommonToolSet":
+        """从 AgentRun ToolResource 创建通用工具集 / Create CommonToolSet from AgentRun ToolResource
+
+        Args:
+            tool_resource: agentrun.tool.tool.Tool (ToolResource) 实例 / ToolResource instance
+            config: 额外的请求配置,调用工具时会自动合并 / Extra request config, merged automatically when calling tools
+            refresh: 是否先刷新最新信息 / Whether to refresh latest info first
+
+        Returns:
+            通用 ToolSet 实例,可直接调用 .to_openai_function()、.to_langchain() 等
+            CommonToolSet instance, can directly call .to_openai_function(), .to_langchain(), etc.
+
+        Example:
+            >>> from agentrun import ToolResource, ToolResourceClient
+            >>> from agentrun.integration.utils.tool import CommonToolSet
+            >>>
+            >>> client = ToolResourceClient()
+            >>> tool = client.get(name="my-tool")
+            >>> common_toolset = CommonToolSet.from_agentrun_tool(tool)
+            >>>
+            >>> openai_tools = common_toolset.to_openai_function()
+            >>> langchain_tools = common_toolset.to_langchain()
+        """
+
+        if refresh:
+            tool_resource = tool_resource.get(config=config)
+
+        tools_meta = tool_resource.list_tools(config=config) or []
+        integration_tools: List[Tool] = []
+        seen_names: set = set()
+
+        for meta in tools_meta:
+            tool = _build_tool_from_meta(tool_resource, meta, config)
+            if tool:
                 if tool.name in seen_names:
                     logger.warning(
                         f"Duplicate tool name '{tool.name}' detected, "
