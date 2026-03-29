@@ -4,8 +4,13 @@
 Provides object-oriented wrapper and complete lifecycle management for tool resources.
 """
 
+import io
+import os
+import shutil
 from typing import Any, Dict, List, Optional
+import zipfile
 
+import httpx
 import pydash
 
 from agentrun.utils.config import Config
@@ -309,3 +314,83 @@ class Tool(BaseModel):
             return result
 
         raise ValueError(f"Unsupported tool type: {self.tool_type}")
+
+    def _get_skill_download_url(
+        self, config: Optional[Config] = None
+    ) -> Optional[str]:
+        """获取 Skill 工具的下载 URL / Get download URL for Skill tools
+
+        根据 data_endpoint 和 tool_name 构造下载地址。
+        Constructs download URL from data_endpoint and tool_name.
+
+        Returns:
+            Optional[str]: 下载 URL / Download URL
+        """
+        effective_name = self.tool_name or self.name
+        data_endpoint = self.data_endpoint
+        if not data_endpoint:
+            cfg = Config.with_configs(config)
+            data_endpoint = cfg._data_endpoint
+        if not data_endpoint or not effective_name:
+            return None
+        return f"{data_endpoint}/tools/{effective_name}/download"
+
+    async def download_skill_async(
+        self,
+        target_dir: str = ".skills",
+        config: Optional[Config] = None,
+    ) -> str:
+        """异步下载 Skill 包并解压到本地目录 / Download skill package and extract to local directory asynchronously
+
+        从数据链路下载 skill 的 zip 包，并解压到 {target_dir}/{tool_name}/ 目录下。
+        Downloads skill zip package from data endpoint and extracts to {target_dir}/{tool_name}/ directory.
+
+        Args:
+            target_dir: 目标根目录,默认为 ".skills" / Target root directory, defaults to ".skills"
+            config: 配置对象,可选 / Configuration object, optional
+
+        Returns:
+            str: 解压后的 skill 目录路径 / Extracted skill directory path
+
+        Raises:
+            ValueError: 工具类型不是 SKILL 或缺少必要信息 / Tool type is not SKILL or missing required info
+            httpx.HTTPStatusError: 下载失败 / Download failed
+        """
+        tool_type = self._get_tool_type()
+        if tool_type != ToolType.SKILL:
+            raise ValueError(
+                "download_skill is only available for SKILL type tools,"
+                f" got {self.tool_type}"
+            )
+
+        download_url = self._get_skill_download_url(config)
+        if not download_url:
+            raise ValueError(
+                "Cannot construct download URL: data_endpoint or tool_name"
+                " is missing"
+            )
+
+        effective_name = self.tool_name or self.name
+        skill_dir = os.path.join(target_dir, effective_name or "unknown_skill")
+
+        logger.debug("downloading skill from %s to %s", download_url, skill_dir)
+
+        cfg = Config.with_configs(config)
+        headers = cfg.get_headers()
+
+        async with httpx.AsyncClient(
+            timeout=300, follow_redirects=True
+        ) as http_client:
+            response = await http_client.get(download_url, headers=headers)
+            response.raise_for_status()
+
+            if os.path.exists(skill_dir):
+                shutil.rmtree(skill_dir)
+            os.makedirs(skill_dir, exist_ok=True)
+
+            zip_buffer = io.BytesIO(response.content)
+            with zipfile.ZipFile(zip_buffer, "r") as zip_file:
+                zip_file.extractall(skill_dir)
+
+        logger.info("skill downloaded and extracted to %s", skill_dir)
+        return skill_dir
