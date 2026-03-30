@@ -85,17 +85,22 @@ class DataAPI:
         cfg = Config.with_configs(self.config, config)
         return bool(cfg.get_access_key_id() and cfg.get_access_key_secret())
 
+    _RAM_DATA_DOMAINS = ("agentrun-data", "funagent-data-pre")
+
     def _get_ram_data_endpoint(self, config: Optional[Config] = None) -> str:
-        """返回 RAM 鉴权用的 data endpoint（仅当默认 agentrun-data 域名时在 host 前加 -ram）。"""
+        """返回 RAM 鉴权用的 data endpoint（仅当 agentrun-data / funagent-data-pre 域名时在 host 前加 -ram）。"""
         cfg = Config.with_configs(self.config, config)
         base = cfg.get_data_endpoint()
         parsed = urlparse(base)
-        if not parsed.netloc or ".agentrun-data." not in parsed.netloc:
+        if not parsed.netloc or not any(
+            f".{domain}." in parsed.netloc for domain in self._RAM_DATA_DOMAINS
+        ):
             return base
         parts = parsed.netloc.split(".", 1)
         if len(parts) != 2:
             return base
         ram_netloc = parts[0] + "-ram." + parts[1]
+
         return urlunparse((
             parsed.scheme,
             ram_netloc,
@@ -105,27 +110,20 @@ class DataAPI:
             parsed.fragment,
         ))
 
-    def get_base_url(self, config: Optional[Config] = None) -> str:
+    def get_base_url(self) -> str:
         """
         Get the base URL for API requests.
         当使用 RAM 鉴权时返回 RAM 端点（host 带 -ram）。
 
-        Args:
-            config: 可选，用于计算 base URL 的配置；未传时使用 self.config。
-
         Returns:
             The base URL string
         """
-        cfg = Config.with_configs(self.config, config)
-        if self._use_ram_auth(cfg):
-            return self._get_ram_data_endpoint(cfg)
-        return cfg.get_data_endpoint()
+        if self._use_ram_auth():
+            return self._get_ram_data_endpoint()
+        return self.config.get_data_endpoint()
 
     def with_path(
-        self,
-        path: str,
-        query: Optional[Dict[str, Any]] = None,
-        config: Optional[Config] = None,
+        self, path: str, query: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Construct full URL with the given path and query parameters.
@@ -133,7 +131,6 @@ class DataAPI:
         Args:
             path: API path (may include query string)
             query: Query parameters to add/merge
-            config: 可选，用于计算 base URL 的配置；未传时使用 self.config。
 
         Returns:
             Complete URL string with query parameters
@@ -153,7 +150,7 @@ class DataAPI:
         base_url = "/".join([
             part.strip("/")
             for part in [
-                self.get_base_url(config),
+                self.get_base_url(),
                 self.namespace,
                 path,
             ]
@@ -209,8 +206,7 @@ class DataAPI:
         body: Optional[bytes] = None,
     ) -> tuple[str, Dict[str, str], Optional[Dict[str, Any]]]:
         """
-        Authentication: 仅使用 RAM 签名鉴权（Agentrun-Authorization）。
-        需在 config 中配置 AK/SK。
+        Authentication: 仅使用 RAM 签名鉴权（Agentrun-Authorization）。需在 config 中配置 AK/SK。
         """
         cfg = Config.with_configs(self.config, config)
 
@@ -232,9 +228,8 @@ class DataAPI:
                     **(headers or {}),
                 }
                 logger.debug(
-                    "using RAM signature for data API request to %s, token %s",
+                    "using RAM signature for data API request to %s",
                     url[:80] + "..." if len(url) > 80 else url,
-                    signed,
                 )
             except ValueError as e:
                 logger.warning("RAM signing skipped (missing AK/SK): %s", e)
@@ -267,7 +262,6 @@ class DataAPI:
         if headers:
             req_headers.update(headers)
 
-        # Build body bytes for RAM signing when applicable
         body_bytes: Optional[bytes] = None
         if data is not None:
             if isinstance(data, dict):

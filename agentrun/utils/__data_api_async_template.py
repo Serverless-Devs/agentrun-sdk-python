@@ -75,17 +75,22 @@ class DataAPI:
         cfg = Config.with_configs(self.config, config)
         return bool(cfg.get_access_key_id() and cfg.get_access_key_secret())
 
+    _RAM_DATA_DOMAINS = ("agentrun-data", "funagent-data-pre")
+
     def _get_ram_data_endpoint(self, config: Optional[Config] = None) -> str:
-        """返回 RAM 鉴权用的 data endpoint（仅当默认 agentrun-data 域名时在 host 前加 -ram）。"""
+        """返回 RAM 鉴权用的 data endpoint（仅当 agentrun-data / funagent-data-pre 域名时在 host 前加 -ram）。"""
         cfg = Config.with_configs(self.config, config)
         base = cfg.get_data_endpoint()
         parsed = urlparse(base)
-        if not parsed.netloc or ".agentrun-data." not in parsed.netloc:
+        if not parsed.netloc or not any(
+            f".{domain}." in parsed.netloc for domain in self._RAM_DATA_DOMAINS
+        ):
             return base
         parts = parsed.netloc.split(".", 1)
         if len(parts) != 2:
             return base
         ram_netloc = parts[0] + "-ram." + parts[1]
+
         return urlunparse((
             parsed.scheme,
             ram_netloc,

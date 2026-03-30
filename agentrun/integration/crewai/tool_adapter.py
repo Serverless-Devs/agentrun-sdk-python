@@ -19,8 +19,7 @@ class CrewAIToolAdapter(ToolAdapter):
             from crewai.tools import tool
         except ImportError as e:
             raise ImportError(
-                "LangChain is not installed. "
-                "Install it with: pip install langchain-core"
+                "CrewAI is not installed. Install it with: pip install crewai"
             ) from e
 
         return [tool(t) for t in self.function_tools(tools)]
