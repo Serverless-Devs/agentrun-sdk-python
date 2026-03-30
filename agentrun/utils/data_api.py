@@ -110,7 +110,7 @@ class DataAPI:
             parsed.fragment,
         ))
 
-    def get_base_url(self) -> str:
+    def get_base_url(self, config: Optional[Config] = None) -> str:
         """
         Get the base URL for API requests.
         当使用 RAM 鉴权时返回 RAM 端点（host 带 -ram）。
@@ -118,12 +118,16 @@ class DataAPI:
         Returns:
             The base URL string
         """
-        if self._use_ram_auth():
-            return self._get_ram_data_endpoint()
-        return self.config.get_data_endpoint()
+        if self._use_ram_auth(config):
+            return self._get_ram_data_endpoint(config)
+        cfg = Config.with_configs(self.config, config)
+        return cfg.get_data_endpoint()
 
     def with_path(
-        self, path: str, query: Optional[Dict[str, Any]] = None
+        self,
+        path: str,
+        query: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
     ) -> str:
         """
         Construct full URL with the given path and query parameters.
@@ -150,7 +154,7 @@ class DataAPI:
         base_url = "/".join([
             part.strip("/")
             for part in [
-                self.get_base_url(),
+                self.get_base_url(config),
                 self.namespace,
                 path,
             ]
