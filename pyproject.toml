@@ -34,6 +34,16 @@ langchain = [
     "langchain-openai>=1.0.0; python_version >= '3.10'",
 ]
 
+langchain-anthropic = [
+    "langchain>=1.0.0; python_version >= '3.10'",
+    "langchain-anthropic>=0.3.0; python_version >= '3.10'",
+]
+
+langchain-google = [
+    "langchain>=1.0.0; python_version >= '3.10'",
+    "langchain-google-genai>=2.1.0; python_version >= '3.10'",
+]
+
 google-adk = [
     "google-adk>=1.18.0",
 ]
