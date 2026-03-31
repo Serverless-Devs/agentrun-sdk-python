@@ -181,7 +181,7 @@ class Tool(BaseModel):
         data_endpoint = self.data_endpoint
         if not data_endpoint:
             cfg = Config.with_configs(config)
-            data_endpoint = cfg._data_endpoint
+            data_endpoint = cfg.get_data_endpoint()
         if not data_endpoint or not effective_name:
             return None
         return f"{data_endpoint}/tools/{effective_name}"
@@ -210,7 +210,7 @@ class Tool(BaseModel):
         data_endpoint = self.data_endpoint
         if not data_endpoint:
             cfg = Config.with_configs(config)
-            data_endpoint = cfg._data_endpoint
+            data_endpoint = cfg.get_data_endpoint()
         if not data_endpoint or not effective_name:
             return None
 
@@ -451,7 +451,7 @@ class Tool(BaseModel):
         data_endpoint = self.data_endpoint
         if not data_endpoint:
             cfg = Config.with_configs(config)
-            data_endpoint = cfg._data_endpoint
+            data_endpoint = cfg.get_data_endpoint()
         if not data_endpoint or not effective_name:
             return None
         return f"{data_endpoint}/tools/{effective_name}/download"

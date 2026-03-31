@@ -139,13 +139,20 @@ class TestTool:
         endpoint = tool._get_mcp_endpoint()
         assert endpoint is None
 
-    def test_get_mcp_endpoint_no_data_endpoint(self):
-        """测试没有 data_endpoint 时获取 MCP endpoint"""
+    @patch("agentrun.tool.tool.Config")
+    def test_get_mcp_endpoint_no_data_endpoint(self, mock_config_class):
+        """测试没有 data_endpoint 时从 Config.get_data_endpoint() 兜底"""
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config_class.with_configs.return_value = mock_config
+
         tool = Tool(
             tool_name="my-tool",
         )
         endpoint = tool._get_mcp_endpoint()
-        assert endpoint is None
+        assert endpoint == "https://fallback.example.com/tools/my-tool/sse"
 
     def test_from_inner_object(self):
         """测试从内部对象创建 Tool"""
@@ -244,8 +251,11 @@ class TestTool:
         assert tools[0].name == "tool1"
         assert tools[1].name == "tool2"
 
+    @patch("agentrun.tool.tool.Config")
     @patch("agentrun.tool.api.openapi.ToolOpenAPIClient")
-    def test_list_tools_functioncall(self, mock_openapi_client_class):
+    def test_list_tools_functioncall(
+        self, mock_openapi_client_class, mock_config_class
+    ):
         """测试获取 FUNCTIONCALL 工具列表"""
         mock_client = Mock()
         mock_client.list_tools.return_value = [
@@ -253,6 +263,13 @@ class TestTool:
             ToolInfo(name="tool2", description="Tool 2"),
         ]
         mock_openapi_client_class.return_value = mock_client
+
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config.get_headers.return_value = {}
+        mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(
             tool_type="FUNCTIONCALL",
@@ -295,7 +312,7 @@ class TestTool:
         assert result == {"result": "success"}
 
     @patch("agentrun.tool.api.openapi.ToolOpenAPIClient")
-    @patch("agentrun.utils.config.Config")
+    @patch("agentrun.tool.tool.Config")
     def test_call_tool_functioncall(
         self, mock_config_class, mock_openapi_client_class
     ):
@@ -306,6 +323,11 @@ class TestTool:
 
         mock_config = Mock()
         mock_config.get_headers.return_value = {}
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config.get_access_key_id.return_value = ""
+        mock_config.get_access_key_secret.return_value = ""
         mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(
@@ -417,9 +439,11 @@ class TestTool:
 
     @patch("agentrun.tool.tool.Config")
     def test_get_skill_download_url_config_fallback(self, mock_config_class):
-        """测试 data_endpoint 为空时从 Config 获取"""
+        """测试 data_endpoint 为空时从 Config.get_data_endpoint() 获取"""
         mock_config = Mock()
-        mock_config._data_endpoint = "https://config-endpoint.com"
+        mock_config.get_data_endpoint.return_value = (
+            "https://config-endpoint.com"
+        )
         mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(tool_name="my-skill")
@@ -434,9 +458,9 @@ class TestTool:
 
     @patch("agentrun.tool.tool.Config")
     def test_get_skill_download_url_no_endpoint(self, mock_config_class):
-        """测试没有 data_endpoint 且 Config 也没有时返回 None"""
+        """测试没有 data_endpoint 且 Config.get_data_endpoint() 返回空时返回 None"""
         mock_config = Mock()
-        mock_config._data_endpoint = None
+        mock_config.get_data_endpoint.return_value = ""
         mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(tool_name="my-skill")
@@ -558,8 +582,13 @@ class TestTool:
         with pytest.raises(ValueError, match="only available for SKILL"):
             await tool.download_skill_async()
 
-    async def test_download_skill_async_no_url(self):
-        """测试无法构造下载 URL 时抛出 ValueError"""
+    @patch("agentrun.tool.tool.Config")
+    async def test_download_skill_async_no_url(self, mock_config_class):
+        """测试无法构造下载 URL 时抛出 ValueError（无 name 且 get_data_endpoint 返回空）"""
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = ""
+        mock_config_class.with_configs.return_value = mock_config
+
         tool = Tool(tool_type="SKILL")
 
         with pytest.raises(ValueError, match="Cannot construct download URL"):
@@ -875,7 +904,7 @@ class TestTool:
         assert call_kwargs["use_ram_auth"] is True
 
     @patch("agentrun.tool.api.openapi.ToolOpenAPIClient")
-    @patch("agentrun.utils.config.Config")
+    @patch("agentrun.tool.tool.Config")
     def test_call_tool_functioncall_openapi_import_skips_ram(
         self, mock_config_class, mock_openapi_client_class
     ):
@@ -886,6 +915,11 @@ class TestTool:
 
         mock_config = Mock()
         mock_config.get_headers.return_value = {}
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config.get_access_key_id.return_value = ""
+        mock_config.get_access_key_secret.return_value = ""
         mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(
@@ -961,7 +995,7 @@ class TestTool:
         assert call_kwargs["use_ram_auth"] is False
 
     @patch("agentrun.tool.api.openapi.ToolOpenAPIClient")
-    @patch("agentrun.utils.config.Config")
+    @patch("agentrun.tool.tool.Config")
     async def test_call_tool_async_functioncall_openapi_import_skips_ram(
         self, mock_config_class, mock_openapi_client_class
     ):
@@ -972,6 +1006,11 @@ class TestTool:
 
         mock_config = Mock()
         mock_config.get_headers.return_value = {}
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config.get_access_key_id.return_value = ""
+        mock_config.get_access_key_secret.return_value = ""
         mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(
@@ -1244,25 +1283,37 @@ class TestToolClient:
 
         assert url == "https://example.com/data/tools/my-tool"
 
-    def test_get_functioncall_server_url_no_endpoint(self):
+    @patch("agentrun.tool.tool.Config")
+    def test_get_functioncall_server_url_no_endpoint(self, mock_config_class):
         """测试 _get_functioncall_server_url 没有 data_endpoint 和 name 时返回 None"""
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config_class.with_configs.return_value = mock_config
+
         tool = Tool()
         url = tool._get_functioncall_server_url()
 
         assert url is None
 
-    @patch("agentrun.utils.config.Config")
+    @patch("agentrun.tool.tool.Config")
     async def test_list_tools_async_mcp_no_endpoint(self, mock_config_class):
-        """测试 MCP 类型但没有 endpoint 时返回空列表"""
+        """测试 MCP 类型但没有 endpoint 时，使用 Config.get_data_endpoint() 兜底"""
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = ""
+        mock_config_class.with_configs.return_value = mock_config
+
         tool = Tool(tool_name="my-tool", tool_type="MCP")
 
         tools = await tool.list_tools_async()
 
         assert tools == []
 
+    @patch("agentrun.tool.tool.Config")
     @patch("agentrun.tool.api.openapi.ToolOpenAPIClient")
     async def test_list_tools_async_functioncall(
-        self, mock_openapi_client_class
+        self, mock_openapi_client_class, mock_config_class
     ):
         """测试 FUNCTIONCALL 类型的 list_tools_async"""
         mock_client = Mock()
@@ -1273,6 +1324,13 @@ class TestToolClient:
             ]
         )
         mock_openapi_client_class.return_value = mock_client
+
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config.get_headers.return_value = {}
+        mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(
             tool_type="FUNCTIONCALL",
@@ -1292,7 +1350,7 @@ class TestToolClient:
         assert tools == []
 
     @patch("agentrun.tool.api.openapi.ToolOpenAPIClient")
-    @patch("agentrun.utils.config.Config")
+    @patch("agentrun.tool.tool.Config")
     async def test_call_tool_async_functioncall(
         self, mock_config_class, mock_openapi_client_class
     ):
@@ -1305,6 +1363,11 @@ class TestToolClient:
 
         mock_config = Mock()
         mock_config.get_headers.return_value = {}
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config.get_access_key_id.return_value = ""
+        mock_config.get_access_key_secret.return_value = ""
         mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(
@@ -1316,15 +1379,20 @@ class TestToolClient:
 
         assert result == {"result": "success"}
 
-    async def test_call_tool_async_mcp_no_endpoint(self):
+    @patch("agentrun.tool.tool.Config")
+    async def test_call_tool_async_mcp_no_endpoint(self, mock_config_class):
         """测试 MCP 类型但没有 endpoint 时 call_tool_async 抛出 ValueError"""
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = ""
+        mock_config_class.with_configs.return_value = mock_config
+
         tool = Tool(tool_name="my-tool", tool_type="MCP")
 
         with pytest.raises(ValueError, match="MCP endpoint not available"):
             await tool.call_tool_async("tool1", {"param": "value"})
 
     @patch("agentrun.tool.api.openapi.ToolOpenAPIClient")
-    @patch("agentrun.utils.config.Config")
+    @patch("agentrun.tool.tool.Config")
     def test_call_tool_functioncall(
         self, mock_config_class, mock_openapi_client_class
     ):
@@ -1335,6 +1403,11 @@ class TestToolClient:
 
         mock_config = Mock()
         mock_config.get_headers.return_value = {}
+        mock_config.get_data_endpoint.return_value = (
+            "https://fallback.example.com"
+        )
+        mock_config.get_access_key_id.return_value = ""
+        mock_config.get_access_key_secret.return_value = ""
         mock_config_class.with_configs.return_value = mock_config
 
         tool = Tool(
@@ -1346,16 +1419,25 @@ class TestToolClient:
 
         assert result == {"result": "success"}
 
-    def test_call_tool_mcp_no_endpoint(self):
+    @patch("agentrun.tool.tool.Config")
+    def test_call_tool_mcp_no_endpoint(self, mock_config_class):
         """测试 MCP 类型但没有 endpoint 时 call_tool 抛出 ValueError"""
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = ""
+        mock_config_class.with_configs.return_value = mock_config
+
         tool = Tool(tool_name="my-tool", tool_type="MCP")
 
         with pytest.raises(ValueError, match="MCP endpoint not available"):
             tool.call_tool("tool1", {"param": "value"})
 
-    @patch("agentrun.utils.config.Config")
+    @patch("agentrun.tool.tool.Config")
     def test_list_tools_mcp_no_endpoint(self, mock_config_class):
         """测试 MCP 类型但没有 endpoint 时 list_tools 返回空列表"""
+        mock_config = Mock()
+        mock_config.get_data_endpoint.return_value = ""
+        mock_config_class.with_configs.return_value = mock_config
+
         tool = Tool(tool_name="my-tool", tool_type="MCP")
 
         tools = tool.list_tools()
