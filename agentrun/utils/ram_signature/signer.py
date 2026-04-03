@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 from typing import Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 ALGORITHM = "AGENTRUN4-HMAC-SHA256"
 UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD"
@@ -156,7 +156,7 @@ def get_agentrun_signed_headers(
         for pair in parsed.query.split("&"):
             if "=" in pair:
                 k, v = pair.split("=", 1)
-                query_params[k] = v
+                query_params[unquote(k)] = unquote(v)
 
     now = sign_time if sign_time is not None else datetime.now(timezone.utc)
     if now.tzinfo is None:
