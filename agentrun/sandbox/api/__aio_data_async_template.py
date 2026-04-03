@@ -53,11 +53,13 @@ class AioDataAPI(SandboxDataAPI):
         return u._replace(query=new_query).geturl()
 
     def _build_ws_url(
-        self, ws_path: str, record: Optional[bool] = False
+        self,
+        ws_path: str,
+        record: Optional[bool] = False,
+        config: Optional[Config] = None,
     ) -> str:
-        return self._assemble_ws_url(
-            self.config.get_data_endpoint(), ws_path, record
-        )
+        cfg = Config.with_configs(self.config, config)
+        return self._assemble_ws_url(cfg.get_data_endpoint(), ws_path, record)
 
     def _build_ws_url_with_headers(
         self,
