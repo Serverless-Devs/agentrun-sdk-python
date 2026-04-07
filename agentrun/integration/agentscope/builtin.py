@@ -14,10 +14,13 @@ from agentrun.integration.builtin import (
 from agentrun.integration.builtin import model as _model
 from agentrun.integration.builtin import ModelArgs
 from agentrun.integration.builtin import sandbox_toolset as _sandbox_toolset
+from agentrun.integration.builtin import skill_tools as _skill_tools
+from agentrun.integration.builtin import tool_resource as _tool_resource
 from agentrun.integration.builtin import toolset as _toolset
 from agentrun.integration.utils.tool import Tool
 from agentrun.model import ModelProxy, ModelService
 from agentrun.sandbox import TemplateType
+from agentrun.tool.tool import Tool as ToolResourceType
 from agentrun.toolset import ToolSet
 from agentrun.utils.config import Config
 
@@ -43,6 +46,24 @@ def toolset(
     """将内置工具集封装为 LangChain ``StructuredTool`` 列表。 / AgentScope Built-in Integration Functions"""
 
     ts = _toolset(input=name, config=config)
+    return ts.to_agentscope(
+        prefix=prefix,
+        modify_tool_name=modify_tool_name,
+        filter_tools_by_name=filter_tools_by_name,
+    )
+
+
+def tool_resource(
+    name: Union[str, ToolResourceType],
+    *,
+    prefix: Optional[str] = None,
+    modify_tool_name: Optional[Callable[[Tool], Tool]] = None,
+    filter_tools_by_name: Optional[Callable[[str], bool]] = None,
+    config: Optional[Config] = None,
+) -> List[Any]:
+    """将 ToolResource 封装为 AgentScope 工具列表。 / AgentScope Built-in ToolResource Integration"""
+
+    ts = _tool_resource(input=name, config=config)
     return ts.to_agentscope(
         prefix=prefix,
         modify_tool_name=modify_tool_name,
@@ -85,4 +106,19 @@ def knowledgebase_toolset(
         prefix=prefix,
         modify_tool_name=modify_tool_name,
         filter_tools_by_name=filter_tools_by_name,
+    )
+
+
+def skill_tools(
+    name: Optional[Union[str, List[str]]] = None,
+    *,
+    skills_dir: str = ".skills",
+    prefix: Optional[str] = None,
+    config: Optional[Config] = None,
+) -> List[Any]:
+    """将 Skill 封装为 AgentScope 工具列表。 / AgentScope Built-in Skill Integration"""
+
+    ts = _skill_tools(name=name, skills_dir=skills_dir, config=config)
+    return ts.to_agentscope(
+        prefix=prefix,
     )

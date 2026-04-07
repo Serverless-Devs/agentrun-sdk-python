@@ -109,6 +109,10 @@ from agentrun.sandbox import (
     SandboxClient,
     Template,
 )
+# Tool
+from agentrun.tool import Tool as ToolResource
+from agentrun.tool import ToolClient as ToolResourceClient
+from agentrun.tool import ToolControlAPI as ToolResourceControlAPI
 # ToolSet
 from agentrun.toolset import ToolSet, ToolSetClient
 from agentrun.utils.config import Config
@@ -247,6 +251,10 @@ __all__ = [
     "AioSandbox",
     "CustomSandbox",
     "Template",
+    ######## Tool ########
+    "ToolResource",
+    "ToolResourceClient",
+    "ToolResourceControlAPI",
     ######## ToolSet ########
     "ToolSetClient",
     "ToolSet",
