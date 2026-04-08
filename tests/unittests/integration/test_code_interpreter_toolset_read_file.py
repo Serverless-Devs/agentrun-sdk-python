@@ -1,7 +1,7 @@
 """CodeInterpreterToolSet read_file 工具单元测试
 
-测试 read_file 工具的 base64 编码行为和 raw 参数控制。
-Tests the read_file tool's base64 encoding behavior and the raw parameter control.
+测试 read_file 工具的 base64 编码行为和 encode_base64 参数控制。
+Tests the read_file tool's base64 encoding behavior and the encode_base64 parameter control.
 """
 
 import base64
@@ -40,16 +40,47 @@ def _make_mock_sandbox(file_content: str):
     return mock_sb
 
 
-class TestReadFileBase64Default:
-    """测试 read_file 默认返回 base64 编码内容 / Test that read_file returns base64 by default."""
+class TestReadFileRawDefault:
+    """测试 read_file 默认返回原始文本（向前兼容）/ Test that read_file returns raw text by default."""
 
-    def test_returns_base64_encoded_content(self, toolset):
-        """默认情况下内容应为 base64 编码 / Content should be base64 encoded by default."""
+    def test_returns_plain_content_by_default(self, toolset):
+        """默认情况下应返回原始文本 / Content should be plain text by default."""
         file_content = "hello world"
         mock_sb = _make_mock_sandbox(file_content)
 
         with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb)):
             result = toolset.read_file(path="/tmp/test.txt")
+
+        assert result["content"] == file_content
+        assert result["encoding"] == "raw"
+        assert result["path"] == "/tmp/test.txt"
+
+    def test_encode_base64_false_same_as_default(self, toolset):
+        """encode_base64=False 应与默认行为一致 / encode_base64=False should behave identically to default."""
+        file_content = "some content"
+        mock_sb = _make_mock_sandbox(file_content)
+
+        with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb)):
+            result_explicit = toolset.read_file(path="/tmp/f.txt", encode_base64=False)
+
+        mock_sb2 = _make_mock_sandbox(file_content)
+        with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb2)):
+            result_default = toolset.read_file(path="/tmp/f.txt")
+
+        assert result_explicit == result_default
+        assert result_explicit["encoding"] == "raw"
+
+
+class TestReadFileBase64Param:
+    """测试 encode_base64=True 时返回 base64 编码内容 / Test that encode_base64=True returns base64 content."""
+
+    def test_returns_base64_encoded_content(self, toolset):
+        """encode_base64=True 时内容应为 base64 编码 / Content should be base64 encoded when encode_base64=True."""
+        file_content = "hello world"
+        mock_sb = _make_mock_sandbox(file_content)
+
+        with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb)):
+            result = toolset.read_file(path="/tmp/test.txt", encode_base64=True)
 
         expected_b64 = base64.b64encode(b"hello world").decode("ascii")
         assert result["content"] == expected_b64
@@ -62,7 +93,7 @@ class TestReadFileBase64Default:
         mock_sb = _make_mock_sandbox(file_content)
 
         with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb)):
-            result = toolset.read_file(path="/tmp/utf8.txt")
+            result = toolset.read_file(path="/tmp/utf8.txt", encode_base64=True)
 
         decoded = base64.b64decode(result["content"]).decode("utf-8")
         assert decoded == file_content
@@ -76,39 +107,8 @@ class TestReadFileBase64Default:
         mock_sb.file.read.return_value = file_bytes
 
         with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb)):
-            result = toolset.read_file(path="/tmp/binary.bin")
+            result = toolset.read_file(path="/tmp/binary.bin", encode_base64=True)
 
         expected_b64 = base64.b64encode(file_bytes).decode("ascii")
         assert result["content"] == expected_b64
         assert result["encoding"] == "base64"
-
-
-class TestReadFileRawParam:
-    """测试 raw=True 时返回原始内容 / Test that raw=True returns plain text content."""
-
-    def test_raw_true_returns_plain_content(self, toolset):
-        """raw=True 时应返回原始文本 / raw=True should return raw text."""
-        file_content = "plain text content"
-        mock_sb = _make_mock_sandbox(file_content)
-
-        with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb)):
-            result = toolset.read_file(path="/tmp/plain.txt", raw=True)
-
-        assert result["content"] == file_content
-        assert result["encoding"] == "raw"
-        assert result["path"] == "/tmp/plain.txt"
-
-    def test_raw_false_same_as_default(self, toolset):
-        """raw=False 应与默认行为一致 / raw=False should behave identically to default."""
-        file_content = "some content"
-        mock_sb = _make_mock_sandbox(file_content)
-
-        with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb)):
-            result_explicit = toolset.read_file(path="/tmp/f.txt", raw=False)
-
-        mock_sb2 = _make_mock_sandbox(file_content)
-        with patch.object(toolset, "_run_in_sandbox", side_effect=lambda fn: fn(mock_sb2)):
-            result_default = toolset.read_file(path="/tmp/f.txt")
-
-        assert result_explicit == result_default
-        assert result_explicit["encoding"] == "base64"
