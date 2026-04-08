@@ -388,17 +388,24 @@ class CodeInterpreterToolSet(SandboxToolSet):
         name="read_file",
         description=(
             "Read the content of a file at the specified path in the sandbox."
-            " Returns the text content. Suitable for reading code files,"
-            " configs, logs, etc."
+            " By default returns the file content encoded as a base64 string."
+            " Set raw=true to get the plain text content instead."
+            " Suitable for reading code files, configs, logs, binary files,"
+            " etc."
         ),
     )
-    def read_file(self, path: str) -> Dict[str, Any]:
-        """读取文件内容 / Read file content"""
+    def read_file(self, path: str, raw: bool = False) -> Dict[str, Any]:
+        """读取文件内容，默认返回 base64 编码结果 / Read file content, returns base64 by default"""
 
         def inner(sb: Sandbox):
             assert isinstance(sb, CodeInterpreterSandbox)
             content = sb.file.read(path=path)
-            return {"path": path, "content": content}
+            if raw:
+                return {"path": path, "content": content, "encoding": "raw"}
+            encoded = base64.b64encode(
+                content.encode("utf-8") if isinstance(content, str) else content
+            ).decode("ascii")
+            return {"path": path, "content": encoded, "encoding": "base64"}
 
         return self._run_in_sandbox(inner)
 
