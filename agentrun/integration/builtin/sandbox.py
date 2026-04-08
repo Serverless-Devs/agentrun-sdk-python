@@ -389,7 +389,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         description=(
             "Read the content of a file at the specified path in the sandbox."
             " By default returns the file content encoded as a base64 string."
-            " Set raw=true to get the plain text content instead."
+            " Set raw=True to get the plain text content instead."
             " Suitable for reading code files, configs, logs, binary files,"
             " etc."
         ),
