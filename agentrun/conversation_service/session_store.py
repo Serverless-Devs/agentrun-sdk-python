@@ -134,7 +134,7 @@ class SessionStore:
         await self._backend.init_checkpoint_tables_async()
 
     # -------------------------------------------------------------------
-    # Checkpoint 管理（LangGraph）（异步）
+    # Checkpoint 管理（LangGraph）（同步）
     # -------------------------------------------------------------------
 
     def init_langgraph_tables(self) -> None:
@@ -149,7 +149,7 @@ class SessionStore:
         self._backend.init_checkpoint_tables()
 
     # -------------------------------------------------------------------
-    # Checkpoint 管理（LangGraph）（同步）
+    # Checkpoint 管理（LangGraph）（异步）
     # -------------------------------------------------------------------
 
     async def put_checkpoint_async(
@@ -366,7 +366,7 @@ class SessionStore:
         await self._backend.delete_thread_checkpoints_async(thread_id)
 
     # -------------------------------------------------------------------
-    # Session 管理（异步）/ Session management (async)
+    # Checkpoint 清理（同步）
     # -------------------------------------------------------------------
 
     def delete_thread_checkpoints(
@@ -377,7 +377,7 @@ class SessionStore:
         self._backend.delete_thread_checkpoints(thread_id)
 
     # -------------------------------------------------------------------
-    # Session 管理（同步）/ Session management (async)
+    # Session 管理（异步）/ Session management (async)
     # -------------------------------------------------------------------
 
     async def create_session_async(
@@ -425,6 +425,10 @@ class SessionStore:
         )
         await self._backend.put_session_async(session)
         return session
+
+    # -------------------------------------------------------------------
+    # Session 管理（同步）/ Session management (sync)
+    # -------------------------------------------------------------------
 
     def create_session(
         self,

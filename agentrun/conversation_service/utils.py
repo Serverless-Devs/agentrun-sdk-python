@@ -7,7 +7,13 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tablestore import (
+        AsyncOTSClient,  # type: ignore[import-untyped]
+        OTSClient,
+    )
 
 # OTS 单个属性列值上限为 2MB，留 0.5MB 余量（按字符数计）
 MAX_COLUMN_SIZE: int = 1_500_000  # 1.5M 字符
@@ -106,7 +112,7 @@ def build_ots_clients(
     instance_name: str,
     *,
     sts_token: str | None = None,
-) -> tuple[Any, Any]:
+) -> tuple[OTSClient, AsyncOTSClient]:
     """构建 OTSClient 和 AsyncOTSClient 实例。
 
     独立于 codegen 模板，避免 AsyncOTSClient 被替换为 OTSClient。

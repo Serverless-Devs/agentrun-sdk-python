@@ -2542,7 +2542,7 @@ class OTSBackend:
         await self._async_client.delete_row(table_name, row, condition)
 
     # -----------------------------------------------------------------------
-    # Checkpoint CRUD（LangGraph）（异步）
+    # State CRUD（同步）
     # -----------------------------------------------------------------------
 
     def delete_state_row(
@@ -2561,7 +2561,7 @@ class OTSBackend:
         self._client.delete_row(table_name, row, condition)
 
     # -----------------------------------------------------------------------
-    # Checkpoint CRUD（LangGraph）（同步）
+    # Checkpoint CRUD（LangGraph）（异步）
     # -----------------------------------------------------------------------
 
     async def put_checkpoint_async(
@@ -2590,6 +2590,10 @@ class OTSBackend:
         row = Row(primary_key, attribute_columns)
         condition = Condition(RowExistenceExpectation.IGNORE)
         await self._async_client.put_row(self._checkpoint_table, row, condition)
+
+    # -----------------------------------------------------------------------
+    # Checkpoint CRUD（LangGraph）（同步）
+    # -----------------------------------------------------------------------
 
     def put_checkpoint(
         self,
