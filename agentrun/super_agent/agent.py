@@ -126,6 +126,41 @@ class SuperAgent:
     ) -> InvokeStream:
         raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
 
+    async def list_conversations_async(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
+    ) -> List[ConversationInfo]:
+        """GET /conversations → ``List[ConversationInfo]``.
+
+        默认按 ``{"agentRuntimeName": self.name}`` 过滤 (仅返回当前 agent 的会话);
+        传入 ``metadata={}`` 或自定义 dict 可覆盖默认过滤条件。
+        """
+        cfg = self._resolve_config(config)
+        api = SuperAgentDataAPI(self.name, config=cfg)
+        effective_metadata = (
+            {"agentRuntimeName": self.name} if metadata is None else metadata
+        )
+        raw_list = await api.list_conversations_async(
+            metadata=effective_metadata, config=cfg
+        )
+        return [
+            _conversation_info_from_dict(
+                raw,
+                fallback_conversation_id=str(raw.get("conversationId") or ""),
+            )
+            for raw in raw_list
+        ]
+
+    def list_conversations(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
+    ) -> List[ConversationInfo]:
+        raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
+
     async def get_conversation_async(
         self,
         conversation_id: str,

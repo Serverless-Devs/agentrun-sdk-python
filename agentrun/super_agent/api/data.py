@@ -199,6 +199,55 @@ class SuperAgentDataAPI(DataAPI):
     ) -> Iterator[SSEEvent]:
         raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
 
+    async def list_conversations_async(
+        self,
+        metadata: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
+    ) -> List[Dict[str, Any]]:
+        """GET /conversations → 返回服务端 ``data.conversations`` 数组 (缺失时返回 [])。
+
+        ``metadata`` 若非 None, 会以 JSON 编码后通过 ``metadata`` query 参数下发;
+        服务端按该 metadata 过滤 (例如 ``{"agentRuntimeName": "..."}``)。
+        不传则由服务端按当前 sub uid 过滤。
+        """
+        cfg = Config.with_configs(self.config, config)
+        query: Optional[Dict[str, Any]] = None
+        if metadata is not None:
+            query = {"metadata": json.dumps(metadata, ensure_ascii=False)}
+        url = self.with_path("conversations", query=query, config=cfg)
+        _, signed_headers, _ = self.auth(
+            url=url,
+            method="GET",
+            headers=cfg.get_headers(),
+            config=cfg,
+        )
+        logger.debug("super_agent list_conversations request: GET %s", url)
+        async with httpx.AsyncClient(timeout=cfg.get_timeout()) as client:
+            resp = await client.get(url, headers=signed_headers)
+            resp.raise_for_status()
+            payload = resp.json() if resp.text else {}
+        logger.debug(
+            "super_agent list_conversations response: status=%d payload=%s",
+            resp.status_code,
+            payload,
+        )
+        if not isinstance(payload, dict):
+            return []
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return []
+        raw_list = data.get("conversations")
+        if not isinstance(raw_list, list):
+            return []
+        return [item for item in raw_list if isinstance(item, dict)]
+
+    def list_conversations(
+        self,
+        metadata: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
+    ) -> List[Dict[str, Any]]:
+        raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
+
     async def get_conversation_async(
         self,
         conversation_id: str,

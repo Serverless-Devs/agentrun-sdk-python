@@ -226,6 +226,97 @@ async def test_delete_conversation_async_returns_none():
         assert await _make_agent().delete_conversation_async("c") is None
 
 
+# ─── list_conversations_async ──────────────────────────────
+
+
+async def test_list_conversations_async_default_filters_by_agent_name():
+    """不传 metadata 时, 默认按 ``{"agentRuntimeName": self.name}`` 过滤."""
+    instance = MagicMock()
+    instance.list_conversations_async = AsyncMock(return_value=[])
+    factory = MagicMock(return_value=instance)
+    with patch("agentrun.super_agent.agent.SuperAgentDataAPI", factory):
+        agent = SuperAgent(name="my-agent")
+        result = await agent.list_conversations_async()
+    assert result == []
+    assert instance.list_conversations_async.await_args.kwargs["metadata"] == {
+        "agentRuntimeName": "my-agent"
+    }
+
+
+async def test_list_conversations_async_explicit_metadata_passthrough():
+    instance = MagicMock()
+    instance.list_conversations_async = AsyncMock(return_value=[])
+    factory = MagicMock(return_value=instance)
+    with patch("agentrun.super_agent.agent.SuperAgentDataAPI", factory):
+        agent = _make_agent()
+        await agent.list_conversations_async(metadata={"foo": "bar"})
+    assert instance.list_conversations_async.await_args.kwargs["metadata"] == {
+        "foo": "bar"
+    }
+
+
+async def test_list_conversations_async_empty_metadata_overrides_default():
+    """传入空 dict 明确表示「不按 agent 过滤」, SDK MUST 不再注入默认值."""
+    instance = MagicMock()
+    instance.list_conversations_async = AsyncMock(return_value=[])
+    factory = MagicMock(return_value=instance)
+    with patch("agentrun.super_agent.agent.SuperAgentDataAPI", factory):
+        agent = _make_agent()
+        await agent.list_conversations_async(metadata={})
+    assert instance.list_conversations_async.await_args.kwargs["metadata"] == {}
+
+
+async def test_list_conversations_async_returns_conversation_info_list():
+    instance = MagicMock()
+    instance.list_conversations_async = AsyncMock(
+        return_value=[
+            {
+                "conversationId": "c1",
+                "agentId": "ag",
+                "title": "first",
+                "createdAt": 1,
+                "updatedAt": 2,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+            {
+                "conversationId": "c2",
+                "agentId": "ag",
+                "title": "second",
+                "messages": [],
+            },
+        ]
+    )
+    factory = MagicMock(return_value=instance)
+    with patch("agentrun.super_agent.agent.SuperAgentDataAPI", factory):
+        result = await _make_agent().list_conversations_async()
+    assert [c.conversation_id for c in result] == ["c1", "c2"]
+    assert result[0].title == "first"
+    assert len(result[0].messages) == 1
+    assert result[0].messages[0].content == "hi"
+    assert result[1].title == "second"
+
+
+async def test_list_conversations_async_empty_list():
+    instance = MagicMock()
+    instance.list_conversations_async = AsyncMock(return_value=[])
+    factory = MagicMock(return_value=instance)
+    with patch("agentrun.super_agent.agent.SuperAgentDataAPI", factory):
+        assert await _make_agent().list_conversations_async() == []
+
+
+async def test_list_conversations_async_item_missing_conversation_id_uses_empty_fallback():
+    """对单条会话里 ``conversationId`` 缺失的情况, fallback 保持空串 (不会用 agent name)."""
+    instance = MagicMock()
+    instance.list_conversations_async = AsyncMock(
+        return_value=[{"agentId": "ag"}]
+    )
+    factory = MagicMock(return_value=instance)
+    with patch("agentrun.super_agent.agent.SuperAgentDataAPI", factory):
+        result = await _make_agent().list_conversations_async()
+    assert len(result) == 1
+    assert result[0].conversation_id == ""
+
+
 # ─── sync methods → NotImplementedError ─────────────────────
 
 
@@ -237,6 +328,8 @@ def test_sync_methods_not_implemented():
         agent.get_conversation("c")
     with pytest.raises(NotImplementedError):
         agent.delete_conversation("c")
+    with pytest.raises(NotImplementedError):
+        agent.list_conversations()
 
 
 def test_invoke_async_signature_only_messages_and_conversation_id():

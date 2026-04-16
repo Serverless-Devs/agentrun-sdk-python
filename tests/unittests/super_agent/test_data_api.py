@@ -103,6 +103,24 @@ async def test_invoke_async_phase1_url_custom_gateway_no_ram():
 
 
 @respx.mock
+async def test_list_conversations_async_url_pre_environment():
+    cfg = _auth_cfg(
+        data_endpoint="http://111.funagent-data-pre.cn-hangzhou.aliyuncs.com"
+    )
+    api = SuperAgentDataAPI("n", config=cfg)
+    route = respx.get(
+        re.compile(
+            r"http://111-ram\.funagent-data-pre\.cn-hangzhou\.aliyuncs\.com"
+            r"/2025-09-10/super-agents/__SUPER_AGENT__/conversations(\?.*)?$"
+        )
+    ).mock(
+        return_value=httpx.Response(200, json={"data": {"conversations": []}})
+    )
+    await api.list_conversations_async()
+    assert route.called
+
+
+@respx.mock
 async def test_get_conversation_async_url_pre_environment():
     cfg = _auth_cfg(
         data_endpoint="http://111.funagent-data-pre.cn-hangzhou.aliyuncs.com"
@@ -472,6 +490,166 @@ async def test_delete_conversation_async_404_raises():
         await api.delete_conversation_async("missing")
 
 
+# ─── list_conversations ──────────────────────────────────────
+
+
+@respx.mock
+async def test_list_conversations_async_parses_data_array():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    respx.get(re.compile(r".*/conversations(\?.*)?$")).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "conversations": [
+                        {"conversationId": "c1", "title": "t1"},
+                        {"conversationId": "c2", "title": "t2"},
+                    ]
+                },
+                "success": True,
+            },
+        )
+    )
+    result = await api.list_conversations_async()
+    assert [c["conversationId"] for c in result] == ["c1", "c2"]
+
+
+@respx.mock
+async def test_list_conversations_async_metadata_query_encoded():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    captured = {}
+
+    def _responder(request):
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"data": {"conversations": []}})
+
+    respx.get(re.compile(r".*/conversations.*")).mock(side_effect=_responder)
+    await api.list_conversations_async(metadata={"agentRuntimeName": "demo"})
+    assert "metadata=" in captured["url"]
+    # metadata is json-encoded then URL-encoded
+    assert "agentRuntimeName" in captured["url"]
+
+
+@respx.mock
+async def test_list_conversations_async_without_metadata_no_query():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    captured = {}
+
+    def _responder(request):
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"data": {"conversations": []}})
+
+    respx.get(re.compile(r".*/conversations.*")).mock(side_effect=_responder)
+    await api.list_conversations_async()
+    assert "metadata" not in captured["url"]
+
+
+@respx.mock
+async def test_list_conversations_async_request_signed():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    captured = {}
+
+    def _responder(request):
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json={"data": {"conversations": []}})
+
+    respx.get(re.compile(r".*/conversations.*")).mock(side_effect=_responder)
+    await api.list_conversations_async()
+    assert any(
+        k.lower() == "agentrun-authorization" for k in captured["headers"]
+    )
+
+
+@respx.mock
+async def test_list_conversations_async_missing_data_returns_empty():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    respx.get(re.compile(r".*/conversations.*")).mock(
+        return_value=httpx.Response(200, json={"success": True})
+    )
+    assert await api.list_conversations_async() == []
+
+
+@respx.mock
+async def test_list_conversations_async_data_not_dict_returns_empty():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    respx.get(re.compile(r".*/conversations.*")).mock(
+        return_value=httpx.Response(200, json={"data": "unexpected"})
+    )
+    assert await api.list_conversations_async() == []
+
+
+@respx.mock
+async def test_list_conversations_async_conversations_not_list_returns_empty():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    respx.get(re.compile(r".*/conversations.*")).mock(
+        return_value=httpx.Response(
+            200, json={"data": {"conversations": "bad"}}
+        )
+    )
+    assert await api.list_conversations_async() == []
+
+
+@respx.mock
+async def test_list_conversations_async_filters_non_dict_items():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    respx.get(re.compile(r".*/conversations.*")).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "conversations": [
+                        {"conversationId": "c1"},
+                        "invalid",
+                        None,
+                        {"conversationId": "c2"},
+                    ]
+                }
+            },
+        )
+    )
+    result = await api.list_conversations_async()
+    assert [c["conversationId"] for c in result] == ["c1", "c2"]
+
+
+@respx.mock
+async def test_list_conversations_async_payload_not_dict_returns_empty():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    respx.get(re.compile(r".*/conversations.*")).mock(
+        return_value=httpx.Response(200, json=[1, 2, 3])
+    )
+    assert await api.list_conversations_async() == []
+
+
+@respx.mock
+async def test_list_conversations_async_empty_body_returns_empty():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    respx.get(re.compile(r".*/conversations.*")).mock(
+        return_value=httpx.Response(200, content=b"")
+    )
+    assert await api.list_conversations_async() == []
+
+
+@respx.mock
+async def test_list_conversations_async_5xx_raises():
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    respx.get(re.compile(r".*/conversations.*")).mock(
+        return_value=httpx.Response(500, text="boom")
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await api.list_conversations_async()
+
+
 # ─── sync stubs are NotImplementedError ──────────────────────
 
 
@@ -481,6 +659,7 @@ def test_sync_methods_not_implemented():
     for fn in (
         lambda: api.invoke([]),
         lambda: api.stream("url"),
+        lambda: api.list_conversations(),
         lambda: api.get_conversation("c"),
         lambda: api.delete_conversation("c"),
     ):
