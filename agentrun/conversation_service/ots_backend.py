@@ -249,6 +249,20 @@ class OTSBackend:
         self._create_conversation_search_index()
         self._create_state_search_index()
 
+    async def init_conversation_search_index_async(self) -> None:
+        """仅创建 Conversation 多元索引（异步）。
+
+        索引已存在时跳过，可重复调用。
+        """
+        await self._create_conversation_search_index_async()
+
+    def init_conversation_search_index(self) -> None:
+        """仅创建 Conversation 多元索引（同步）。
+
+        索引已存在时跳过，可重复调用。
+        """
+        self._create_conversation_search_index()
+
     async def init_checkpoint_tables_async(self) -> None:
         """创建 LangGraph checkpoint 相关的 3 张表（异步）。
 

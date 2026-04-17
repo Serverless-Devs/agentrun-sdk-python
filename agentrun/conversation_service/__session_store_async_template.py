@@ -71,7 +71,7 @@ class SessionStore:
         表或索引已存在时跳过，可重复调用。
         """
         await self._backend.init_core_tables_async()
-        await self._backend.init_search_index_async()
+        await self._backend.init_conversation_search_index_async()
 
     async def init_langgraph_tables_async(self) -> None:
         """创建 LangGraph 所需的全部表和索引（异步）。
@@ -81,7 +81,7 @@ class SessionStore:
         表或索引已存在时跳过，可重复调用。
         """
         await self._backend.init_core_tables_async()
-        await self._backend.init_search_index_async()
+        await self._backend.init_conversation_search_index_async()
         await self._backend.init_checkpoint_tables_async()
 
     async def init_adk_tables_async(self) -> None:
