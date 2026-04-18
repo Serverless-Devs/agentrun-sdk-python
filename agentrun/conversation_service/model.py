@@ -31,10 +31,15 @@ DEFAULT_CHECKPOINT_BLOBS_TABLE = "checkpoint_blobs"
 # ---------------------------------------------------------------------------
 # OTS Schema 版本管理
 #
-# 每张表独立计数，用于 SDK 写入端与 Core 读取端(funagent-core)的兼容性协调。
-# 每次 PutRow 时在 attribute_columns 中写入 _schema_version 字段。
+# 用于 SDK 写入端与 Core 读取端(funagent-core)的兼容性协调。
+# 每次写入行（PutRow / UpdateRow / BatchWriteRow）时在
+# attribute_columns 中携带 _schema_version 字段。
 # Core 端读取时检查该字段，版本不匹配时打 WARN 日志并尽力解析。
 # 历史数据（无此字段）视为 v0。
+#
+# 版本计数规则：
+#   - 大部分表独立计数
+#   - state / app_state / user_state 三张表共享 STATE_SCHEMA_VERSION
 #
 # 升级流程：
 #   1. 递增对应表的 *_SCHEMA_VERSION 常量

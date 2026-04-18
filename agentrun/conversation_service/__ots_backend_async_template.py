@@ -120,7 +120,7 @@ class OTSBackend:
         )
 
     # -----------------------------------------------------------------------
-    # 建表（异步）/ Table creation (async)
+    # 建表 / Table creation
     # -----------------------------------------------------------------------
 
     async def init_tables_async(self) -> None:
@@ -609,7 +609,7 @@ class OTSBackend:
                 raise
 
     # -----------------------------------------------------------------------
-    # Session CRUD（异步）/ Session CRUD (async)
+    # Session CRUD
     # -----------------------------------------------------------------------
 
     async def put_session_async(self, session: ConversationSession) -> None:
@@ -961,7 +961,7 @@ class OTSBackend:
         return sessions, search_response.total_count or 0
 
     # -----------------------------------------------------------------------
-    # Event CRUD（异步）/ Event CRUD (async)
+    # Event CRUD
     # -----------------------------------------------------------------------
 
     async def put_event_async(
@@ -1187,7 +1187,7 @@ class OTSBackend:
         return deleted
 
     # -----------------------------------------------------------------------
-    # State CRUD（JSON 字符串存储 + 列分片）（异步）
+    # State CRUD（JSON 字符串存储 + 列分片）
     # -----------------------------------------------------------------------
 
     async def put_state_async(
@@ -1345,7 +1345,7 @@ class OTSBackend:
         await self._async_client.delete_row(table_name, row, condition)
 
     # -----------------------------------------------------------------------
-    # Checkpoint CRUD（LangGraph）（异步）
+    # Checkpoint CRUD（LangGraph）
     # -----------------------------------------------------------------------
 
     async def put_checkpoint_async(
@@ -1767,7 +1767,7 @@ class OTSBackend:
             await self._async_client.batch_write_row(request)
 
     # -----------------------------------------------------------------------
-    # 内部辅助方法（I/O 相关，异步）
+    # 内部辅助方法（I/O 相关）
     # -----------------------------------------------------------------------
 
     async def _get_chunk_count_async(

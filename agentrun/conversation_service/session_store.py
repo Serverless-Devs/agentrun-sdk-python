@@ -156,7 +156,7 @@ class SessionStore:
         await self._backend.init_search_index_async()
 
     # -------------------------------------------------------------------
-    # Checkpoint 管理（LangGraph）（异步）
+    # Checkpoint 管理（LangGraph）
     # -------------------------------------------------------------------
 
     def init_adk_tables(self) -> None:
@@ -171,7 +171,7 @@ class SessionStore:
         self._backend.init_search_index()
 
     # -------------------------------------------------------------------
-    # Checkpoint 管理（LangGraph）（同步）
+    # Checkpoint 管理（LangGraph）
     # -------------------------------------------------------------------
 
     async def put_checkpoint_async(
@@ -388,7 +388,7 @@ class SessionStore:
         await self._backend.delete_thread_checkpoints_async(thread_id)
 
     # -------------------------------------------------------------------
-    # Session 管理（异步）/ Session management (async)
+    # Session 管理 / Session management
     # -------------------------------------------------------------------
 
     def delete_thread_checkpoints(
@@ -399,7 +399,7 @@ class SessionStore:
         self._backend.delete_thread_checkpoints(thread_id)
 
     # -------------------------------------------------------------------
-    # Session 管理（同步）/ Session management (async)
+    # Session 管理 / Session management
     # -------------------------------------------------------------------
 
     async def create_session_async(
@@ -909,7 +909,7 @@ class SessionStore:
         )
 
     # -------------------------------------------------------------------
-    # Event 管理（异步）/ Event management (async)
+    # Event 管理 / Event management
     # -------------------------------------------------------------------
 
     def update_session(
@@ -965,7 +965,7 @@ class SessionStore:
         )
 
     # -------------------------------------------------------------------
-    # Event 管理（同步）/ Event management (async)
+    # Event 管理 / Event management
     # -------------------------------------------------------------------
 
     async def append_event_async(
@@ -1199,7 +1199,7 @@ class SessionStore:
         return events
 
     # -------------------------------------------------------------------
-    # State 管理（异步）/ State management (async)
+    # State 管理 / State management
     # -------------------------------------------------------------------
 
     def get_recent_events(
@@ -1233,7 +1233,7 @@ class SessionStore:
         return events
 
     # -------------------------------------------------------------------
-    # State 管理（同步）/ State management (async)
+    # State 管理 / State management
     # -------------------------------------------------------------------
 
     async def get_session_state_async(
@@ -1429,7 +1429,7 @@ class SessionStore:
         return merged
 
     # -------------------------------------------------------------------
-    # 内部辅助方法（异步）
+    # 内部辅助方法
     # -------------------------------------------------------------------
 
     def get_merged_state(
@@ -1457,7 +1457,7 @@ class SessionStore:
         return merged
 
     # -------------------------------------------------------------------
-    # 内部辅助方法（同步）
+    # 内部辅助方法
     # -------------------------------------------------------------------
 
     async def _apply_delta_async(
@@ -1513,7 +1513,7 @@ class SessionStore:
             )
 
     # -------------------------------------------------------------------
-    # 工厂方法（异步）/ Factory methods (async)
+    # 工厂方法 / Factory methods
     # -------------------------------------------------------------------
 
     def _apply_delta(
@@ -1567,7 +1567,7 @@ class SessionStore:
             )
 
     # -------------------------------------------------------------------
-    # 工厂方法（同步）/ Factory methods (async)
+    # 工厂方法 / Factory methods
     # -------------------------------------------------------------------
 
     @classmethod
