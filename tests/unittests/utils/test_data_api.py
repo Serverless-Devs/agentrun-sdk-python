@@ -1206,3 +1206,122 @@ class TestDataAPIAuthWithSandbox:
             api.get_base_url().startswith("https://")
             and "-ram." in api.get_base_url()
         )
+
+
+class TestDataAPIConfigForwarding:
+    """测试 DataAPI 的 config 透传到 with_path 的行为（修复 issue #75）
+
+    当 DataAPI 实例初始化时没有提供 account_id（如通过 __get_client() 获取的无配置客户端），
+    但在调用 HTTP 方法时通过 config 参数传入 account_id，URL 应该使用该 account_id 构造。
+    """
+
+    @respx.mock
+    def test_get_uses_call_time_config_for_url(self):
+        """测试 get() 使用调用时传入的 config 构造 URL（不依赖实例 config 的 account_id）"""
+        # 实例创建时不提供 account_id（模拟 __get_client() 无配置的情况）
+        api = DataAPI(
+            resource_name="",
+            resource_type=ResourceType.Template,
+            config=None,
+            namespace="sandboxes",
+        )
+
+        # 调用时传入带有 account_id 的 config
+        call_config = Config(
+            account_id="call-time-account",
+            access_key_id="",
+            access_key_secret="",
+            region_id="cn-hangzhou",
+        )
+
+        respx.get(
+            "https://call-time-account.agentrun-data.cn-hangzhou.aliyuncs.com/sandboxes"
+        ).mock(return_value=httpx.Response(200, json={"code": "SUCCESS"}))
+
+        result = api.get("/", config=call_config)
+        assert result == {"code": "SUCCESS"}
+
+    @respx.mock
+    def test_post_uses_call_time_config_for_url(self):
+        """测试 post() 使用调用时传入的 config 构造 URL"""
+        api = DataAPI(
+            resource_name="",
+            resource_type=ResourceType.Template,
+            config=None,
+            namespace="sandboxes",
+        )
+
+        call_config = Config(
+            account_id="call-time-account",
+            access_key_id="",
+            access_key_secret="",
+            region_id="cn-hangzhou",
+        )
+
+        respx.post(
+            "https://call-time-account.agentrun-data.cn-hangzhou.aliyuncs.com/sandboxes"
+        ).mock(return_value=httpx.Response(200, json={"code": "SUCCESS"}))
+
+        result = api.post("/", data={"key": "val"}, config=call_config)
+        assert result == {"code": "SUCCESS"}
+
+    @respx.mock
+    def test_delete_uses_call_time_config_for_url(self):
+        """测试 delete() 使用调用时传入的 config 构造 URL"""
+        api = DataAPI(
+            resource_name="",
+            resource_type=ResourceType.Template,
+            config=None,
+            namespace="sandboxes",
+        )
+
+        call_config = Config(
+            account_id="call-time-account",
+            access_key_id="",
+            access_key_secret="",
+            region_id="cn-hangzhou",
+        )
+
+        respx.delete(
+            "https://call-time-account.agentrun-data.cn-hangzhou.aliyuncs.com/sandboxes"
+        ).mock(return_value=httpx.Response(200, json={"code": "SUCCESS"}))
+
+        result = api.delete("/", config=call_config)
+        assert result == {"code": "SUCCESS"}
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_post_async_uses_call_time_config_for_url(self):
+        """测试 post_async() 使用调用时传入的 config 构造 URL"""
+        api = DataAPI(
+            resource_name="",
+            resource_type=ResourceType.Template,
+            config=None,
+            namespace="sandboxes",
+        )
+
+        call_config = Config(
+            account_id="call-time-account",
+            access_key_id="",
+            access_key_secret="",
+            region_id="cn-hangzhou",
+        )
+
+        respx.post(
+            "https://call-time-account.agentrun-data.cn-hangzhou.aliyuncs.com/sandboxes"
+        ).mock(return_value=httpx.Response(200, json={"code": "SUCCESS"}))
+
+        result = await api.post_async("/", data={"key": "val"}, config=call_config)
+        assert result == {"code": "SUCCESS"}
+
+    def test_no_account_id_without_call_time_config_raises(self):
+        """测试未在实例 config 或调用 config 中设置 account_id 时抛出 ValueError"""
+        api = DataAPI(
+            resource_name="",
+            resource_type=ResourceType.Template,
+            config=None,
+            namespace="sandboxes",
+        )
+
+        with pytest.raises(ValueError, match="account id is not set"):
+            api.with_path("/")
