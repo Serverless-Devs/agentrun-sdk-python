@@ -14,7 +14,7 @@ SuperAgentClient / 超级 Agent 客户端
 内部持有一个 :class:`AgentRuntimeClient` 实例, 通过 ``api/control.py`` 的
 转换函数把 ``SuperAgent`` 与 ``AgentRuntime`` 互相映射。
 
-list 固定按 tag ``x-agentrun-super-agent`` 过滤, 不接受用户自定义 tag。
+list 固定按 tag ``x-agentrun-super`` 过滤, 不接受用户自定义 tag。
 """
 
 import asyncio

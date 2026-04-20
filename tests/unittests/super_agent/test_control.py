@@ -108,7 +108,7 @@ def test_to_create_input_minimal():
     cfg = Config(account_id="123", region_id="cn-hangzhou")
     inp = to_create_input("alpha", cfg=cfg)
     assert inp.agent_runtime_name == "alpha"
-    assert inp.tags == [EXTERNAL_TAG, SUPER_AGENT_TAG]
+    assert inp.tags == [SUPER_AGENT_TAG]
     pc = inp.protocol_configuration
     assert pc.type == SUPER_AGENT_PROTOCOL_TYPE
     assert pc.external_endpoint.endswith("/super-agents/__SUPER_AGENT__")
@@ -149,7 +149,7 @@ def test_to_create_input_full():
 def test_to_create_input_tags_fixed():
     cfg = Config(account_id="123", region_id="cn-hangzhou")
     inp = to_create_input("c", cfg=cfg)
-    assert inp.tags == [EXTERNAL_TAG, SUPER_AGENT_TAG]
+    assert inp.tags == [SUPER_AGENT_TAG]
 
 
 def test_to_create_input_metadata_only_agent_runtime_name():

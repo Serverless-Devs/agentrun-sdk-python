@@ -50,11 +50,12 @@ from agentrun.utils.model import NetworkConfig, NetworkMode
 API_VERSION = "2025-09-10"
 SUPER_AGENT_PROTOCOL_TYPE = "SUPER_AGENT"
 # ``SUPER_AGENT_TAG`` 标识下游 AgentRuntime 是超级 Agent, 用于 list 过滤。
-SUPER_AGENT_TAG = "x-agentrun-super-agent"
+SUPER_AGENT_TAG = "x-agentrun-super"
 # ``EXTERNAL_TAG`` 标识下游 AgentRuntime 由外部 (SuperAgent) 托管调用, 不由 AgentRun 直接托管。
+# 保留常量以便外部消费者引用; 创建超级 Agent 时不再写入此 tag。
 EXTERNAL_TAG = "x-agentrun-external"
-# 创建下游 AgentRuntime 时固定写入的 tag 列表: ``[EXTERNAL_TAG, SUPER_AGENT_TAG]``。
-SUPER_AGENT_CREATE_TAGS = [EXTERNAL_TAG, SUPER_AGENT_TAG]
+# 创建下游 AgentRuntime 时固定写入的 tag 列表: ``[SUPER_AGENT_TAG]`` (仅一个)。
+SUPER_AGENT_CREATE_TAGS = [SUPER_AGENT_TAG]
 SUPER_AGENT_RESOURCE_PATH = "__SUPER_AGENT__"
 SUPER_AGENT_INVOKE_PATH = "/invoke"
 SUPER_AGENT_NAMESPACE = (
@@ -131,8 +132,8 @@ class _SuperAgentCreateInput(AgentRuntimeCreateInput):
     """默认使用 ``serialize_as_any=True`` 的 create input, 保留子类 extras.
 
     ``external_agent_endpoint_url`` 是基类 ``AgentRuntimeMutableProps`` 没有覆盖
-    的顶层字段, 但在 ``x-agentrun-external`` tag 下服务端强制要求填入, 这里显式
-    补齐 (alias 由 BaseModel 的 ``to_camel_case`` 生成 → ``externalAgentEndpointUrl``)。
+    的顶层字段, 这里显式补齐 (alias 由 BaseModel 的 ``to_camel_case`` 生成 →
+    ``externalAgentEndpointUrl``), 用于承载超级 Agent 的数据面入口地址。
     """
 
     external_agent_endpoint_url: Optional[str] = None
@@ -407,8 +408,7 @@ def to_create_input(
         description=description,
         protocol_configuration=pc,
         tags=list(SUPER_AGENT_CREATE_TAGS),
-        # 带 ``x-agentrun-external`` tag 时服务端强制要求 externalAgentEndpointUrl 非空,
-        # 对超级 Agent 而言即数据面入口 (与 protocolConfiguration.externalEndpoint 同值)。
+        # 超级 Agent 的数据面入口 (与 protocolConfiguration.externalEndpoint 同值)。
         external_agent_endpoint_url=build_super_agent_endpoint(cfg),
         # 占位 artifact: SUPER_AGENT 不跑用户 container/code, 但服务端要求非空。
         artifact_type=AgentRuntimeArtifact.CONTAINER,
@@ -439,7 +439,7 @@ def to_update_input(
         description=merged.get("description"),
         protocol_configuration=pc,
         tags=list(SUPER_AGENT_CREATE_TAGS),
-        # 带 ``x-agentrun-external`` tag 时服务端强制要求 externalAgentEndpointUrl 非空。
+        # 超级 Agent 的数据面入口 (与 protocolConfiguration.externalEndpoint 同值)。
         external_agent_endpoint_url=build_super_agent_endpoint(cfg),
         # 占位 artifact: SUPER_AGENT 不跑用户 container/code, 但服务端要求非空。
         artifact_type=AgentRuntimeArtifact.CONTAINER,
