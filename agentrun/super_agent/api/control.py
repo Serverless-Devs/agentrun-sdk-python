@@ -337,9 +337,12 @@ def _business_fields_from_args(
 def _build_protocol_settings_config(
     *, name: str, business: Dict[str, Any]
 ) -> str:
-    """构造 ``protocolSettings[0].config`` 的 JSON 字符串."""
-    cfg_dict: Dict[str, Any] = {
-        "path": SUPER_AGENT_INVOKE_PATH,
+    """构造 ``protocolSettings[0].config`` 的 JSON 字符串.
+
+    新结构: 顶层 ``path`` / ``headers`` / ``body``, 业务字段收拢到
+    ``body.forwardedProps`` (开放字典, 语义 "any, merge")。
+    """
+    forwarded_props: Dict[str, Any] = {
         "prompt": business.get("prompt"),
         "agents": business.get("agents") or [],
         "tools": business.get("tools") or [],
@@ -349,6 +352,11 @@ def _build_protocol_settings_config(
         "modelServiceName": business.get("modelServiceName"),
         "modelName": business.get("modelName"),
         "metadata": {"agentRuntimeName": name},
+    }
+    cfg_dict: Dict[str, Any] = {
+        "path": SUPER_AGENT_INVOKE_PATH,
+        "headers": {},
+        "body": {"forwardedProps": forwarded_props},
     }
     return json.dumps(cfg_dict, ensure_ascii=False)
 
@@ -483,10 +491,31 @@ def is_super_agent(rt: AgentRuntime) -> bool:
     return first.get("type") == SUPER_AGENT_PROTOCOL_TYPE
 
 
+def _flatten_protocol_config(cfg: Any) -> Dict[str, Any]:
+    """把 ``protocolSettings[0].config`` 解析结果压平为扁平业务字段 dict.
+
+    兼容两种物理布局:
+    - 新: ``{"path": ..., "headers": ..., "body": {"forwardedProps": {...}}}``
+    - 旧: 业务字段直接在根 (历史 AgentRuntime, 迁移前写入)
+
+    两种结构都返回扁平的业务字段 dict, 上游
+    :func:`from_agent_runtime` 无需感知物理布局差异。
+    """
+    if not isinstance(cfg, dict):
+        return {}
+    body = cfg.get("body")
+    if isinstance(body, dict):
+        forwarded = body.get("forwardedProps")
+        if isinstance(forwarded, dict):
+            return forwarded
+    return cfg
+
+
 def parse_super_agent_config(rt: AgentRuntime) -> Dict[str, Any]:
-    """反解 ``protocolSettings[0].config`` 为业务字段 dict.
+    """反解 ``protocolSettings[0].config`` 为扁平业务字段 dict.
 
     如果 config 缺失或非法 JSON, 返回空 dict (不抛异常)。
+    新旧嵌套布局由 :func:`_flatten_protocol_config` 统一拍平。
     """
     pc_dict = _extract_protocol_configuration(rt)
     if not pc_dict:
@@ -499,13 +528,13 @@ def parse_super_agent_config(rt: AgentRuntime) -> Dict[str, Any]:
     if not raw_config:
         return {}
     if isinstance(raw_config, dict):
-        return raw_config
+        return _flatten_protocol_config(raw_config)
     if isinstance(raw_config, str):
         try:
             parsed = json.loads(raw_config)
-            return parsed if isinstance(parsed, dict) else {}
         except (TypeError, ValueError):
             return {}
+        return _flatten_protocol_config(parsed)
     return {}
 
 

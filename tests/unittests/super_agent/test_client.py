@@ -60,15 +60,20 @@ def _fake_rt(
     """Build a minimal AgentRuntime-like object for ``from_agent_runtime``."""
     cfg_dict = {
         "path": "/invoke",
-        "prompt": prompt,
-        "agents": [],
-        "tools": tools if tools is not None else [],
-        "skills": [],
-        "sandboxes": [],
-        "workspaces": [],
-        "modelServiceName": None,
-        "modelName": None,
-        "metadata": {"agentRuntimeName": name},
+        "headers": {},
+        "body": {
+            "forwardedProps": {
+                "prompt": prompt,
+                "agents": [],
+                "tools": tools if tools is not None else [],
+                "skills": [],
+                "sandboxes": [],
+                "workspaces": [],
+                "modelServiceName": None,
+                "modelName": None,
+                "metadata": {"agentRuntimeName": name},
+            }
+        },
     }
     pc = {
         "type": protocol_type,
@@ -124,7 +129,7 @@ async def test_create_async_calls_runtime_with_correct_input():
     first = pc.protocol_settings[0]
     assert first.type == SUPER_AGENT_PROTOCOL_TYPE
     cfg_json = json.loads(first.config)
-    assert cfg_json["prompt"] == "new"
+    assert cfg_json["body"]["forwardedProps"]["prompt"] == "new"
     assert agent.name == "alpha"
 
 
@@ -206,8 +211,9 @@ async def test_update_async_partial_modify_prompt_only():
     cfg_json = json.loads(
         captured["dara"].protocol_configuration.protocol_settings[0].config
     )
-    assert cfg_json["prompt"] == "new"
-    assert cfg_json["tools"] == ["t1"]
+    forwarded = cfg_json["body"]["forwardedProps"]
+    assert forwarded["prompt"] == "new"
+    assert forwarded["tools"] == ["t1"]
 
 
 async def test_update_async_explicit_none_clears_field():
@@ -238,7 +244,7 @@ async def test_update_async_explicit_none_clears_field():
     cfg_json = json.loads(
         captured["dara"].protocol_configuration.protocol_settings[0].config
     )
-    assert cfg_json["prompt"] is None
+    assert cfg_json["body"]["forwardedProps"]["prompt"] is None
 
 
 async def test_update_async_multiple_fields():
@@ -271,8 +277,9 @@ async def test_update_async_multiple_fields():
     cfg_json = json.loads(
         captured["dara"].protocol_configuration.protocol_settings[0].config
     )
-    assert cfg_json["prompt"] == "p"
-    assert cfg_json["tools"] == ["a", "b"]
+    forwarded = cfg_json["body"]["forwardedProps"]
+    assert forwarded["prompt"] == "p"
+    assert forwarded["tools"] == ["a", "b"]
     assert captured["dara"].description == "d"
 
 

@@ -116,8 +116,10 @@ def test_to_create_input_minimal():
     assert len(settings) == 1
     cfg_dict = json.loads(settings[0]["config"])
     assert cfg_dict["path"] == "/invoke"
-    assert cfg_dict["agents"] == []
-    assert cfg_dict["metadata"] == {"agentRuntimeName": "alpha"}
+    assert cfg_dict["headers"] == {}
+    forwarded = cfg_dict["body"]["forwardedProps"]
+    assert forwarded["agents"] == []
+    assert forwarded["metadata"] == {"agentRuntimeName": "alpha"}
 
 
 def test_to_create_input_full():
@@ -136,14 +138,17 @@ def test_to_create_input_full():
     )
     pc_dict = inp.model_dump()["protocolConfiguration"]
     settings_cfg = json.loads(pc_dict["protocolSettings"][0]["config"])
-    assert settings_cfg["prompt"] == "hello"
-    assert settings_cfg["agents"] == ["a1"]
-    assert settings_cfg["tools"] == ["t1", "t2"]
-    assert settings_cfg["skills"] == ["s1"]
-    assert settings_cfg["sandboxes"] == ["sb1"]
-    assert settings_cfg["workspaces"] == ["ws1"]
-    assert settings_cfg["modelServiceName"] == "foo"
-    assert settings_cfg["modelName"] == "bar"
+    assert settings_cfg["path"] == "/invoke"
+    assert settings_cfg["headers"] == {}
+    forwarded = settings_cfg["body"]["forwardedProps"]
+    assert forwarded["prompt"] == "hello"
+    assert forwarded["agents"] == ["a1"]
+    assert forwarded["tools"] == ["t1", "t2"]
+    assert forwarded["skills"] == ["s1"]
+    assert forwarded["sandboxes"] == ["sb1"]
+    assert forwarded["workspaces"] == ["ws1"]
+    assert forwarded["modelServiceName"] == "foo"
+    assert forwarded["modelName"] == "bar"
 
 
 def test_to_create_input_tags_fixed():
@@ -158,7 +163,9 @@ def test_to_create_input_metadata_only_agent_runtime_name():
     settings_cfg = json.loads(
         inp.protocol_configuration.protocol_settings[0]["config"]
     )
-    assert settings_cfg["metadata"] == {"agentRuntimeName": "d"}
+    assert settings_cfg["body"]["forwardedProps"]["metadata"] == {
+        "agentRuntimeName": "d"
+    }
 
 
 def test_to_create_input_uses_pre_environment_endpoint():
@@ -194,15 +201,21 @@ def _make_rt(**kwargs):
 
 def test_from_agent_runtime():
     config_json = json.dumps({
-        "prompt": "hi",
-        "agents": ["a"],
-        "tools": ["t"],
-        "skills": [],
-        "sandboxes": [],
-        "workspaces": [],
-        "modelServiceName": "svc",
-        "modelName": "mod",
-        "metadata": {"agentRuntimeName": "foo"},
+        "path": "/invoke",
+        "headers": {},
+        "body": {
+            "forwardedProps": {
+                "prompt": "hi",
+                "agents": ["a"],
+                "tools": ["t"],
+                "skills": [],
+                "sandboxes": [],
+                "workspaces": [],
+                "modelServiceName": "svc",
+                "modelName": "mod",
+                "metadata": {"agentRuntimeName": "foo"},
+            }
+        },
     })
     pc = {
         "type": SUPER_AGENT_PROTOCOL_TYPE,
@@ -225,6 +238,89 @@ def test_from_agent_runtime():
     assert (
         agent.external_endpoint == "https://x.com/super-agents/__SUPER_AGENT__"
     )
+
+
+def test_from_agent_runtime_legacy_flat_config():
+    """旧结构兼容: config 是扁平 dict, 业务字段直接在根 (历史 AgentRuntime)."""
+    config_json = json.dumps({
+        "prompt": "legacy",
+        "agents": ["la"],
+        "tools": ["lt"],
+        "skills": [],
+        "sandboxes": [],
+        "workspaces": [],
+        "modelServiceName": "legacy-svc",
+        "modelName": "legacy-mod",
+        "metadata": {"agentRuntimeName": "legacy"},
+    })
+    pc = {
+        "type": SUPER_AGENT_PROTOCOL_TYPE,
+        "protocolSettings": [{
+            "type": SUPER_AGENT_PROTOCOL_TYPE,
+            "config": config_json,
+            "name": "legacy",
+            "path": "/invoke",
+        }],
+        "externalEndpoint": "https://x.com/super-agents/__SUPER_AGENT__",
+    }
+    rt = _make_rt(agent_runtime_name="legacy", protocol_configuration=pc)
+    agent = from_agent_runtime(rt)
+    assert agent.prompt == "legacy"
+    assert agent.agents == ["la"]
+    assert agent.model_service_name == "legacy-svc"
+
+
+def test_parse_super_agent_config_dict_config_new_structure():
+    """config 已经是 dict (非字符串) 时也能拍平."""
+    pc = {
+        "type": SUPER_AGENT_PROTOCOL_TYPE,
+        "protocolSettings": [{
+            "type": SUPER_AGENT_PROTOCOL_TYPE,
+            "config": {
+                "path": "/invoke",
+                "headers": {},
+                "body": {
+                    "forwardedProps": {
+                        "prompt": "p",
+                        "agents": [],
+                    }
+                },
+            },
+        }],
+    }
+    business = parse_super_agent_config(_make_rt(protocol_configuration=pc))
+    assert business["prompt"] == "p"
+    assert business["agents"] == []
+
+
+def test_parse_super_agent_config_dict_config_legacy_flat():
+    """config 是 dict + 旧扁平结构时走 fallback, 原样返回."""
+    pc = {
+        "type": SUPER_AGENT_PROTOCOL_TYPE,
+        "protocolSettings": [{
+            "type": SUPER_AGENT_PROTOCOL_TYPE,
+            "config": {"prompt": "legacy-dict", "agents": ["la"]},
+        }],
+    }
+    business = parse_super_agent_config(_make_rt(protocol_configuration=pc))
+    assert business == {"prompt": "legacy-dict", "agents": ["la"]}
+
+
+def test_flatten_protocol_config_non_dict_returns_empty():
+    """非 dict 输入 (防御分支) 返回空 dict."""
+    from agentrun.super_agent.api.control import _flatten_protocol_config
+
+    assert _flatten_protocol_config(None) == {}
+    assert _flatten_protocol_config("not-a-dict") == {}
+    assert _flatten_protocol_config([1, 2, 3]) == {}
+
+
+def test_flatten_protocol_config_body_without_forwarded_props():
+    """body 存在但缺 forwardedProps → fallback 到整个 cfg (旧结构)."""
+    from agentrun.super_agent.api.control import _flatten_protocol_config
+
+    cfg = {"body": {"other": "x"}, "prompt": "flat"}
+    assert _flatten_protocol_config(cfg) == cfg
 
 
 def test_is_super_agent_true():
@@ -280,10 +376,11 @@ def test_to_update_input_full_protocol_replace():
     assert inp.description == "new"
     settings = inp.protocol_configuration.protocol_settings
     assert len(settings) == 1
-    assert (
-        json.loads(settings[0]["config"])["metadata"]["agentRuntimeName"]
-        == "alpha"
-    )
+    cfg_json = json.loads(settings[0]["config"])
+    forwarded = cfg_json["body"]["forwardedProps"]
+    assert forwarded["metadata"]["agentRuntimeName"] == "alpha"
+    assert forwarded["prompt"] == "p"
+    assert forwarded["tools"] == ["t"]
 
 
 # ─── Dara ListAgentRuntimesRequest tags 补丁 ──────────────────
