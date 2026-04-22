@@ -93,6 +93,29 @@ class TestConfigExtended:
             assert config.get_account_id() == "fc_account"
             assert config.get_region_id() == "cn-beijing"
 
+    def test_init_from_env_alibaba_cloud_region_id(self):
+        """测试从 ALIBABA_CLOUD_REGION_ID 环境变量读取 region_id"""
+        with patch.dict(
+            os.environ,
+            {"ALIBABA_CLOUD_REGION_ID": "cn-shanghai"},
+            clear=True,
+        ):
+            config = Config()
+            assert config.get_region_id() == "cn-shanghai"
+
+    def test_region_id_env_priority_agentrun_over_alibaba(self):
+        """测试 AGENTRUN_REGION 优先于 ALIBABA_CLOUD_REGION_ID"""
+        with patch.dict(
+            os.environ,
+            {
+                "AGENTRUN_REGION": "cn-hangzhou",
+                "ALIBABA_CLOUD_REGION_ID": "cn-shanghai",
+            },
+            clear=True,
+        ):
+            config = Config()
+            assert config.get_region_id() == "cn-hangzhou"
+
     def test_with_configs_class_method(self):
         """测试 with_configs 类方法"""
         config1 = Config(access_key_id="id1", region_id="cn-hangzhou")
