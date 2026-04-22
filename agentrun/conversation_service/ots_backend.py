@@ -45,6 +45,10 @@ from tablestore import (
 )
 
 from agentrun.conversation_service.model import (
+    CHECKPOINT_BLOBS_SCHEMA_VERSION,
+    CHECKPOINT_SCHEMA_VERSION,
+    CHECKPOINT_WRITES_SCHEMA_VERSION,
+    CONVERSATION_SCHEMA_VERSION,
     ConversationEvent,
     ConversationSession,
     DEFAULT_APP_STATE_TABLE,
@@ -58,6 +62,9 @@ from agentrun.conversation_service.model import (
     DEFAULT_STATE_SEARCH_INDEX,
     DEFAULT_STATE_TABLE,
     DEFAULT_USER_STATE_TABLE,
+    EVENT_SCHEMA_VERSION,
+    SCHEMA_VERSION_COLUMN,
+    STATE_SCHEMA_VERSION,
     StateData,
     StateScope,
 )
@@ -123,7 +130,7 @@ class OTSBackend:
         )
 
     # -----------------------------------------------------------------------
-    # 建表（异步）/ Table creation (async)
+    # 建表 / Table creation
     # -----------------------------------------------------------------------
 
     async def init_tables_async(self) -> None:
@@ -241,6 +248,20 @@ class OTSBackend:
         """
         self._create_conversation_search_index()
         self._create_state_search_index()
+
+    async def init_conversation_search_index_async(self) -> None:
+        """仅创建 Conversation 多元索引（异步）。
+
+        索引已存在时跳过，可重复调用。
+        """
+        await self._create_conversation_search_index_async()
+
+    def init_conversation_search_index(self) -> None:
+        """仅创建 Conversation 多元索引（同步）。
+
+        索引已存在时跳过，可重复调用。
+        """
+        self._create_conversation_search_index()
 
     async def init_checkpoint_tables_async(self) -> None:
         """创建 LangGraph checkpoint 相关的 3 张表（异步）。
@@ -991,26 +1012,18 @@ class OTSBackend:
                 self._state_table,
             )
         except OTSServiceError as e:
-            err_str = str(e).lower()
-            if "already exist" in err_str or (
+            if "already exist" in str(e).lower() or (
                 hasattr(e, "code") and e.code == "OTSObjectAlreadyExist"
             ):
                 logger.warning(
                     "Search index %s already exists, skipping.",
                     self._state_search_index,
                 )
-            elif "does not exist" in err_str and "table" in err_str:
-                logger.warning(
-                    "Table %s does not exist, skipping search index creation"
-                    " for %s.",
-                    self._state_table,
-                    self._state_search_index,
-                )
             else:
                 raise
 
     # -----------------------------------------------------------------------
-    # Session CRUD（异步）/ Session CRUD (async)
+    # Session CRUD
     # -----------------------------------------------------------------------
 
     def _create_state_search_index(self) -> None:
@@ -1084,26 +1097,18 @@ class OTSBackend:
                 self._state_table,
             )
         except OTSServiceError as e:
-            err_str = str(e).lower()
-            if "already exist" in err_str or (
+            if "already exist" in str(e).lower() or (
                 hasattr(e, "code") and e.code == "OTSObjectAlreadyExist"
             ):
                 logger.warning(
                     "Search index %s already exists, skipping.",
                     self._state_search_index,
                 )
-            elif "does not exist" in err_str and "table" in err_str:
-                logger.warning(
-                    "Table %s does not exist, skipping search index creation"
-                    " for %s.",
-                    self._state_table,
-                    self._state_search_index,
-                )
             else:
                 raise
 
     # -----------------------------------------------------------------------
-    # Session CRUD（同步）/ Session CRUD (async)
+    # Session CRUD
     # -----------------------------------------------------------------------
 
     async def put_session_async(self, session: ConversationSession) -> None:
@@ -1115,6 +1120,7 @@ class OTSBackend:
         ]
 
         attribute_columns = [
+            (SCHEMA_VERSION_COLUMN, CONVERSATION_SCHEMA_VERSION),
             ("created_at", session.created_at),
             ("updated_at", session.updated_at),
             ("is_pinned", session.is_pinned),
@@ -1148,6 +1154,7 @@ class OTSBackend:
         ]
 
         attribute_columns = [
+            (SCHEMA_VERSION_COLUMN, CONVERSATION_SCHEMA_VERSION),
             ("created_at", session.created_at),
             ("updated_at", session.updated_at),
             ("is_pinned", session.is_pinned),
@@ -1690,7 +1697,7 @@ class OTSBackend:
         return sessions, search_response.total_count or 0
 
     # -----------------------------------------------------------------------
-    # Event CRUD（异步）/ Event CRUD (async)
+    # Event CRUD
     # -----------------------------------------------------------------------
 
     def search_sessions(
@@ -1799,7 +1806,7 @@ class OTSBackend:
         return sessions, search_response.total_count or 0
 
     # -----------------------------------------------------------------------
-    # Event CRUD（同步）/ Event CRUD (async)
+    # Event CRUD
     # -----------------------------------------------------------------------
 
     async def put_event_async(
@@ -1844,6 +1851,7 @@ class OTSBackend:
 
         content_json = json.dumps(content, ensure_ascii=False)
         attribute_columns = [
+            (SCHEMA_VERSION_COLUMN, EVENT_SCHEMA_VERSION),
             ("type", event_type),
             ("content", content_json),
             ("created_at", created_at),
@@ -1918,6 +1926,7 @@ class OTSBackend:
 
         content_json = json.dumps(content, ensure_ascii=False)
         attribute_columns = [
+            (SCHEMA_VERSION_COLUMN, EVENT_SCHEMA_VERSION),
             ("type", event_type),
             ("content", content_json),
             ("created_at", created_at),
@@ -2174,7 +2183,7 @@ class OTSBackend:
         return deleted
 
     # -----------------------------------------------------------------------
-    # State CRUD（JSON 字符串存储 + 列分片）（异步）
+    # State CRUD（JSON 字符串存储 + 列分片）
     # -----------------------------------------------------------------------
 
     def delete_events_by_session(
@@ -2249,7 +2258,7 @@ class OTSBackend:
         return deleted
 
     # -----------------------------------------------------------------------
-    # State CRUD（JSON 字符串存储 + 列分片）（同步）
+    # State CRUD（JSON 字符串存储 + 列分片）
     # -----------------------------------------------------------------------
 
     async def put_state_async(
@@ -2282,6 +2291,7 @@ class OTSBackend:
         state_json = serialize_state(state)
 
         put_cols: list[tuple[str, Any]] = [
+            (SCHEMA_VERSION_COLUMN, STATE_SCHEMA_VERSION),
             ("updated_at", now),
             ("version", version + 1),
         ]
@@ -2374,6 +2384,7 @@ class OTSBackend:
         state_json = serialize_state(state)
 
         put_cols: list[tuple[str, Any]] = [
+            (SCHEMA_VERSION_COLUMN, STATE_SCHEMA_VERSION),
             ("updated_at", now),
             ("version", version + 1),
         ]
@@ -2542,7 +2553,7 @@ class OTSBackend:
         await self._async_client.delete_row(table_name, row, condition)
 
     # -----------------------------------------------------------------------
-    # State CRUD（同步）
+    # Checkpoint CRUD（LangGraph）
     # -----------------------------------------------------------------------
 
     def delete_state_row(
@@ -2561,7 +2572,7 @@ class OTSBackend:
         self._client.delete_row(table_name, row, condition)
 
     # -----------------------------------------------------------------------
-    # Checkpoint CRUD（LangGraph）（异步）
+    # Checkpoint CRUD（LangGraph）
     # -----------------------------------------------------------------------
 
     async def put_checkpoint_async(
@@ -2582,6 +2593,7 @@ class OTSBackend:
             ("checkpoint_id", checkpoint_id),
         ]
         attribute_columns = [
+            (SCHEMA_VERSION_COLUMN, CHECKPOINT_SCHEMA_VERSION),
             ("checkpoint_type", checkpoint_type),
             ("checkpoint_data", checkpoint_data),
             ("metadata", metadata_json),
@@ -2590,10 +2602,6 @@ class OTSBackend:
         row = Row(primary_key, attribute_columns)
         condition = Condition(RowExistenceExpectation.IGNORE)
         await self._async_client.put_row(self._checkpoint_table, row, condition)
-
-    # -----------------------------------------------------------------------
-    # Checkpoint CRUD（LangGraph）（同步）
-    # -----------------------------------------------------------------------
 
     def put_checkpoint(
         self,
@@ -2613,6 +2621,7 @@ class OTSBackend:
             ("checkpoint_id", checkpoint_id),
         ]
         attribute_columns = [
+            (SCHEMA_VERSION_COLUMN, CHECKPOINT_SCHEMA_VERSION),
             ("checkpoint_type", checkpoint_type),
             ("checkpoint_data", checkpoint_data),
             ("metadata", metadata_json),
@@ -2881,6 +2890,7 @@ class OTSBackend:
                     ("task_idx", w["task_idx"]),
                 ]
                 attrs = [
+                    (SCHEMA_VERSION_COLUMN, CHECKPOINT_WRITES_SCHEMA_VERSION),
                     ("task_id", w["task_id"]),
                     ("task_path", w.get("task_path", "")),
                     ("channel", w["channel"]),
@@ -2928,6 +2938,7 @@ class OTSBackend:
                     ("task_idx", w["task_idx"]),
                 ]
                 attrs = [
+                    (SCHEMA_VERSION_COLUMN, CHECKPOINT_WRITES_SCHEMA_VERSION),
                     ("task_id", w["task_id"]),
                     ("task_path", w.get("task_path", "")),
                     ("channel", w["channel"]),
@@ -3048,6 +3059,7 @@ class OTSBackend:
             ("version", version),
         ]
         attribute_columns = [
+            (SCHEMA_VERSION_COLUMN, CHECKPOINT_BLOBS_SCHEMA_VERSION),
             ("blob_type", blob_type),
             ("blob_data", blob_data),
         ]
@@ -3075,6 +3087,7 @@ class OTSBackend:
             ("version", version),
         ]
         attribute_columns = [
+            (SCHEMA_VERSION_COLUMN, CHECKPOINT_BLOBS_SCHEMA_VERSION),
             ("blob_type", blob_type),
             ("blob_data", blob_data),
         ]
@@ -3357,7 +3370,7 @@ class OTSBackend:
             await self._async_client.batch_write_row(request)
 
     # -----------------------------------------------------------------------
-    # 内部辅助方法（I/O 相关，异步）
+    # 内部辅助方法（I/O 相关）
     # -----------------------------------------------------------------------
 
     def _scan_and_delete(
@@ -3401,7 +3414,7 @@ class OTSBackend:
             self._client.batch_write_row(request)
 
     # -----------------------------------------------------------------------
-    # 内部辅助方法（I/O 相关，同步）
+    # 内部辅助方法（I/O 相关）
     # -----------------------------------------------------------------------
 
     async def _get_chunk_count_async(

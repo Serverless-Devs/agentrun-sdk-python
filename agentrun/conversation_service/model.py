@@ -28,6 +28,41 @@ DEFAULT_CHECKPOINT_TABLE = "checkpoint"
 DEFAULT_CHECKPOINT_WRITES_TABLE = "checkpoint_writes"
 DEFAULT_CHECKPOINT_BLOBS_TABLE = "checkpoint_blobs"
 
+# ---------------------------------------------------------------------------
+# OTS Schema 版本管理
+#
+# 用于 SDK 写入端与 Core 读取端(funagent-core)的兼容性协调。
+# 每次写入行（PutRow / UpdateRow / BatchWriteRow）时在
+# attribute_columns 中携带 _schema_version 字段。
+# Core 端读取时检查该字段，版本不匹配时打 WARN 日志并尽力解析。
+# 历史数据（无此字段）视为 v0。
+#
+# 版本计数规则：
+#   - 大部分表独立计数
+#   - state / app_state / user_state 三张表共享 STATE_SCHEMA_VERSION
+#
+# 升级流程：
+#   1. 递增对应表的 *_SCHEMA_VERSION 常量
+#   2. 在 PR 描述中记录变更的列名/类型/语义
+#   3. 通知 funagent-core 侧同步更新解析逻辑和版本常量
+#   4. 如涉及 breaking change，提供数据迁移指引
+#
+# 兼容性规则：
+#   - 只加不删：新增列允许，删除/重命名列视为 breaking change
+#   - PK 不可变：主键结构永不改变
+#   - 索引名不可变：Search Index 名称一旦确定不再修改
+#   - 语义不可变：已有列的类型和含义不改变
+# ---------------------------------------------------------------------------
+
+SCHEMA_VERSION_COLUMN = "_schema_version"
+
+CONVERSATION_SCHEMA_VERSION = 1
+EVENT_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 1  # state / app_state / user_state 共享
+CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_WRITES_SCHEMA_VERSION = 1
+CHECKPOINT_BLOBS_SCHEMA_VERSION = 1
+
 
 # ---------------------------------------------------------------------------
 # 枚举

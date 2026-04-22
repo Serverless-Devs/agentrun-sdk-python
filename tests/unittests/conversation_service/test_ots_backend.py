@@ -18,8 +18,15 @@ import pytest
 from tablestore import OTSServiceError, Row  # type: ignore[import-untyped]
 
 from agentrun.conversation_service.model import (
+    CHECKPOINT_BLOBS_SCHEMA_VERSION,
+    CHECKPOINT_SCHEMA_VERSION,
+    CHECKPOINT_WRITES_SCHEMA_VERSION,
+    CONVERSATION_SCHEMA_VERSION,
     ConversationEvent,
     ConversationSession,
+    EVENT_SCHEMA_VERSION,
+    SCHEMA_VERSION_COLUMN,
+    STATE_SCHEMA_VERSION,
     StateData,
     StateScope,
 )
@@ -28,6 +35,20 @@ from agentrun.conversation_service.ots_backend import (
     OTSBackend,
 )
 from agentrun.conversation_service.utils import MAX_COLUMN_SIZE
+
+
+def _extract_attr_columns_dict(
+    row_arg: Row,
+) -> dict[str, Any]:
+    """Extract attribute columns from a Row arg into a dict for easy assertion."""
+    cols = row_arg.attribute_columns
+    if isinstance(cols, dict):
+        # UpdateRow format: {"PUT": [...], ...}
+        put_list = cols.get("PUT", [])
+        return {name: val for name, val in put_list}
+    # PutRow format: [(name, value), ...]
+    return {col[0]: col[1] for col in cols}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1970,3 +1991,179 @@ class TestStateCrudAsync:
 
         sessions, total = await backend.search_sessions_async("agent1")
         assert len(sessions) == 1
+
+
+class TestSchemaVersionAsync:
+    """验证所有异步 put_* 方法在写入时携带 _schema_version 列。"""
+
+    @pytest.mark.asyncio
+    async def test_put_session_has_schema_version(self) -> None:
+        backend = _make_async_backend()
+        session = ConversationSession("a", "u", "s", 100, 200)
+        await backend.put_session_async(session)
+
+        call_args = backend._async_client.put_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == CONVERSATION_SCHEMA_VERSION
+
+    @pytest.mark.asyncio
+    async def test_put_event_has_schema_version(self) -> None:
+        backend = _make_async_backend()
+        await backend.put_event_async("a", "u", "s", "msg", {"text": "hi"})
+
+        call_args = backend._async_client.put_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == EVENT_SCHEMA_VERSION
+
+    @pytest.mark.asyncio
+    async def test_put_state_has_schema_version(self) -> None:
+        backend = _make_async_backend()
+        await backend.put_state_async(
+            StateScope.SESSION, "a", "u", "s", {"key": "val"}, 0
+        )
+
+        call_args = backend._async_client.update_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == STATE_SCHEMA_VERSION
+
+    @pytest.mark.asyncio
+    async def test_put_checkpoint_has_schema_version(self) -> None:
+        backend = _make_async_backend()
+        await backend.put_checkpoint_async(
+            "t1",
+            "ns1",
+            "c1",
+            checkpoint_type="json",
+            checkpoint_data="{}",
+            metadata_json="{}",
+        )
+
+        call_args = backend._async_client.put_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == CHECKPOINT_SCHEMA_VERSION
+
+    @pytest.mark.asyncio
+    async def test_put_checkpoint_writes_has_schema_version(self) -> None:
+        backend = _make_async_backend()
+        backend._async_client.batch_write_row = AsyncMock()
+        writes = [{
+            "task_idx": "0",
+            "task_id": "t",
+            "channel": "c",
+            "value_type": "json",
+            "value_data": "{}",
+        }]
+        await backend.put_checkpoint_writes_async("t1", "ns1", "c1", writes)
+
+        call_args = backend._async_client.batch_write_row.call_args
+        request = call_args[0][0]
+        table_item = list(request.items.values())[0]
+        row_arg = table_item.row_items[0].row
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == CHECKPOINT_WRITES_SCHEMA_VERSION
+
+    @pytest.mark.asyncio
+    async def test_put_checkpoint_blob_has_schema_version(self) -> None:
+        backend = _make_async_backend()
+        await backend.put_checkpoint_blob_async(
+            "t1",
+            "ns1",
+            "ch1",
+            "v1",
+            blob_type="json",
+            blob_data="{}",
+        )
+
+        call_args = backend._async_client.put_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == CHECKPOINT_BLOBS_SCHEMA_VERSION
+
+
+class TestSchemaVersionSync:
+    """验证所有同步 put_* 方法在写入时携带 _schema_version 列。"""
+
+    def test_put_session_has_schema_version(self) -> None:
+        backend = _make_backend()
+        session = ConversationSession("a", "u", "s", 100, 200)
+        backend.put_session(session)
+
+        call_args = backend._client.put_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == CONVERSATION_SCHEMA_VERSION
+
+    def test_put_event_has_schema_version(self) -> None:
+        backend = _make_backend()
+        return_row = MagicMock()
+        return_row.primary_key = [("seq_id", 1)]
+        backend._client.put_row.return_value = (None, return_row)
+        backend.put_event("a", "u", "s", "msg", {"text": "hi"})
+
+        call_args = backend._client.put_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == EVENT_SCHEMA_VERSION
+
+    def test_put_state_has_schema_version(self) -> None:
+        backend = _make_backend()
+        backend.put_state(StateScope.SESSION, "a", "u", "s", {"key": "val"}, 0)
+
+        call_args = backend._client.update_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == STATE_SCHEMA_VERSION
+
+    def test_put_checkpoint_has_schema_version(self) -> None:
+        backend = _make_backend()
+        backend.put_checkpoint(
+            "t1",
+            "ns1",
+            "c1",
+            checkpoint_type="json",
+            checkpoint_data="{}",
+            metadata_json="{}",
+        )
+
+        call_args = backend._client.put_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == CHECKPOINT_SCHEMA_VERSION
+
+    def test_put_checkpoint_writes_has_schema_version(self) -> None:
+        backend = _make_backend()
+        writes = [{
+            "task_idx": "0",
+            "task_id": "t",
+            "channel": "c",
+            "value_type": "json",
+            "value_data": "{}",
+        }]
+        backend.put_checkpoint_writes("t1", "ns1", "c1", writes)
+
+        call_args = backend._client.batch_write_row.call_args
+        request = call_args[0][0]
+        table_item = list(request.items.values())[0]
+        row_arg = table_item.row_items[0].row
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == CHECKPOINT_WRITES_SCHEMA_VERSION
+
+    def test_put_checkpoint_blob_has_schema_version(self) -> None:
+        backend = _make_backend()
+        backend.put_checkpoint_blob(
+            "t1",
+            "ns1",
+            "ch1",
+            "v1",
+            blob_type="json",
+            blob_data="{}",
+        )
+
+        call_args = backend._client.put_row.call_args
+        row_arg = call_args[0][1]
+        attrs = _extract_attr_columns_dict(row_arg)
+        assert attrs[SCHEMA_VERSION_COLUMN] == CHECKPOINT_BLOBS_SCHEMA_VERSION
