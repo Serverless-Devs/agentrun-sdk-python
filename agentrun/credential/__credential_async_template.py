@@ -36,15 +36,18 @@ class Credential(
     """
 
     @classmethod
-    def __get_client(cls):
+    def __get_client(cls, config: Optional[Config] = None):
         """获取客户端实例 / Get client instance
+
+        Args:
+            config: 配置对象,可选 / Configuration object, optional
 
         Returns:
             CredentialClient: 客户端实例 / Client instance
         """
         from .client import CredentialClient
 
-        return CredentialClient()
+        return CredentialClient(config=config)
 
     @classmethod
     async def create_async(
@@ -59,7 +62,7 @@ class Credential(
         Returns:
             Credential: 创建的凭证对象
         """
-        return await cls.__get_client().create_async(input, config=config)
+        return await cls.__get_client(config).create_async(input, config=config)
 
     @classmethod
     async def delete_by_name_async(
@@ -71,7 +74,7 @@ class Credential(
             credential_name: 凭证名称
             config: 配置
         """
-        return await cls.__get_client().delete_async(
+        return await cls.__get_client(config).delete_async(
             credential_name, config=config
         )
 
@@ -92,7 +95,7 @@ class Credential(
         Returns:
             Credential: 更新后的凭证对象
         """
-        return await cls.__get_client().update_async(
+        return await cls.__get_client(config).update_async(
             credential_name, input, config=config
         )
 
@@ -109,7 +112,7 @@ class Credential(
         Returns:
             Credential: 凭证对象
         """
-        return await cls.__get_client().get_async(
+        return await cls.__get_client(config).get_async(
             credential_name, config=config
         )
 
@@ -117,7 +120,7 @@ class Credential(
     async def _list_page_async(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return await cls.__get_client().list_async(
+        return await cls.__get_client(config).list_async(
             input=CredentialListInput(
                 **kwargs,
                 **page_input.model_dump(),

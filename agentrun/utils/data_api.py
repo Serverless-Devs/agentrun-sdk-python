@@ -528,7 +528,7 @@ class DataAPI:
         """
         return await self._make_request_async(
             "GET",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             headers=headers,
             config=config,
         )
@@ -561,7 +561,7 @@ class DataAPI:
         """
         return self._make_request(
             "GET",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             headers=headers,
             config=config,
         )
@@ -596,7 +596,7 @@ class DataAPI:
 
         return await self._make_request_async(
             "POST",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             data=data,
             headers=headers,
             config=config,
@@ -632,7 +632,7 @@ class DataAPI:
 
         return self._make_request(
             "POST",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             data=data,
             headers=headers,
             config=config,
@@ -663,7 +663,7 @@ class DataAPI:
         """
         return await self._make_request_async(
             "PUT",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             data=data,
             headers=headers,
             config=config,
@@ -694,7 +694,7 @@ class DataAPI:
         """
         return self._make_request(
             "PUT",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             data=data,
             headers=headers,
             config=config,
@@ -725,7 +725,7 @@ class DataAPI:
         """
         return await self._make_request_async(
             "PATCH",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             data=data,
             headers=headers,
             config=config,
@@ -756,7 +756,7 @@ class DataAPI:
         """
         return self._make_request(
             "PATCH",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             data=data,
             headers=headers,
             config=config,
@@ -785,7 +785,7 @@ class DataAPI:
         """
         return await self._make_request_async(
             "DELETE",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             headers=headers,
             config=config,
         )
@@ -813,7 +813,7 @@ class DataAPI:
         """
         return self._make_request(
             "DELETE",
-            self.with_path(path, query=query),
+            self.with_path(path, query=query, config=config),
             headers=headers,
             config=config,
         )
@@ -853,7 +853,7 @@ class DataAPI:
 
         filename = os.path.basename(local_file_path)
 
-        url = self.with_path(path, query=query)
+        url = self.with_path(path, query=query, config=config)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
@@ -917,7 +917,7 @@ class DataAPI:
 
         filename = os.path.basename(local_file_path)
 
-        url = self.with_path(path, query=query)
+        url = self.with_path(path, query=query, config=config)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
@@ -970,7 +970,7 @@ class DataAPI:
         Examples:
             >>> await client.get_file_async("/files", save_path="/local/data.csv", query={"path": "/remote/file.csv"})
         """
-        url = self.with_path(path, query=query)
+        url = self.with_path(path, query=query, config=config)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
@@ -1021,7 +1021,7 @@ class DataAPI:
         Examples:
             >>> client.get_file("/files", save_path="/local/data.csv", query={"path": "/remote/file.csv"})
         """
-        url = self.with_path(path, query=query)
+        url = self.with_path(path, query=query, config=config)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
@@ -1070,7 +1070,7 @@ class DataAPI:
         Examples:
             >>> await client.get_video_async("/videos", save_path="/local/video.mkv", query={"path": "/remote/video.mp4"})
         """
-        url = self.with_path(path, query=query)
+        url = self.with_path(path, query=query, config=config)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
@@ -1121,7 +1121,7 @@ class DataAPI:
         Examples:
             >>> client.get_video("/videos", save_path="/local/video.mkv", query={"path": "/remote/video.mp4"})
         """
-        url = self.with_path(path, query=query)
+        url = self.with_path(path, query=query, config=config)
         req_headers = self.config.get_headers()
         req_headers.update(headers or {})
         # Apply authentication (may modify URL, headers, and query)
