@@ -280,6 +280,107 @@ async def test_invoke_async_body_extras_cannot_override_sdk_fields():
     assert fp["prompt"] == "p"
 
 
+@respx.mock
+async def test_invoke_async_body_prunes_none_scalars_in_extras():
+    """数据面: extras 中值为 None 的 scalar 字段 MUST NOT 进入 forwardedProps."""
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    captured = {}
+
+    def _responder(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "conversationId": "c",
+                    "url": "https://s",
+                    "headers": {},
+                }
+            },
+        )
+
+    respx.post(re.compile(r".*/invoke$")).mock(side_effect=_responder)
+    await api.invoke_async(
+        [{"role": "user", "content": "hi"}],
+        forwarded_extras={
+            "prompt": None,
+            "modelServiceName": None,
+            "modelName": None,
+            "agents": [],
+            "tools": ["t1"],
+        },
+    )
+    fp = captured["body"]["forwardedProps"]
+    assert "prompt" not in fp
+    assert "modelServiceName" not in fp
+    assert "modelName" not in fp
+    assert "agents" not in fp
+    assert fp["tools"] == ["t1"]
+    # SDK 托管字段保留
+    assert fp["metadata"] == {"agentRuntimeName": "demo"}
+
+
+@respx.mock
+async def test_invoke_async_body_metadata_preserved_even_if_none_in_extras():
+    """extras 里带 metadata=None 也不应覆盖 SDK 管理的 metadata."""
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    captured = {}
+
+    def _responder(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "conversationId": "c",
+                    "url": "https://s",
+                    "headers": {},
+                }
+            },
+        )
+
+    respx.post(re.compile(r".*/invoke$")).mock(side_effect=_responder)
+    await api.invoke_async(
+        [{"role": "user", "content": "hi"}],
+        forwarded_extras={"metadata": None},
+    )
+    fp = captured["body"]["forwardedProps"]
+    assert fp["metadata"] == {"agentRuntimeName": "demo"}
+
+
+@respx.mock
+async def test_invoke_async_body_drops_leaked_conversation_id_from_extras():
+    """extras 里若带 conversationId 但 kwarg 里 conversation_id=None, 最终 payload 不含 conversationId.
+
+    回归保护 _build_invoke_body 里的防御性 pop 分支。
+    """
+    cfg = _auth_cfg()
+    api = SuperAgentDataAPI("demo", config=cfg)
+    captured = {}
+
+    def _responder(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "conversationId": "c",
+                    "url": "https://s",
+                    "headers": {},
+                }
+            },
+        )
+
+    respx.post(re.compile(r".*/invoke$")).mock(side_effect=_responder)
+    await api.invoke_async(
+        [{"role": "user", "content": "hi"}],
+        forwarded_extras={"conversationId": "should-be-dropped"},
+    )
+    assert "conversationId" not in captured["body"]["forwardedProps"]
+
+
 # ─── signing ──────────────────────────────────────────────────
 
 

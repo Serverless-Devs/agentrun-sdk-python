@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
 
 import httpx
 
+from agentrun.super_agent.api.control import _prune_forwarded_props
 from agentrun.super_agent.model import InvokeResponseData
 from agentrun.super_agent.stream import parse_sse_async, SSEEvent
 from agentrun.utils.config import Config
@@ -61,11 +62,19 @@ class SuperAgentDataAPI(DataAPI):
         # ``forwarded_extras`` 承载从 AgentRuntime 元数据读出的业务字段
         # (prompt/agents/tools/skills/sandboxes/workspaces/modelServiceName/modelName),
         # 由上层 ``SuperAgent.invoke_async`` 注入。``metadata`` 和 ``conversationId``
-        # 由 SDK 管理, 不允许 extras 覆盖。
+        # 由 SDK 管理, 不允许 extras 覆盖; 先 prune 掉 extras 里的 None scalar 和
+        # 空 list (保留 SDK 即将覆写的 metadata 占位), 再把 SDK 托管字段写入。
         forwarded: Dict[str, Any] = dict(forwarded_extras or {})
+        forwarded = _prune_forwarded_props(
+            forwarded, keep_keys=("metadata", "conversationId")
+        )
         forwarded["metadata"] = {"agentRuntimeName": self.agent_runtime_name}
         if conversation_id is not None:
             forwarded["conversationId"] = conversation_id
+        else:
+            # 即便用户 extras 里写了 conversationId (被 keep_keys 保留),
+            # 外部 SDK 约定 conversation_id=None 时必须不出现。
+            forwarded.pop("conversationId", None)
         return {"messages": list(messages), "forwardedProps": forwarded}
 
     def _parse_invoke_response(

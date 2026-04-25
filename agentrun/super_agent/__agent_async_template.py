@@ -58,9 +58,10 @@ class SuperAgent:
     def _forwarded_business_fields(self) -> Dict[str, Any]:
         """把 SuperAgent 实例字段打包成 ``forwardedProps`` 顶层业务字段 dict.
 
-        与 ``protocolSettings[0].config`` 写入时的结构保持对称: list 型用 ``[]``
-        代替 None, scalar 型保留 None (由 JSON 序列化为 ``null``)。服务端读取同
-        一份语义, 避免客户端/服务端对"未设置"产生歧义。
+        本层输出 "完整 dict" (list 型用 ``[]`` 代替 None, scalar 型保留 None),
+        下游 :func:`agentrun.super_agent.api.data.SuperAgentDataAPI._build_invoke_body`
+        会调用 :func:`_prune_forwarded_props` 把 None scalar 和空 list 过滤掉,
+        仅保留 ``metadata`` / ``conversationId`` 等 SDK 托管字段。
         """
         return {
             "prompt": self.prompt,

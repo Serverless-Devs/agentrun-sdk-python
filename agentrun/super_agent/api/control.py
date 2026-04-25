@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
 if TYPE_CHECKING:
@@ -218,13 +218,47 @@ def _business_fields_from_args(
     }
 
 
+def _prune_forwarded_props(
+    props: Dict[str, Any],
+    *,
+    keep_keys: Iterable[str] = ("metadata",),
+) -> Dict[str, Any]:
+    """删除值为 None 的 scalar 字段和空 list 字段。
+
+    ``keep_keys`` 里的 key 永远保留 (即便是 None 或空 list), 用来保护 SDK 托管
+    的必要字段 (如 ``metadata`` / ``conversationId``)。
+
+    语义上只处理两类:
+    - scalar = None → 丢弃
+    - 空 list → 丢弃
+
+    其他 falsy 值 (0 / False / "" / 空 dict) 保留, 因为它们是业务显式值。
+    """
+    keep = set(keep_keys)
+    out: Dict[str, Any] = {}
+    for k, v in props.items():
+        if k in keep:
+            out[k] = v
+            continue
+        if v is None:
+            continue
+        if isinstance(v, list) and not v:
+            continue
+        out[k] = v
+    return out
+
+
 def _build_protocol_settings_config(
-    *, name: str, business: Dict[str, Any]
+    *, name: str, business: Dict[str, Any], prune_props: bool = False
 ) -> str:
     """构造 ``protocolSettings[0].config`` 的 JSON 字符串.
 
     新结构: 顶层 ``path`` / ``headers`` / ``body``, 业务字段收拢到
     ``body.forwardedProps`` (开放字典, 语义 "any, merge")。
+
+    ``prune_props=True`` 时, 对 forwardedProps 过一遍 :func:`_prune_forwarded_props`,
+    丢弃 None scalar 和空 list 字段 (保留 ``metadata``)。create 路径使用; update
+    路径使用 False, 仍写 null 以保留 "显式清空" 语义。
     """
     forwarded_props: Dict[str, Any] = {
         "prompt": business.get("prompt"),
@@ -237,6 +271,10 @@ def _build_protocol_settings_config(
         "modelName": business.get("modelName"),
         "metadata": {"agentRuntimeName": name},
     }
+    if prune_props:
+        forwarded_props = _prune_forwarded_props(
+            forwarded_props, keep_keys=("metadata",)
+        )
     cfg_dict: Dict[str, Any] = {
         "path": SUPER_AGENT_INVOKE_PATH,
         "headers": {},
@@ -250,9 +288,15 @@ def _build_protocol_configuration(
     name: str,
     business: Dict[str, Any],
     cfg: Optional[Config],
+    prune_props: bool = False,
 ) -> SuperAgentProtocolConfig:
-    """构造超级 Agent 的 ``protocolConfiguration`` Pydantic 模型."""
-    config_json = _build_protocol_settings_config(name=name, business=business)
+    """构造超级 Agent 的 ``protocolConfiguration`` Pydantic 模型.
+
+    ``prune_props`` 透传到 :func:`_build_protocol_settings_config`。
+    """
+    config_json = _build_protocol_settings_config(
+        name=name, business=business, prune_props=prune_props
+    )
     settings: List[Dict[str, Any]] = [{
         "type": SUPER_AGENT_PROTOCOL_TYPE,
         "name": name,
@@ -292,7 +336,9 @@ def to_create_input(
         model_service_name=model_service_name,
         model_name=model_name,
     )
-    pc = _build_protocol_configuration(name=name, business=business, cfg=cfg)
+    pc = _build_protocol_configuration(
+        name=name, business=business, cfg=cfg, prune_props=True
+    )
     # SUPER_AGENT 是平台托管运行时, 不跑用户代码/容器, 但服务端仍要求
     # artifact_type / network_configuration 非空. 这里给占位默认值即可.
     return _SuperAgentCreateInput.model_construct(

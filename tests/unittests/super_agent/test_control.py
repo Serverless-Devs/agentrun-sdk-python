@@ -27,6 +27,60 @@ from agentrun.utils.config import Config
 # 显式在模块加载时触发补丁 (幂等, 与 SuperAgentClient.__init__ 内触发点一致)。
 ensure_super_agent_patches_applied()
 
+# ─── _prune_forwarded_props ───────────────────────────────────
+
+
+def test_prune_forwarded_props_removes_none_scalars():
+    from agentrun.super_agent.api.control import _prune_forwarded_props
+
+    out = _prune_forwarded_props({"a": None, "b": "x"})
+    assert out == {"b": "x"}
+
+
+def test_prune_forwarded_props_removes_empty_lists():
+    from agentrun.super_agent.api.control import _prune_forwarded_props
+
+    out = _prune_forwarded_props({"a": [], "b": ["x"]})
+    assert out == {"b": ["x"]}
+
+
+def test_prune_forwarded_props_keeps_keep_keys_even_when_none():
+    from agentrun.super_agent.api.control import _prune_forwarded_props
+
+    out = _prune_forwarded_props(
+        {"metadata": None, "other": None}, keep_keys=("metadata",)
+    )
+    assert out == {"metadata": None}
+
+
+def test_prune_forwarded_props_keeps_keep_keys_even_when_empty_list():
+    from agentrun.super_agent.api.control import _prune_forwarded_props
+
+    out = _prune_forwarded_props(
+        {"metadata": [], "other": []}, keep_keys=("metadata",)
+    )
+    assert out == {"metadata": []}
+
+
+def test_prune_forwarded_props_preserves_falsy_non_none_scalars():
+    """0, False, "" 不应被剔除 (只有 None 或空 list)."""
+    from agentrun.super_agent.api.control import _prune_forwarded_props
+
+    out = _prune_forwarded_props({"n": 0, "b": False, "s": ""})
+    assert out == {"n": 0, "b": False, "s": ""}
+
+
+def test_prune_forwarded_props_preserves_non_empty_lists_and_dicts():
+    from agentrun.super_agent.api.control import _prune_forwarded_props
+
+    out = _prune_forwarded_props({
+        "list": ["x"],
+        "dict_empty": {},  # dict 不算 list, 保留
+        "dict_full": {"k": "v"},
+    })
+    assert out == {"list": ["x"], "dict_empty": {}, "dict_full": {"k": "v"}}
+
+
 # ─── build_super_agent_endpoint ────────────────────────────────
 
 
@@ -116,9 +170,48 @@ def test_to_create_input_minimal():
     cfg_dict = json.loads(settings[0]["config"])
     assert cfg_dict["path"] == "/invoke"
     assert cfg_dict["headers"] == {}
+    # 具体字段缺席断言放到 test_to_create_input_minimal_omits_unset_scalar_and_empty_list_fields
     forwarded = cfg_dict["body"]["forwardedProps"]
-    assert forwarded["agents"] == []
     assert forwarded["metadata"] == {"agentRuntimeName": "alpha"}
+
+
+def test_to_create_input_minimal_omits_unset_scalar_and_empty_list_fields():
+    """create 时, 未设置的 scalar 字段和空 list 字段 MUST NOT 出现在 forwardedProps 里."""
+    cfg = Config(account_id="123", region_id="cn-hangzhou")
+    inp = to_create_input("alpha", cfg=cfg)
+    cfg_dict = json.loads(
+        inp.protocol_configuration.protocol_settings[0]["config"]
+    )
+    forwarded = cfg_dict["body"]["forwardedProps"]
+    # metadata 永远保留
+    assert forwarded["metadata"] == {"agentRuntimeName": "alpha"}
+    # 未设置的 scalar 字段缺席
+    assert "prompt" not in forwarded
+    assert "modelServiceName" not in forwarded
+    assert "modelName" not in forwarded
+    # 空 list 字段缺席
+    assert "agents" not in forwarded
+    assert "tools" not in forwarded
+    assert "skills" not in forwarded
+    assert "sandboxes" not in forwarded
+    assert "workspaces" not in forwarded
+
+
+def test_to_create_input_partial_only_keeps_set_fields():
+    """仅设置部分字段时, 未设置的字段不出现, 已设置的字段按原值出现."""
+    cfg = Config(account_id="123", region_id="cn-hangzhou")
+    inp = to_create_input(
+        "bravo", prompt="hello", model_service_name="svc", cfg=cfg
+    )
+    cfg_dict = json.loads(
+        inp.protocol_configuration.protocol_settings[0]["config"]
+    )
+    forwarded = cfg_dict["body"]["forwardedProps"]
+    assert forwarded["prompt"] == "hello"
+    assert forwarded["modelServiceName"] == "svc"
+    assert "modelName" not in forwarded
+    assert "agents" not in forwarded
+    assert forwarded["metadata"] == {"agentRuntimeName": "bravo"}
 
 
 def test_to_create_input_full():
@@ -380,6 +473,62 @@ def test_to_update_input_full_protocol_replace():
     assert forwarded["metadata"]["agentRuntimeName"] == "alpha"
     assert forwarded["prompt"] == "p"
     assert forwarded["tools"] == ["t"]
+
+
+def test_to_update_input_keeps_null_for_none_scalars():
+    """update 路径: 合并后为 None 的 scalar 字段 MUST 仍写 null (不剪除).
+
+    保证 SDK 的 'update(model_name=None) 表示清空' 语义不被本次 PR 破坏。
+    """
+    cfg = Config(account_id="123", region_id="cn-hangzhou")
+    merged = {
+        "prompt": None,
+        "agents": [],
+        "tools": [],
+        "skills": [],
+        "sandboxes": [],
+        "workspaces": [],
+        "model_service_name": None,
+        "model_name": None,
+    }
+    inp = to_update_input("u1", merged, cfg=cfg)
+    cfg_dict = json.loads(
+        inp.protocol_configuration.protocol_settings[0]["config"]
+    )
+    forwarded = cfg_dict["body"]["forwardedProps"]
+    # 明确包含 null (未被剪除)
+    assert "prompt" in forwarded and forwarded["prompt"] is None
+    assert (
+        "modelServiceName" in forwarded
+        and forwarded["modelServiceName"] is None
+    )
+    assert "modelName" in forwarded and forwarded["modelName"] is None
+    # 空 list 也保留 (update 语义下 [] 代表 "清空列表", 不能剪除)
+    assert forwarded["agents"] == []
+    assert forwarded["tools"] == []
+
+
+def test_to_update_input_keeps_values_and_nulls_mixed():
+    """update: 有些字段有值, 有些是 None, 都应完整出现在 payload."""
+    cfg = Config(account_id="123", region_id="cn-hangzhou")
+    merged = {
+        "prompt": "new",
+        "agents": ["a"],
+        "model_service_name": None,
+        "model_name": "m",
+    }
+    inp = to_update_input("u2", merged, cfg=cfg)
+    cfg_dict = json.loads(
+        inp.protocol_configuration.protocol_settings[0]["config"]
+    )
+    forwarded = cfg_dict["body"]["forwardedProps"]
+    assert forwarded["prompt"] == "new"
+    assert forwarded["agents"] == ["a"]
+    assert (
+        "modelServiceName" in forwarded
+        and forwarded["modelServiceName"] is None
+    )
+    assert forwarded["modelName"] == "m"
 
 
 # ─── Dara ListAgentRuntimesRequest systemTags 原生字段 ──────────────
