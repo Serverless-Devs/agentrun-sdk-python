@@ -250,7 +250,9 @@ class Sandbox(BaseModel):
             )
 
         # 创建 Sandbox（返回基类实例）
-        base_sandbox = await cls.__get_client(config=config).create_sandbox_async(
+        base_sandbox = await cls.__get_client(
+            config=config
+        ).create_sandbox_async(
             template_name=template_name,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
             sandbox_id=sandbox_id,
@@ -394,7 +396,9 @@ class Sandbox(BaseModel):
         """
         if sandbox_id is None:
             raise ValueError("sandbox_id is required")
-        return cls.__get_client(config=config).stop_sandbox(sandbox_id, config=config)
+        return cls.__get_client(config=config).stop_sandbox(
+            sandbox_id, config=config
+        )
 
     @classmethod
     async def delete_by_id_async(
@@ -428,7 +432,9 @@ class Sandbox(BaseModel):
         """
         if sandbox_id is None:
             raise ValueError("sandbox_id is required")
-        return cls.__get_client(config=config).delete_sandbox(sandbox_id, config=config)
+        return cls.__get_client(config=config).delete_sandbox(
+            sandbox_id, config=config
+        )
 
     @classmethod
     async def list_async(
@@ -445,7 +451,9 @@ class Sandbox(BaseModel):
         Returns:
             ListSandboxesOutput: Sandbox 列表结果
         """
-        return await cls.__get_client(config=config).list_sandboxes_async(input, config)
+        return await cls.__get_client(config=config).list_sandboxes_async(
+            input, config
+        )
 
     @classmethod
     def list(
@@ -640,7 +648,9 @@ class Sandbox(BaseModel):
             raise ValueError("sandbox_id is required")
 
         # 先获取 sandbox 信息
-        sandbox = cls.__get_client(config=config).get_sandbox(sandbox_id, config=config)
+        sandbox = cls.__get_client(config=config).get_sandbox(
+            sandbox_id, config=config
+        )
 
         resolved_type = template_type
         if resolved_type is None:
@@ -714,7 +724,9 @@ class Sandbox(BaseModel):
         """
         if input.template_type is None:
             raise ValueError("template_type is required")
-        return cls.__get_client(config=config).create_template(input, config=config)
+        return cls.__get_client(config=config).create_template(
+            input, config=config
+        )
 
     @classmethod
     async def get_template_async(
@@ -750,7 +762,9 @@ class Sandbox(BaseModel):
         """
         if template_name is None:
             raise ValueError("template_name is required")
-        return cls.__get_client(config=config).get_template(template_name, config=config)
+        return cls.__get_client(config=config).get_template(
+            template_name, config=config
+        )
 
     @classmethod
     async def update_template_async(
@@ -832,7 +846,9 @@ class Sandbox(BaseModel):
         """
         if template_name is None:
             raise ValueError("template_name is required")
-        return cls.__get_client(config=config).delete_template(template_name, config=config)
+        return cls.__get_client(config=config).delete_template(
+            template_name, config=config
+        )
 
     @classmethod
     async def list_templates_async(
@@ -868,7 +884,9 @@ class Sandbox(BaseModel):
         Returns:
             List[Template]: Template 列表
         """
-        return cls.__get_client(config=config).list_templates(input, config=config)
+        return cls.__get_client(config=config).list_templates(
+            input, config=config
+        )
 
     async def get_async(self):
         if self.sandbox_id is None:

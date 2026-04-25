@@ -180,7 +180,9 @@ class Sandbox(BaseModel):
             )
 
         # 创建 Sandbox（返回基类实例）
-        base_sandbox = await cls.__get_client(config=config).create_sandbox_async(
+        base_sandbox = await cls.__get_client(
+            config=config
+        ).create_sandbox_async(
             template_name=template_name,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
             sandbox_id=sandbox_id,
@@ -269,7 +271,9 @@ class Sandbox(BaseModel):
         Returns:
             ListSandboxesOutput: Sandbox 列表结果
         """
-        return await cls.__get_client(config=config).list_sandboxes_async(input, config)
+        return await cls.__get_client(config=config).list_sandboxes_async(
+            input, config
+        )
 
     @classmethod
     @overload
