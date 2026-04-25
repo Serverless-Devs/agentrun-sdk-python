@@ -99,6 +99,8 @@ class Config:
                 Read from env vars if not provided: AGENTRUN_ACCOUNT_ID or FC_ACCOUNT_ID
             token: 自定义令牌,用于数据链路调用 / Custom token for data API calls
             region_id: 区域 ID,默认 cn-hangzhou / Region ID, defaults to cn-hangzhou
+                未提供时从环境变量读取: AGENTRUN_REGION、FC_REGION 或 ALIBABA_CLOUD_REGION_ID
+                Read from env vars if not provided: AGENTRUN_REGION, FC_REGION or ALIBABA_CLOUD_REGION_ID
             timeout: 请求超时时间(秒),默认 600 / Request timeout in seconds, defaults to 600
             read_timeout: 读取超时时间(秒),默认 100000 / Read timeout in seconds, defaults to 100000
             control_endpoint: 自定义控制链路端点,可选 / Custom control endpoint, optional
@@ -127,7 +129,7 @@ class Config:
             )
         if region_id is None:
             region_id = get_env_with_default(
-                "cn-hangzhou", "AGENTRUN_REGION", "FC_REGION"
+                "cn-hangzhou", "AGENTRUN_REGION", "FC_REGION", "ALIBABA_CLOUD_REGION_ID"
             )
         if control_endpoint is None:
             control_endpoint = get_env_with_default(
