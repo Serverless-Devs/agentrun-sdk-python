@@ -49,10 +49,10 @@ class ModelProxy(
     _data_client: Optional[ModelDataAPI] = None
 
     @classmethod
-    def __get_client(cls):
+    def __get_client(cls, config: Optional[Config] = None):
         from .client import ModelClient
 
-        return ModelClient()
+        return ModelClient(config=config)
 
     @classmethod
     async def create_async(
@@ -67,7 +67,7 @@ class ModelProxy(
         Returns:
             ModelProxy: 创建的模型服务对象
         """
-        return await cls.__get_client().create_async(input, config=config)
+        return await cls.__get_client(config).create_async(input, config=config)
 
     @classmethod
     def create(
@@ -82,7 +82,7 @@ class ModelProxy(
         Returns:
             ModelProxy: 创建的模型服务对象
         """
-        return cls.__get_client().create(input, config=config)
+        return cls.__get_client(config).create(input, config=config)
 
     @classmethod
     async def delete_by_name_async(
@@ -94,7 +94,7 @@ class ModelProxy(
             model_Proxy_name: 模型服务名称
             config: 配置
         """
-        return await cls.__get_client().delete_async(
+        return await cls.__get_client(config).delete_async(
             model_Proxy_name, backend_type=BackendType.PROXY, config=config
         )
 
@@ -108,7 +108,7 @@ class ModelProxy(
             model_Proxy_name: 模型服务名称
             config: 配置
         """
-        return cls.__get_client().delete(
+        return cls.__get_client(config).delete(
             model_Proxy_name, backend_type=BackendType.PROXY, config=config
         )
 
@@ -129,7 +129,7 @@ class ModelProxy(
         Returns:
             ModelProxy: 更新后的模型服务对象
         """
-        return await cls.__get_client().update_async(
+        return await cls.__get_client(config).update_async(
             model_proxy_name, input, config=config
         )
 
@@ -150,7 +150,9 @@ class ModelProxy(
         Returns:
             ModelProxy: 更新后的模型服务对象
         """
-        return cls.__get_client().update(model_proxy_name, input, config=config)
+        return cls.__get_client(config).update(
+            model_proxy_name, input, config=config
+        )
 
     @classmethod
     async def get_by_name_async(
@@ -165,7 +167,7 @@ class ModelProxy(
         Returns:
             ModelProxy: 模型服务对象
         """
-        return await cls.__get_client().get_async(
+        return await cls.__get_client(config).get_async(
             model_proxy_name, backend_type=BackendType.PROXY, config=config
         )
 
@@ -182,7 +184,7 @@ class ModelProxy(
         Returns:
             ModelProxy: 模型服务对象
         """
-        return cls.__get_client().get(
+        return cls.__get_client(config).get(
             model_proxy_name, backend_type=BackendType.PROXY, config=config
         )
 
@@ -190,7 +192,7 @@ class ModelProxy(
     async def _list_page_async(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return await cls.__get_client().list_async(
+        return await cls.__get_client(config).list_async(
             input=ModelProxyListInput(
                 **kwargs,
                 **page_input.model_dump(),
@@ -202,7 +204,7 @@ class ModelProxy(
     def _list_page(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return cls.__get_client().list(
+        return cls.__get_client(config).list(
             input=ModelProxyListInput(
                 **kwargs,
                 **page_input.model_dump(),
