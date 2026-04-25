@@ -812,6 +812,50 @@ class TestSandboxClientDeleteSandbox:
 
     @patch("agentrun.sandbox.client.SandboxControlAPI")
     @patch("agentrun.sandbox.client.SandboxDataAPI")
+    def test_delete_sandbox_not_found_in_response_is_idempotent(
+        self, mock_data_api_class, mock_control_api_class
+    ):
+        """数据面返回 not found 时，delete_sandbox 应幂等成功
+
+        When the data plane returns a non-SUCCESS response whose message
+        contains "not found", the SDK should treat the delete as a success
+        rather than raising an error.  This handles the case where the
+        control-plane list API still shows a TERMINATED sandbox, but the
+        data plane has already removed it.
+        """
+        mock_data_api = MagicMock()
+        mock_data_api.delete_sandbox.return_value = {
+            "code": "FAILED",
+            "message": "sandbox not found",
+        }
+        mock_data_api_class.return_value = mock_data_api
+
+        client = SandboxClient()
+        result = client.delete_sandbox("sandbox-123")
+        assert result.sandbox_id == "sandbox-123"
+
+    @patch("agentrun.sandbox.client.SandboxControlAPI")
+    @patch("agentrun.sandbox.client.SandboxDataAPI")
+    @pytest.mark.asyncio
+    async def test_delete_sandbox_async_not_found_in_response_is_idempotent(
+        self, mock_data_api_class, mock_control_api_class
+    ):
+        """数据面返回 not found 时，delete_sandbox_async 应幂等成功"""
+        mock_data_api = MagicMock()
+        mock_data_api.delete_sandbox_async = AsyncMock(
+            return_value={
+                "code": "FAILED",
+                "message": "sandbox not found",
+            }
+        )
+        mock_data_api_class.return_value = mock_data_api
+
+        client = SandboxClient()
+        result = await client.delete_sandbox_async("sandbox-123")
+        assert result.sandbox_id == "sandbox-123"
+
+    @patch("agentrun.sandbox.client.SandboxControlAPI")
+    @patch("agentrun.sandbox.client.SandboxDataAPI")
     @pytest.mark.asyncio
     async def test_delete_sandbox_async_not_exist(
         self, mock_data_api_class, mock_control_api_class

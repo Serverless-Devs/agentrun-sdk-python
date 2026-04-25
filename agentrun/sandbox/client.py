@@ -728,11 +728,20 @@ class SandboxClient:
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
+                # 数据面报告 sandbox 不存在时，视为幂等删除成功
+                # When the data plane reports sandbox not found, treat as
+                # idempotent success (control plane may still list TERMINATED
+                # instances after the data plane has already removed them)
+                message = result.get("message", "")
+                if "sandbox not found" in message.lower():
+                    return Sandbox.model_validate(
+                        {"sandboxId": sandbox_id}, by_alias=True
+                    )
                 raise ClientError(
                     status_code=0,
                     message=(
                         "Failed to stop sandbox:"
-                        f" {result.get('message', 'Unknown error')}"
+                        f" {message or 'Unknown error'}"
                     ),
                 )
 
@@ -768,11 +777,20 @@ class SandboxClient:
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
+                # 数据面报告 sandbox 不存在时，视为幂等删除成功
+                # When the data plane reports sandbox not found, treat as
+                # idempotent success (control plane may still list TERMINATED
+                # instances after the data plane has already removed them)
+                message = result.get("message", "")
+                if "sandbox not found" in message.lower():
+                    return Sandbox.model_validate(
+                        {"sandboxId": sandbox_id}, by_alias=True
+                    )
                 raise ClientError(
                     status_code=0,
                     message=(
                         "Failed to stop sandbox:"
-                        f" {result.get('message', 'Unknown error')}"
+                        f" {message or 'Unknown error'}"
                     ),
                 )
 
