@@ -312,6 +312,12 @@ class KnowledgeBaseImmutableProps(BaseModel):
     """知识库名称 / KnowledgeBase name"""
     provider: Optional[Union[KnowledgeBaseProvider, str]] = None
     """提供商 / Provider"""
+    workspace_id: Optional[str] = None
+    """知识库所属的 AgentRun 工作空间标识符；可选项，不填则使用默认工作空间。
+    注意：与 ``BailianProviderSettings.workspace_id`` 不同，后者指百炼侧的 workspace。
+    / Workspace identifier the knowledge base belongs to in AgentRun; optional,
+    defaults to the default workspace if not provided. Distinct from
+    ``BailianProviderSettings.workspace_id`` which refers to the Bailian-side workspace."""
 
 
 class KnowledgeBaseSystemProps(BaseModel):
@@ -354,6 +360,9 @@ class KnowledgeBaseListInput(PageableInput):
 
     provider: Optional[Union[KnowledgeBaseProvider, str]] = None
     """提供商 / Provider"""
+    workspace_id: Optional[str] = None
+    """按 AgentRun 工作空间标识符过滤
+    / Filter by AgentRun workspace identifier"""
 
 
 class KnowledgeBaseListOutput(BaseModel):
@@ -377,6 +386,9 @@ class KnowledgeBaseListOutput(BaseModel):
     """创建时间 / Created at"""
     last_updated_at: Optional[str] = None
     """最后更新时间 / Last updated at"""
+    workspace_id: Optional[str] = None
+    """知识库所属的 AgentRun 工作空间标识符
+    / AgentRun workspace identifier the knowledge base belongs to"""
 
     async def to_knowledge_base_async(self, config: Optional[Config] = None):
         """转换为知识库对象（异步）/ Convert to KnowledgeBase object (async)

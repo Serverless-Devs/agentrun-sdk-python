@@ -257,7 +257,9 @@ class AgentRuntimeMutableProps(BaseModel):
 
 
 class AgentRuntimeImmutableProps(BaseModel):
-    pass
+    workspace_id: Optional[str] = None
+    """Agent Runtime 所属的工作空间标识符；可选项，不填则使用默认工作空间
+    / Workspace identifier the Agent Runtime belongs to; optional, defaults to the default workspace if not provided"""
 
 
 class AgentRuntimeSystemProps(BaseModel):
@@ -329,6 +331,9 @@ class AgentRuntimeListInput(PageableInput):
     """系统标签过滤, 多个标签用逗号分隔"""
     search_mode: Optional[str] = None
     """搜索模式"""
+    workspace_id: Optional[str] = None
+    """按工作空间标识符过滤
+    / Filter by workspace identifier"""
 
 
 class AgentRuntimeEndpointCreateInput(
