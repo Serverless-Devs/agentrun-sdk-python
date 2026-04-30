@@ -160,6 +160,9 @@ class CommonModelMutableProps(BaseModel):
 
 class CommonModelImmutableProps(BaseModel):
     model_type: Optional[ModelType] = None
+    workspace_id: Optional[str] = None
+    """模型资源所属的工作空间标识符；可选项，不填则使用默认工作空间
+    / Workspace identifier the model resource belongs to; optional, defaults to the default workspace if not provided"""
 
 
 class CommonModelSystemProps:
@@ -220,6 +223,9 @@ class ModelServiceUpdateInput(ModelServiceMutableProps):
 class ModelServiceListInput(PageableInput):
     model_type: Optional[ModelType] = None
     provider: Optional[str] = None
+    workspace_id: Optional[str] = None
+    """按工作空间标识符过滤
+    / Filter by workspace identifier"""
 
 
 class ModelProxyCreateInput(ModelProxyMutableProps, ModelProxyImmutableProps):
@@ -233,3 +239,6 @@ class ModelProxyUpdateInput(ModelProxyMutableProps):
 class ModelProxyListInput(PageableInput):
     proxy_mode: Optional[str] = None
     status: Optional[Status] = None
+    workspace_id: Optional[str] = None
+    """按工作空间标识符过滤
+    / Filter by workspace identifier"""

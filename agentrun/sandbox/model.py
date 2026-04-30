@@ -294,6 +294,9 @@ class TemplateInput(BaseModel):
     """磁盘大小（GB） / Disk Size (GB)"""
     allow_anonymous_manage: Optional[bool] = None
     """是否允许匿名管理 / Whether to allow anonymous management"""
+    workspace_id: Optional[str] = None
+    """Template 所属的工作空间标识符；可选项，不填则使用默认工作空间
+    / Workspace identifier the template belongs to; optional, defaults to the default workspace if not provided"""
 
     @model_validator(mode="before")
     @classmethod
@@ -392,3 +395,6 @@ class PageableInput(BaseModel):
     page_size: Optional[int] = 10
     """每页大小 / Page Size"""
     template_type: Optional[TemplateType] = None
+    workspace_id: Optional[str] = None
+    """按工作空间标识符过滤
+    / Filter by workspace identifier"""

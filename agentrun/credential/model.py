@@ -189,6 +189,9 @@ class CredentialMutableProps(BaseModel):
 class CredentialImmutableProps(BaseModel):
     credential_name: Optional[str] = None
     """凭证名称"""
+    workspace_id: Optional[str] = None
+    """凭证所属的工作空间标识符；可选项，不填则使用默认工作空间
+    / Workspace identifier the credential belongs to; optional, defaults to the default workspace if not provided"""
 
 
 class CredentialSystemProps(CredentialConfigInner):
@@ -221,6 +224,9 @@ class CredentialListInput(PageableInput):
     """凭证来源类型（必填）"""
     provider: Optional[str] = None
     """提供商"""
+    workspace_id: Optional[str] = None
+    """按工作空间标识符过滤
+    / Filter by workspace identifier"""
 
 
 class CredentialListOutput(BaseModel):
@@ -232,6 +238,9 @@ class CredentialListOutput(BaseModel):
     enabled: Optional[bool] = None
     related_resource_count: Optional[int] = None
     updated_at: Optional[str] = None
+    workspace_id: Optional[str] = None
+    """凭证所属的工作空间标识符
+    / Workspace identifier the credential belongs to"""
 
     async def to_credential_async(self, config: Optional[Config] = None):
         from .client import CredentialClient

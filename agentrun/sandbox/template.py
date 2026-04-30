@@ -90,6 +90,9 @@ class Template(BaseModel):
     """MCP 状态 / MCP State"""
     allow_anonymous_manage: Optional[bool] = None
     """是否允许匿名管理 / Whether to allow anonymous management"""
+    workspace_id: Optional[str] = None
+    """Template 所属的工作空间标识符
+    / Workspace identifier the template belongs to"""
     created_at: Optional[str] = None
     """创建时间 / Creation Time"""
     last_updated_at: Optional[str] = None
@@ -115,7 +118,9 @@ class Template(BaseModel):
         )
 
     @classmethod
-    def create(cls, input: TemplateInput, config: Optional[Config] = None):
+    def create(
+        cls, input: TemplateInput, config: Optional[Config] = None
+    ):
         return cls.__get_client(config=config).create_template(
             input, config=config
         )
@@ -167,7 +172,9 @@ class Template(BaseModel):
         )
 
     @classmethod
-    def get_by_name(cls, template_name: str, config: Optional[Config] = None):
+    def get_by_name(
+        cls, template_name: str, config: Optional[Config] = None
+    ):
         return cls.__get_client(config=config).get_template(
             template_name=template_name, config=config
         )
