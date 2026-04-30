@@ -224,13 +224,13 @@ class TestSandboxDataAPIHTTPHandling:
         assert result == body
 
     @respx.mock
-    def test_sync_success_non_json_body_raises_server_error(self):
+    def test_sync_success_non_json_body_raises_client_error(self):
         api = self.make_api()
         respx.get(f"{DATA_ENDPOINT}/sandboxes/sb-1/health").mock(
             return_value=httpx.Response(200, text="<html>ok</html>")
         )
 
-        with pytest.raises(ServerError) as exc_info:
+        with pytest.raises(ClientError) as exc_info:
             api.get("/health")
 
         error = exc_info.value

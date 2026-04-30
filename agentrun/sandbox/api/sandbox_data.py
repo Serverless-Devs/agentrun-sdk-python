@@ -138,7 +138,7 @@ class SandboxDataAPI(DataAPI):
         except ValueError as e:
             error_msg = f"Failed to parse JSON response: {e}"
             logger.error(error_msg)
-            raise ServerError(
+            raise ClientError(
                 status_code=response.status_code,
                 message=error_msg,
                 response_body=response.text,

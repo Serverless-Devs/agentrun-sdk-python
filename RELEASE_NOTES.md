@@ -14,6 +14,11 @@
   `message`.
 - Existing code that checked returned dictionaries for `code` and `requestId`
   must migrate to `try` / `except ClientError` / `except ServerError`.
+- `HTTPError.__str__()` output format has changed. The old format unconditionally
+  included `"Request ID: None. Details: {}"` even when those fields were empty.
+  The new format only includes non-empty fields and uses `". "` as separator.
+  Code that parses this string representation (e.g. log parsers or test assertions
+  on `str(error)`) must be updated.
 
 ### Migration
 
