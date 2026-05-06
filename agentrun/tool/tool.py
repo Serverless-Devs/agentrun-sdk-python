@@ -166,13 +166,13 @@ class Tool(BaseModel):
         cls, name: str, config: Optional[Config] = None
     ) -> "Tool":
         """异步通过名称获取工具 / Get tool by name asynchronously"""
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return await cli.get_async(name=name)
 
     @classmethod
     def get_by_name(cls, name: str, config: Optional[Config] = None) -> "Tool":
         """同步通过名称获取工具 / Get tool by name synchronously"""
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return cli.get(name=name)
 
     async def get_async(self, config: Optional[Config] = None) -> "Tool":

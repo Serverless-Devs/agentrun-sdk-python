@@ -77,7 +77,7 @@ class AgentRuntimeEndpoint(
             ResourceNotExistError: Agent Runtime 不存在 / Agent Runtime does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return await cli.create_endpoint_async(
             agent_runtime_id,
             input,
@@ -106,7 +106,7 @@ class AgentRuntimeEndpoint(
             ResourceNotExistError: Agent Runtime 不存在 / Agent Runtime does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return cli.create_endpoint(
             agent_runtime_id,
             input,
@@ -134,7 +134,7 @@ class AgentRuntimeEndpoint(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return await cli.delete_endpoint_async(
             agent_runtime_id,
             endpoint_id,
@@ -162,7 +162,7 @@ class AgentRuntimeEndpoint(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return cli.delete_endpoint(
             agent_runtime_id,
             endpoint_id,
@@ -192,7 +192,7 @@ class AgentRuntimeEndpoint(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return await cli.update_endpoint_async(
             agent_runtime_id,
             endpoint_id,
@@ -223,7 +223,7 @@ class AgentRuntimeEndpoint(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return cli.update_endpoint(
             agent_runtime_id,
             endpoint_id,
@@ -252,7 +252,7 @@ class AgentRuntimeEndpoint(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return await cli.get_endpoint_async(
             agent_runtime_id,
             endpoint_id,
@@ -280,7 +280,7 @@ class AgentRuntimeEndpoint(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return cli.get_endpoint(
             agent_runtime_id,
             endpoint_id,
@@ -317,7 +317,7 @@ class AgentRuntimeEndpoint(
                 "agent_runtime_id is required for listing endpoints"
             )
 
-        return await cls.__get_client(config).list_endpoints_async(
+        return await cls.__get_client(config=config).list_endpoints_async(
             agent_runtime_id,
             AgentRuntimeEndpointListInput(
                 page_number=page_input.page_number,
@@ -356,7 +356,7 @@ class AgentRuntimeEndpoint(
                 "agent_runtime_id is required for listing endpoints"
             )
 
-        return cls.__get_client(config).list_endpoints(
+        return cls.__get_client(config=config).list_endpoints(
             agent_runtime_id,
             AgentRuntimeEndpointListInput(
                 page_number=page_input.page_number,
@@ -384,7 +384,7 @@ class AgentRuntimeEndpoint(
         Raises:
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
 
         endpoints: List[AgentRuntimeEndpoint] = []
         page = 1
@@ -429,7 +429,7 @@ class AgentRuntimeEndpoint(
         Raises:
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
 
         endpoints: List[AgentRuntimeEndpoint] = []
         page = 1

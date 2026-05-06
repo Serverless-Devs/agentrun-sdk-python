@@ -87,7 +87,7 @@ class AgentRuntime(
             ResourceAlreadyExistError: 资源已存在 / Resource already exists
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return await cls.__get_client(config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(input, config=config)
 
     @classmethod
     def create(
@@ -107,7 +107,7 @@ class AgentRuntime(
             ResourceAlreadyExistError: 资源已存在 / Resource already exists
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return cls.__get_client(config).create(input, config=config)
+        return cls.__get_client(config=config).create(input, config=config)
 
     @classmethod
     async def delete_by_id_async(cls, id: str, config: Optional[Config] = None):
@@ -127,7 +127,7 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
 
         # 删除所有的 endpoint / Delete all endpoints
         endpoints = await cli.list_endpoints_async(id, config=config)
@@ -163,7 +163,7 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
 
         # 删除所有的 endpoint / Delete all endpoints
         endpoints = cli.list_endpoints(id, config=config)
@@ -201,7 +201,7 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return await cls.__get_client(config).update_async(
+        return await cls.__get_client(config=config).update_async(
             id, input, config=config
         )
 
@@ -226,7 +226,7 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return cls.__get_client(config).update(id, input, config=config)
+        return cls.__get_client(config=config).update(id, input, config=config)
 
     @classmethod
     async def get_by_id_async(cls, id: str, config: Optional[Config] = None):
@@ -243,7 +243,7 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return await cls.__get_client(config).get_async(id, config=config)
+        return await cls.__get_client(config=config).get_async(id, config=config)
 
     @classmethod
     def get_by_id(cls, id: str, config: Optional[Config] = None):
@@ -260,13 +260,13 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return cls.__get_client(config).get(id, config=config)
+        return cls.__get_client(config=config).get(id, config=config)
 
     @classmethod
     async def _list_page_async(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return await cls.__get_client(config).list_async(
+        return await cls.__get_client(config=config).list_async(
             input=AgentRuntimeListInput(
                 **kwargs,
                 **page_input.model_dump(),
@@ -278,7 +278,7 @@ class AgentRuntime(
     def _list_page(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return cls.__get_client(config).list(
+        return cls.__get_client(config=config).list(
             input=AgentRuntimeListInput(
                 **kwargs,
                 **page_input.model_dump(),
@@ -336,7 +336,7 @@ class AgentRuntime(
         Raises:
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
 
         runtimes: List[AgentRuntime] = []
         page = 1
@@ -380,7 +380,7 @@ class AgentRuntime(
         Raises:
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
 
         runtimes: List[AgentRuntime] = []
         page = 1
@@ -540,7 +540,7 @@ class AgentRuntime(
         agent_runtime_id: str,
         config: Optional[Config] = None,
     ):
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
 
         versions: List[AgentRuntimeVersion] = []
         page = 1
@@ -574,7 +574,7 @@ class AgentRuntime(
         agent_runtime_id: str,
         config: Optional[Config] = None,
     ):
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
 
         versions: List[AgentRuntimeVersion] = []
         page = 1

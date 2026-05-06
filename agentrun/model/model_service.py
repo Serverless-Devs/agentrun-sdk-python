@@ -62,7 +62,7 @@ class ModelService(
         Returns:
             ModelService: 创建的模型服务对象
         """
-        return await cls.__get_client(config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(input, config=config)
 
     @classmethod
     def create(
@@ -77,7 +77,7 @@ class ModelService(
         Returns:
             ModelService: 创建的模型服务对象
         """
-        return cls.__get_client(config).create(input, config=config)
+        return cls.__get_client(config=config).create(input, config=config)
 
     @classmethod
     async def delete_by_name_async(
@@ -89,7 +89,7 @@ class ModelService(
             model_service_name: 模型服务名称
             config: 配置
         """
-        return await cls.__get_client(config).delete_async(
+        return await cls.__get_client(config=config).delete_async(
             model_service_name, backend_type=BackendType.SERVICE, config=config
         )
 
@@ -103,7 +103,7 @@ class ModelService(
             model_service_name: 模型服务名称
             config: 配置
         """
-        return cls.__get_client(config).delete(
+        return cls.__get_client(config=config).delete(
             model_service_name, backend_type=BackendType.SERVICE, config=config
         )
 
@@ -124,7 +124,7 @@ class ModelService(
         Returns:
             ModelService: 更新后的模型服务对象
         """
-        return await cls.__get_client(config).update_async(
+        return await cls.__get_client(config=config).update_async(
             model_service_name, input, config=config
         )
 
@@ -145,7 +145,7 @@ class ModelService(
         Returns:
             ModelService: 更新后的模型服务对象
         """
-        return cls.__get_client(config).update(
+        return cls.__get_client(config=config).update(
             model_service_name, input, config=config
         )
 
@@ -162,7 +162,7 @@ class ModelService(
         Returns:
             ModelService: 模型服务对象
         """
-        return await cls.__get_client(config).get_async(
+        return await cls.__get_client(config=config).get_async(
             model_service_name, backend_type=BackendType.SERVICE, config=config
         )
 
@@ -179,7 +179,7 @@ class ModelService(
         Returns:
             ModelService: 模型服务对象
         """
-        return cls.__get_client(config).get(
+        return cls.__get_client(config=config).get(
             model_service_name, backend_type=BackendType.SERVICE, config=config
         )
 
@@ -187,7 +187,7 @@ class ModelService(
     async def _list_page_async(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return await cls.__get_client(config).list_async(
+        return await cls.__get_client(config=config).list_async(
             input=ModelServiceListInput(
                 **kwargs,
                 **page_input.model_dump(),
@@ -199,7 +199,7 @@ class ModelService(
     def _list_page(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return cls.__get_client(config).list(
+        return cls.__get_client(config=config).list(
             input=ModelServiceListInput(
                 **kwargs,
                 **page_input.model_dump(),

@@ -70,12 +70,12 @@ class ToolSet(BaseModel):
     async def get_by_name_async(
         cls, name: str, config: Optional[Config] = None
     ):
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return await cli.get_async(name=name)
 
     @classmethod
     def get_by_name(cls, name: str, config: Optional[Config] = None):
-        cli = cls.__get_client(config)
+        cli = cls.__get_client(config=config)
         return cli.get(name=name)
 
     def type(self):

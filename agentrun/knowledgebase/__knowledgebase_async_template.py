@@ -81,7 +81,7 @@ class KnowledgeBase(
         Returns:
             KnowledgeBase: 创建的知识库对象 / Created knowledge base object
         """
-        return await cls.__get_client(config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(input, config=config)
 
     @classmethod
     async def delete_by_name_async(
@@ -93,7 +93,7 @@ class KnowledgeBase(
             knowledge_base_name: 知识库名称 / KnowledgeBase name
             config: 配置 / Configuration
         """
-        return await cls.__get_client(config).delete_async(
+        return await cls.__get_client(config=config).delete_async(
             knowledge_base_name, config=config
         )
 
@@ -114,7 +114,7 @@ class KnowledgeBase(
         Returns:
             KnowledgeBase: 更新后的知识库对象 / Updated knowledge base object
         """
-        return await cls.__get_client(config).update_async(
+        return await cls.__get_client(config=config).update_async(
             knowledge_base_name, input, config=config
         )
 
@@ -131,7 +131,7 @@ class KnowledgeBase(
         Returns:
             KnowledgeBase: 知识库对象 / KnowledgeBase object
         """
-        return await cls.__get_client(config).get_async(
+        return await cls.__get_client(config=config).get_async(
             knowledge_base_name, config=config
         )
 
@@ -139,7 +139,7 @@ class KnowledgeBase(
     async def _list_page_async(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return await cls.__get_client(config).list_async(
+        return await cls.__get_client(config=config).list_async(
             input=KnowledgeBaseListInput(
                 **kwargs,
                 **page_input.model_dump(),
