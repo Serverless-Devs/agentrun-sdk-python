@@ -717,7 +717,11 @@ class SandboxClient:
             Sandbox: 停止后的 Sandbox 对象
 
         Raises:
-            ResourceNotExistError: Sandbox 不存在
+            ResourceNotExistError: Sandbox 不存在（包括 HTTP 404 与数据面业务层
+                not-found 两种情形）。调用方可 catch 此异常实现幂等删除。
+                Sandbox does not exist (covers both HTTP 404 and data-plane
+                business-level not-found).  Callers can catch this exception
+                for idempotent delete logic.
             ClientError: 客户端错误
             ServerError: 服务器错误
         """
@@ -728,15 +732,19 @@ class SandboxClient:
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
-                # 数据面报告 sandbox 不存在时，视为幂等删除成功
-                # When the data plane reports sandbox not found, treat as
-                # idempotent success (control plane may still list TERMINATED
-                # instances after the data plane has already removed them)
                 message = result.get("message", "")
+                # 数据面报告 sandbox 不存在时，与 HTTP 404 路径保持一致，
+                # 统一抛出 ResourceNotExistError，方便调用方幂等处理。
+                # When the data plane reports sandbox not found, raise
+                # ResourceNotExistError for consistency with the HTTP 404 path.
+                # Callers can catch ResourceNotExistError to implement idempotent
+                # deletion (e.g. when TERMINATED instances still appear in list
+                # results but have already been removed from the data plane).
+                # Note: long-term the server should return a stable error_code
+                # (e.g. SandboxNotFound) so the SDK can match on that instead
+                # of a message string.
                 if "sandbox not found" in message.lower():
-                    return Sandbox.model_validate(
-                        {"sandboxId": sandbox_id}, by_alias=True
-                    )
+                    raise ResourceNotExistError("Sandbox", sandbox_id)
                 raise ClientError(
                     status_code=0,
                     message=(
@@ -766,7 +774,11 @@ class SandboxClient:
             Sandbox: 停止后的 Sandbox 对象
 
         Raises:
-            ResourceNotExistError: Sandbox 不存在
+            ResourceNotExistError: Sandbox 不存在（包括 HTTP 404 与数据面业务层
+                not-found 两种情形）。调用方可 catch 此异常实现幂等删除。
+                Sandbox does not exist (covers both HTTP 404 and data-plane
+                business-level not-found).  Callers can catch this exception
+                for idempotent delete logic.
             ClientError: 客户端错误
             ServerError: 服务器错误
         """
@@ -777,15 +789,19 @@ class SandboxClient:
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
-                # 数据面报告 sandbox 不存在时，视为幂等删除成功
-                # When the data plane reports sandbox not found, treat as
-                # idempotent success (control plane may still list TERMINATED
-                # instances after the data plane has already removed them)
                 message = result.get("message", "")
+                # 数据面报告 sandbox 不存在时，与 HTTP 404 路径保持一致，
+                # 统一抛出 ResourceNotExistError，方便调用方幂等处理。
+                # When the data plane reports sandbox not found, raise
+                # ResourceNotExistError for consistency with the HTTP 404 path.
+                # Callers can catch ResourceNotExistError to implement idempotent
+                # deletion (e.g. when TERMINATED instances still appear in list
+                # results but have already been removed from the data plane).
+                # Note: long-term the server should return a stable error_code
+                # (e.g. SandboxNotFound) so the SDK can match on that instead
+                # of a message string.
                 if "sandbox not found" in message.lower():
-                    return Sandbox.model_validate(
-                        {"sandboxId": sandbox_id}, by_alias=True
-                    )
+                    raise ResourceNotExistError("Sandbox", sandbox_id)
                 raise ClientError(
                     status_code=0,
                     message=(
