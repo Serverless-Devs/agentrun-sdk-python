@@ -5,7 +5,7 @@ This module provides global configuration management for AgentRun SDK.
 """
 
 import os
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -153,6 +153,40 @@ class Config:
         self._devs_endpoint = devs_endpoint
         self._bailian_endpoint = bailian_endpoint
         self._headers = headers or {}
+
+    @classmethod
+    def from_request_headers(cls, request: Any) -> "Config":
+        """从 HTTP 请求头提取临时凭证构造 Config / Create Config from HTTP request headers
+
+        支持传入 AgentRequest（自动取 raw_request）或 Starlette Request。
+        Accepts AgentRequest (auto-extracts raw_request) or Starlette Request.
+
+        提取以下 header:
+        Extracts the following headers:
+        - x-fc-access-key-id → access_key_id
+        - x-fc-access-key-secret → access_key_secret
+        - x-fc-security-token → security_token
+
+        Args:
+            request: AgentRequest 或 Starlette Request 对象
+                     AgentRequest or Starlette Request object
+
+        Returns:
+            Config: 包含请求头中凭证信息的配置对象
+                    Config with credentials from request headers
+
+        Note:
+            如果需要与其他 Config 合并,请将此方法返回的 Config 放在 with_configs 的最后参数,
+            以确保 header 凭证不被覆盖:
+            ``Config.with_configs(base_config, Config.from_request_headers(request))``
+        """
+        raw = getattr(request, "raw_request", None) or request
+        headers = getattr(raw, "headers", {})
+        return cls(
+            access_key_id=headers.get("x-fc-access-key-id", ""),
+            access_key_secret=headers.get("x-fc-access-key-secret", ""),
+            security_token=headers.get("x-fc-security-token", ""),
+        )
 
     @classmethod
     def with_configs(cls, *configs: Optional["Config"]) -> "Config":
