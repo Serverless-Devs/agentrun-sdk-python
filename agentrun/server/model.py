@@ -14,7 +14,6 @@ from typing import (
     Iterator,
     List,
     Optional,
-    TYPE_CHECKING,
     Union,
 )
 
@@ -378,6 +377,20 @@ class AgentRequest(BaseModel):
     raw_request: Optional[Request] = Field(
         None, description="原始 HTTP 请求对象（Starlette Request）"
     )
+
+    @property
+    def config(self):
+        """从请求头提取 FC 临时凭证构造 Config / Extract FC credentials from request headers
+
+        FC 平台在每次请求时通过 header 注入最新的 STS 临时凭证，
+        可直接传给 KnowledgeBase、Sandbox 等资源类的 config 参数。
+
+        Returns:
+            Config: 包含请求头中凭证信息的配置对象
+        """
+        from ..utils.config import Config
+
+        return Config.from_request_headers(self)
 
 
 # ============================================================================

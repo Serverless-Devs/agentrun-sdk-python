@@ -26,23 +26,20 @@ import os
 from agentrun.knowledgebase import KnowledgeBase
 from agentrun.server import AgentRequest, AgentRunServer
 from agentrun.server.model import ServerConfig
-from agentrun.utils.config import Config
 from agentrun.utils.log import logger
 
 KNOWLEDGE_BASE_NAME = os.getenv("AGENTRUN_KNOWLEDGE_BASE", "my-knowledge-base")
 
 
 async def invoke_agent(request: AgentRequest):
-    config = Config.from_request_headers(request)
-
     user_query = request.messages[-1].content if request.messages else ""
     if not user_query:
         yield "请输入您的问题。"
         return
 
     try:
-        kb = KnowledgeBase.get_by_name(KNOWLEDGE_BASE_NAME, config=config)
-        result = kb.retrieve(query=user_query, config=config)
+        kb = KnowledgeBase.get_by_name(KNOWLEDGE_BASE_NAME, config=request.config)
+        result = kb.retrieve(query=user_query, config=request.config)
 
         nodes = result.get("nodes", result.get("data", []))
         if not nodes:

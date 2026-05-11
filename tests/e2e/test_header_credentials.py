@@ -12,6 +12,8 @@ from agentrun.server import AgentRequest, AgentRunServer
 from agentrun.utils.config import Config
 
 
+
+
 def _make_client(invoke_agent):
     server = AgentRunServer(invoke_agent=invoke_agent)
     app = server.as_fastapi_app()
@@ -165,3 +167,32 @@ class TestHeaderCredentials:
         assert captured["ak"] == "header-ak"
         assert captured["sk"] == "header-sk"
         assert captured["token"] == "header-token"
+
+    def test_request_config_property(self):
+        """AgentRequest.config 属性直接返回从 header 提取的 Config"""
+        captured = {}
+
+        async def invoke_agent(request: AgentRequest):
+            config = request.config
+            captured["ak"] = config.get_access_key_id()
+            captured["sk"] = config.get_access_key_secret()
+            captured["token"] = config.get_security_token()
+            yield "ok"
+
+        client = _make_client(invoke_agent)
+        response = client.post(
+            "/openai/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": "test"}],
+                "stream": True,
+            },
+            headers={
+                "x-fc-access-key-id": "ak-prop-test",
+                "x-fc-access-key-secret": "sk-prop-test",
+                "x-fc-security-token": "token-prop-test",
+            },
+        )
+        assert response.status_code == 200
+        assert captured["ak"] == "ak-prop-test"
+        assert captured["sk"] == "sk-prop-test"
+        assert captured["token"] == "token-prop-test"
