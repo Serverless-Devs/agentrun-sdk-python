@@ -402,4 +402,5 @@ class ModelService(
             base_url=self.provider_settings.base_url,
             model=default_model,
             headers=cfg.get_headers(),
+            provider=self.provider,
         )
