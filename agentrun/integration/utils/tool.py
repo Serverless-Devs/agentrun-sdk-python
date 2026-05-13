@@ -41,6 +41,7 @@ from typing import (
 from pydantic import (
     AliasChoices,
     BaseModel,
+    ConfigDict,
     create_model,
     Field,
     ValidationError,
@@ -1396,6 +1397,7 @@ def _create_function_with_signature(
         args_schema, "__agentrun_argument_aliases__", {}
     )
     if alias_map:
+        existing_param_names = {p.name for p in parameters}
         for alias, canonical in alias_map.items():
             canonical_field = args_schema.model_fields.get(canonical)
             alias_annotation = (
@@ -1408,9 +1410,20 @@ def _create_function_with_signature(
                 and alias_annotation is not None
             ):
                 alias_annotation = Optional[alias_annotation]
+            # 防御性 sanitize: alias 同样要落到 inspect.Parameter 上, 非法字符
+            # （如 ``x-access-id``）会触发 ValueError。当前 alias 仅由
+            # ``_maybe_add_body_alias`` 写入 "query", 但未来可能扩展。
+            alias_name = (
+                alias
+                if alias.isidentifier()
+                else _sanitize_python_identifier(alias)
+            )
+            if alias_name in existing_param_names:
+                continue
+            existing_param_names.add(alias_name)
             parameters.append(
                 inspect.Parameter(
-                    alias,
+                    alias_name,
                     inspect.Parameter.KEYWORD_ONLY,
                     default=None,
                     annotation=alias_annotation,
@@ -1425,7 +1438,9 @@ def _create_function_with_signature(
         if args_schema is not None:
             try:
                 parsed = args_schema(**normalized_kwargs)
-                payload = parsed.model_dump(mode="python", exclude_unset=True)
+                payload = parsed.model_dump(
+                    mode="python", exclude_unset=True, by_alias=True
+                )
             except ValidationError as exc:
                 raise ValueError(
                     f"Invalid arguments for tool '{tool_name}': {exc}"
@@ -1674,6 +1689,33 @@ def _build_openapi_schema(
     return schema, tuple(body_field_names), alias_map
 
 
+_PY_KEYWORDS: Set[str] = set()
+
+
+def _sanitize_python_identifier(name: str) -> str:
+    """将任意字符串转换为合法的 Python 标识符
+
+    用于把 JSON Schema 中含 ``-`` / ``.`` 等字符的字段名（例如 ``x-access-id``）
+    映射成 Pydantic / ``inspect.Parameter`` 都能接受的字段名。原始名通过 alias
+    继续保留在 JSON Schema 和实际调用中。
+    """
+    import keyword
+
+    if not _PY_KEYWORDS:
+        _PY_KEYWORDS.update(keyword.kwlist)
+
+    sanitized = re.sub(r"[^0-9a-zA-Z_]", "_", name)
+    sanitized = sanitized.lstrip("_")
+    if not sanitized:
+        sanitized = "field"
+    if sanitized[0].isdigit():
+        # Pydantic 不允许字段名以下划线开头, 因此用字母前缀.
+        sanitized = "field_" + sanitized
+    if sanitized in _PY_KEYWORDS:
+        sanitized = sanitized + "_"
+    return sanitized
+
+
 def _json_schema_to_pydantic(
     name: str,
     schema: Optional[Dict[str, Any]],
@@ -1688,10 +1730,30 @@ def _json_schema_to_pydantic(
 
     required_fields = set(schema.get("required", []))
     fields = {}
+    needs_populate_by_name = False
+    used_py_names: Set[str] = set()
 
     for field_name, field_schema in properties.items():
         if not isinstance(field_schema, dict):
             continue
+
+        # 把含非法字符（如 ``x-access-id``）或保留字（``class``）的字段名映射到
+        # 合法的 Python 标识符, 通过 alias 保留原名以便 JSON Schema 输出和
+        # 调用真实 MCP 工具时使用。
+        import keyword as _kw
+
+        if field_name.isidentifier() and not _kw.iskeyword(field_name):
+            py_name = field_name
+        else:
+            py_name = _sanitize_python_identifier(field_name)
+        if py_name in used_py_names:
+            suffix = 2
+            while f"{py_name}_{suffix}" in used_py_names:
+                suffix += 1
+            py_name = f"{py_name}_{suffix}"
+        used_py_names.add(py_name)
+        if py_name != field_name:
+            needs_populate_by_name = True
 
         # 映射类型
         field_type = _json_type_to_python(field_schema)
@@ -1699,29 +1761,43 @@ def _json_schema_to_pydantic(
         default = field_schema.get("default")
         aliases = field_schema.get("x-aliases")
         field_kwargs: Dict[str, Any] = {"description": description}
+
+        # 用 ``alias`` 同时作用于 JSON Schema 输出和 by_alias dump,
+        # 让 LLM/调用端看到的字段名仍是原始名（如 ``x-access-id``）。
+        if py_name != field_name:
+            field_kwargs["alias"] = field_name
         if aliases:
             if not isinstance(aliases, (list, tuple)):
                 aliases = [aliases]
-            field_kwargs["validation_alias"] = AliasChoices(
-                field_name, *aliases
-            )
+            alias_choices: List[str] = [field_name]
+            if py_name != field_name:
+                alias_choices.append(py_name)
+            for alias in aliases:
+                if alias and alias not in alias_choices:
+                    alias_choices.append(alias)
+            field_kwargs["validation_alias"] = AliasChoices(*alias_choices)
 
         # 构建字段定义
         if field_name in required_fields:
             # 必填字段
-            fields[field_name] = (field_type, Field(**field_kwargs))
+            fields[py_name] = (field_type, Field(**field_kwargs))
         else:
             # 可选字段
             from typing import Optional as TypingOptional
 
-            fields[field_name] = (
+            fields[py_name] = (
                 TypingOptional[field_type],
                 Field(default=default, **field_kwargs),
             )
 
     # 创建模型,清理名称
     model_name = re.sub(r"[^0-9a-zA-Z]", "", name.title())
-    return create_model(model_name or "Args", **fields)  # type: ignore
+    model_kwargs: Dict[str, Any] = {}
+    if needs_populate_by_name:
+        model_kwargs["__config__"] = ConfigDict(populate_by_name=True)
+    return create_model(  # type: ignore
+        model_name or "Args", **model_kwargs, **fields
+    )
 
 
 def _json_type_to_python(field_schema: Dict[str, Any]) -> type:

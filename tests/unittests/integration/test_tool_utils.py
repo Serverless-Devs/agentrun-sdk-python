@@ -10,10 +10,14 @@ from pydantic import BaseModel, Field
 import pytest
 
 from agentrun.integration.utils.tool import (
+    _build_tool_from_meta,
+    _create_function_with_signature,
     _extract_core_schema,
+    _json_schema_to_pydantic,
     _load_json,
     _merge_schema_dicts,
     _normalize_tool_arguments,
+    _sanitize_python_identifier,
     _to_dict,
     CommonToolSet,
     from_pydantic,
@@ -702,3 +706,140 @@ class TestToolGetParametersSchema:
         assert "name" in schema["properties"]
         assert "age" in schema["properties"]
         assert "name" in schema.get("required", [])
+
+
+class TestSanitizePythonIdentifier:
+    """测试字段名 sanitizer"""
+
+    def test_valid_identifier_unchanged(self):
+        assert _sanitize_python_identifier("normal_name") == "normal_name"
+
+    def test_hyphenated_name(self):
+        assert _sanitize_python_identifier("x-access-id") == "x_access_id"
+
+    def test_dotted_name(self):
+        assert _sanitize_python_identifier("a.b.c") == "a_b_c"
+
+    def test_leading_digit_prefixed(self):
+        assert _sanitize_python_identifier("123abc") == "field_123abc"
+
+    def test_keyword_suffixed(self):
+        assert _sanitize_python_identifier("class") == "class_"
+
+    def test_empty_string(self):
+        assert _sanitize_python_identifier("") == "field"
+
+    def test_only_invalid_chars(self):
+        assert _sanitize_python_identifier("---") == "field"
+
+
+class TestJsonSchemaToPydanticInvalidFieldNames:
+    """覆盖 _json_schema_to_pydantic 对非法 Python 标识符字段名的处理"""
+
+    def test_hyphenated_field_name_builds_model(self):
+        """字段名含 '-' 时不应抛错, 且 JSON Schema 仍以原名暴露"""
+        schema = {
+            "type": "object",
+            "properties": {
+                "x-access-id": {"type": "string", "description": "id"},
+            },
+            "required": ["x-access-id"],
+        }
+
+        model = _json_schema_to_pydantic("Args", schema)
+
+        assert model is not None
+        assert "x_access_id" in model.model_fields
+        json_schema = model.model_json_schema()
+        assert "x-access-id" in json_schema["properties"]
+        assert "x-access-id" in json_schema["required"]
+
+    def test_keyword_field_name_sanitized(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "class": {"type": "string", "description": "py keyword"},
+            },
+        }
+
+        model = _json_schema_to_pydantic("Args", schema)
+
+        assert model is not None
+        assert "class_" in model.model_fields
+        assert "class" in model.model_json_schema()["properties"]
+
+    def test_accepts_both_original_and_sanitized_name(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "x-access-id": {"type": "string"},
+            },
+            "required": ["x-access-id"],
+        }
+
+        model = _json_schema_to_pydantic("Args", schema)
+
+        # 原名: 通过 alias
+        m1 = model(**{"x-access-id": "v1"})
+        assert m1.model_dump(by_alias=True) == {"x-access-id": "v1"}
+        # 沙化名: 通过 populate_by_name
+        m2 = model(x_access_id="v2")
+        assert m2.model_dump(by_alias=True) == {"x-access-id": "v2"}
+
+
+class TestCreateFunctionWithSignatureAliasSanitization:
+    """覆盖 _create_function_with_signature 对非法 alias 名的防御处理"""
+
+    def test_alias_with_hyphen_sanitized(self):
+        """`__agentrun_argument_aliases__` 含非法标识符 alias 时不应崩溃"""
+        from pydantic import BaseModel as _BM
+
+        class _Args(_BM):
+            query: str
+
+        setattr(_Args, "__agentrun_argument_aliases__", {"x-alias": "query"})
+
+        toolset = MagicMock()
+        func = _create_function_with_signature("demo", _Args, toolset, None)
+
+        import inspect as _inspect
+
+        sig = _inspect.signature(func)
+        # 主字段保留, alias 被 sanitize
+        assert "query" in sig.parameters
+        assert "x_alias" in sig.parameters
+
+
+class TestBuildToolFromMetaInvalidFieldNames:
+    """覆盖 _build_tool_from_meta 完整链路 (回归 'x-access-id' 加载失败)"""
+
+    def test_mcp_input_schema_with_hyphen_field(self):
+        """模拟 MCP 工具元数据包含 'x-access-id' 入参时仍可成功构造 Tool"""
+        toolset = MagicMock()
+        toolset.call_tool = MagicMock(return_value={"status": "ok"})
+
+        meta = {
+            "name": "demo-tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "x-access-id": {
+                        "type": "string",
+                        "description": "id",
+                    },
+                    "value": {"type": "integer"},
+                },
+                "required": ["x-access-id"],
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(toolset, meta, None)
+
+        assert tool_obj is not None
+        # 调用工具时, MCP 应收到原始字段名 'x-access-id'
+        tool_obj.func(**{"x-access-id": "abc", "value": 1})
+        toolset.call_tool.assert_called_once()
+        call_kwargs = toolset.call_tool.call_args.kwargs
+        assert call_kwargs["arguments"]["x-access-id"] == "abc"
+        assert call_kwargs["arguments"]["value"] == 1
