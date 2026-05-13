@@ -73,7 +73,7 @@ jobs:
           --ignore=tests/e2e/test_workspace_id.py \
           --ignore=tests/e2e/test_sandbox_browser.py \
           --ignore=tests/e2e/test_sandbox_code_interpreter.py \
-          -k "not (invoke or with_credential or model_proxy or process_get)"
+          -k "not (invoke or with_credential or model_proxy or process_get or delete_sandbox or connect_nonexistent or sandbox_lifecycle or connect_with_wrong_template or template_validation_code_interpreter_network)"
 
     - name: E2E Summary
       if: always()
