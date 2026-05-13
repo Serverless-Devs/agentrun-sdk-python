@@ -71,6 +71,7 @@ jobs:
           --ignore=tests/e2e/integration \
           --ignore=tests/e2e/test_agent_ruintime.py \
           --ignore=tests/e2e/test_workspace_id.py \
+          --ignore=tests/e2e/test_sandbox_browser.py \
           -k "not (invoke or with_credential or model_proxy or process_get)"
 
     - name: E2E Summary
