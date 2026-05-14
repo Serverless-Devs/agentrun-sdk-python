@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: tests/e2e/__test_sandbox_code_interpreter_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/tests/e2e/__test_sandbox_code_interpreter_async_template.py
 
 
 Sandbox Code Interpreter 模块的 E2E 测试
@@ -224,7 +224,9 @@ class TestSandboxCodeInterpreter:
     def test_context_create_and_execute(self, sandbox):
         """测试创建上下文并执行代码"""
         # 创建 Python 上下文
-        with sandbox.context.create(language=CodeLanguage.PYTHON) as ctx:
+        with sandbox.context.create(
+            language=CodeLanguage.PYTHON
+        ) as ctx:
             # 执行代码
             result = ctx.execute(code="x = 10\nprint(x)")
             assert result is not None
@@ -254,7 +256,9 @@ class TestSandboxCodeInterpreter:
     def test_context_list(self, sandbox):
         """测试列举上下文"""
         # 创建一个上下文
-        with sandbox.context.create(language=CodeLanguage.PYTHON) as ctx:
+        with sandbox.context.create(
+            language=CodeLanguage.PYTHON
+        ) as ctx:
             # 列举上下文
             contexts = ctx.list()
             assert contexts is not None
@@ -590,7 +594,9 @@ class TestSandboxCodeInterpreter:
         test_path = f"/test-overwrite-{int(time.time())}.txt"
 
         # 第一次写入
-        sandbox.file.write(path=test_path, content="original content")
+        sandbox.file.write(
+            path=test_path, content="original content"
+        )
 
         # 覆盖写入
         new_content = "new content"
@@ -958,14 +964,15 @@ print('Script executed successfully')
             tasks.append(task)
 
         # 等待所有任务完成
-        results = tasks
+        results = (tasks)
         assert len(results) == 5
 
         # 并发读取所有文件
         read_tasks = [
-            sandbox.file.read(path=f"{base_dir}/file-{i}.txt") for i in range(5)
+            sandbox.file.read(path=f"{base_dir}/file-{i}.txt")
+            for i in range(5)
         ]
-        read_results = read_tasks
+        read_results = (read_tasks)
 
         # 验证内容
         for i, read_result in enumerate(read_results):

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: tests/e2e/__test_sandbox_aio_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/tests/e2e/__test_sandbox_aio_async_template.py
 
 
 Sandbox All-in-One (AIO) 模块的 E2E 测试
@@ -518,7 +518,9 @@ class TestSandboxAio:
 
     def test_context_create_and_execute(self, sandbox):
         """测试创建上下文并执行代码"""
-        with sandbox.context.create(language=CodeLanguage.PYTHON) as ctx:
+        with sandbox.context.create(
+            language=CodeLanguage.PYTHON
+        ) as ctx:
             # 执行代码
             result = ctx.execute(code="x = 10\nprint(x)")
             assert result is not None
@@ -545,7 +547,9 @@ class TestSandboxAio:
 
     def test_context_list(self, sandbox):
         """测试列举上下文"""
-        with sandbox.context.create(language=CodeLanguage.PYTHON) as ctx:
+        with sandbox.context.create(
+            language=CodeLanguage.PYTHON
+        ) as ctx:
             contexts = ctx.list()
             assert contexts is not None
             assert isinstance(contexts, (list, dict))
@@ -1105,7 +1109,9 @@ print(f"Read from file: {{content}}")
 
         # 3. 文件操作
         test_path = f"/home/user/integration-{int(time.time())}.txt"
-        sandbox.file.write(path=test_path, content="integration test")
+        sandbox.file.write(
+            path=test_path, content="integration test"
+        )
         file_result = sandbox.file.read(path=test_path)
         sandbox.file_system.remove(path=test_path)
         assert file_result is not None
@@ -1218,7 +1224,9 @@ print(f"Read from file: {{content}}")
                 path="/home/user/lifecycle.txt",
                 content="test",
             )
-            read_result = sb.file.read(path="/home/user/lifecycle.txt")
+            read_result = sb.file.read(
+                path="/home/user/lifecycle.txt"
+            )
             assert read_result is not None
 
             # 7. 删除

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: tests/e2e/__test_sandbox_browser_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/tests/e2e/__test_sandbox_browser_async_template.py
 
 
 Sandbox Browser 模块的 E2E 测试
@@ -77,7 +77,9 @@ class TestSandboxBrowser:
         finally:
             await sb.delete_async()
 
-    def test_create_browser_sandbox(self, browser_template: Template):
+    def test_create_browser_sandbox(
+        self, browser_template: Template
+    ):
         """测试创建 Browser Sandbox"""
         sb = Sandbox.create(
             template_type=TemplateType.BROWSER,
@@ -251,7 +253,9 @@ class TestSandboxBrowser:
         finally:
             await sb.delete_async()
 
-    def test_playwright_navigation(self, browser_template: Template):
+    def test_playwright_navigation(
+        self, browser_template: Template
+    ):
         """测试 Playwright 同步导航功能"""
         sb = Sandbox.create(
             template_type=TemplateType.BROWSER,
@@ -328,7 +332,9 @@ class TestSandboxBrowser:
             if os.path.exists(screenshot_path):
                 os.remove(screenshot_path)
 
-    def test_playwright_screenshot(self, browser_template: Template):
+    def test_playwright_screenshot(
+        self, browser_template: Template
+    ):
         """测试 Playwright 同步截图功能"""
         sb = Sandbox.create(
             template_type=TemplateType.BROWSER,
@@ -410,7 +416,9 @@ class TestSandboxBrowser:
         finally:
             await sb.delete_async()
 
-    def test_playwright_search(self, browser_template: Template):
+    def test_playwright_search(
+        self, browser_template: Template
+    ):
         """测试 Playwright 同步搜索功能"""
         sb = Sandbox.create(
             template_type=TemplateType.BROWSER,
@@ -507,7 +515,9 @@ class TestSandboxBrowser:
         finally:
             await sb.delete_async()
 
-    def test_playwright_multiple_pages(self, browser_template: Template):
+    def test_playwright_multiple_pages(
+        self, browser_template: Template
+    ):
         """测试 Playwright 同步多页面跳转"""
         sb = Sandbox.create(
             template_type=TemplateType.BROWSER,
@@ -544,13 +554,17 @@ class TestSandboxBrowser:
                 # 后退
                 playwright.go_back()
                 time.sleep(1)
-                url_after_back = playwright.evaluate("window.location.href")
+                url_after_back = playwright.evaluate(
+                    "window.location.href"
+                )
                 assert "baidu.com" in url_after_back
 
                 # 前进
                 playwright.go_forward()
                 time.sleep(1)
-                url_after_forward = playwright.evaluate("window.location.href")
+                url_after_forward = playwright.evaluate(
+                    "window.location.href"
+                )
                 assert "aliyun.com" in url_after_forward
         finally:
             sb.delete()
@@ -886,7 +900,9 @@ class TestSandboxBrowser:
                 for sb in sandboxes:
                     await sb.delete_async()
 
-    def test_browser_concurrent_operations(self, browser_template: Template):
+    def test_browser_concurrent_operations(
+        self, browser_template: Template
+    ):
         """测试并发创建多个浏览器 Sandbox"""
         num_sandboxes = 2
         sandboxes = []
@@ -901,7 +917,7 @@ class TestSandboxBrowser:
                 )
                 for _ in range(num_sandboxes)
             ]
-            sandboxes = create_tasks
+            sandboxes = (create_tasks)
 
             # 验证所有 Sandbox 都创建成功
             assert len(sandboxes) == num_sandboxes

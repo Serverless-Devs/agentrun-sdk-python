@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: tests/e2e/__test_sandbox_sandbox_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/tests/e2e/__test_sandbox_sandbox_async_template.py
 
 
 Sandbox 模块的 E2E 测试
@@ -186,7 +186,9 @@ class TestSandbox:
                 template_name=template_name_browser
             )
 
-    def test_create_browser_sandbox(self, template_name_browser: str):
+    def test_create_browser_sandbox(
+        self, template_name_browser: str
+    ):
         """测试创建 Browser 类型的 Sandbox"""
         # 先创建模板
         template = Template.create(
@@ -225,7 +227,9 @@ class TestSandbox:
 
         finally:
             # 清理 Template
-            Template.delete_by_name(template_name=template_name_browser)
+            Template.delete_by_name(
+                template_name=template_name_browser
+            )
 
     async def test_connect_sandbox_async(
         self, template_name_code_interpreter: str
@@ -279,7 +283,9 @@ class TestSandbox:
                 template_name=template_name_code_interpreter
             )
 
-    def test_connect_sandbox(self, template_name_code_interpreter: str):
+    def test_connect_sandbox(
+        self, template_name_code_interpreter: str
+    ):
         """测试连接 Sandbox"""
         # 先创建模板
         template = Template.create(
@@ -431,7 +437,9 @@ class TestSandbox:
 
             # 清理 Sandbox
             assert created_sandbox.sandbox_id
-            Sandbox.delete_by_id(sandbox_id=created_sandbox.sandbox_id)
+            Sandbox.delete_by_id(
+                sandbox_id=created_sandbox.sandbox_id
+            )
 
         finally:
             # 清理 Template
@@ -489,7 +497,9 @@ class TestSandbox:
                 template_name=template_name_code_interpreter
             )
 
-    def test_list_sandboxes(self, template_name_code_interpreter: str):
+    def test_list_sandboxes(
+        self, template_name_code_interpreter: str
+    ):
         """测试列举 Sandboxes"""
         # 先创建模板
         template = Template.create(
@@ -696,7 +706,9 @@ class TestSandbox:
                 template_name=template_name_code_interpreter
             )
 
-    def test_delete_sandbox(self, template_name_code_interpreter: str):
+    def test_delete_sandbox(
+        self, template_name_code_interpreter: str
+    ):
         """测试删除 Sandbox"""
         # 先创建模板
         template = Template.create(
@@ -847,7 +859,9 @@ class TestSandbox:
     def test_delete_nonexistent_sandbox(self):
         """测试删除不存在的 Sandbox 会抛出异常"""
         with pytest.raises(ClientError):
-            Sandbox.delete_by_id(sandbox_id="nonexistent-sandbox-xyz-12345")
+            Sandbox.delete_by_id(
+                sandbox_id="nonexistent-sandbox-xyz-12345"
+            )
 
     async def test_sandbox_lifecycle_async(
         self, template_name_code_interpreter: str
@@ -917,7 +931,9 @@ class TestSandbox:
                 template_name=template_name_code_interpreter
             )
 
-    def test_sandbox_lifecycle(self, template_name_code_interpreter: str):
+    def test_sandbox_lifecycle(
+        self, template_name_code_interpreter: str
+    ):
         """测试 Sandbox 的完整生命周期"""
         # 1. 创建模板
         template = Template.create(
@@ -1122,14 +1138,18 @@ class TestSandbox:
 
             # 清理 Sandboxes
             Sandbox.delete_by_id(sandbox_id=ci_sandbox.sandbox_id)
-            Sandbox.delete_by_id(sandbox_id=browser_sandbox.sandbox_id)
+            Sandbox.delete_by_id(
+                sandbox_id=browser_sandbox.sandbox_id
+            )
 
         finally:
             # 清理 Templates
             Template.delete_by_name(
                 template_name=template_name_code_interpreter
             )
-            Template.delete_by_name(template_name=template_name_browser)
+            Template.delete_by_name(
+                template_name=template_name_browser
+            )
 
     async def test_connect_with_wrong_template_type_async(
         self, template_name_code_interpreter: str
@@ -1316,7 +1336,9 @@ class TestSandbox:
             # 清理所有 Sandboxes
             for sandbox in sandboxes:
                 try:
-                    Sandbox.delete_by_id(sandbox_id=sandbox.sandbox_id)
+                    Sandbox.delete_by_id(
+                        sandbox_id=sandbox.sandbox_id
+                    )
                 except Exception:
                     pass  # 忽略清理错误
 
@@ -1419,7 +1441,9 @@ class TestSandbox:
 
             # 不提供 template_type 参数连接
             assert sandbox.sandbox_id
-            connected_sandbox = Sandbox.connect(sandbox_id=sandbox.sandbox_id)
+            connected_sandbox = Sandbox.connect(
+                sandbox_id=sandbox.sandbox_id
+            )
             assert connected_sandbox.sandbox_id == sandbox.sandbox_id
             assert (
                 connected_sandbox.template_name

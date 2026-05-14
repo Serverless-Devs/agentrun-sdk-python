@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: tests/e2e/__test_workspace_id_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/tests/e2e/__test_workspace_id_async_template.py
 
 
 workspace_id 跨模块 E2E 测试 / Cross-module workspace_id E2E test
@@ -32,18 +32,16 @@ from agentrun.credential import (
     CredentialListInput,
 )
 from agentrun.sandbox import Template
-from agentrun.sandbox.model import (
-    PageableInput,
-    TemplateInput,
-    TemplateType,
-)
+from agentrun.sandbox.model import PageableInput, TemplateInput, TemplateType
 from agentrun.utils.exception import ResourceNotExistError
 
 WORKSPACE_ID = os.getenv("AGENTRUN_TEST_WORKSPACE_ID")
 
 pytestmark = pytest.mark.skipif(
     not WORKSPACE_ID,
-    reason="AGENTRUN_TEST_WORKSPACE_ID not configured; skipping workspace_id E2E",
+    reason=(
+        "AGENTRUN_TEST_WORKSPACE_ID not configured; skipping workspace_id E2E"
+    ),
 )
 
 
@@ -98,7 +96,8 @@ class TestWorkspaceId:
             )
             names = [item.credential_name for item in list_results]
             assert credential_name in names, (
-                f"list(workspace_id={ws!r}) 未返回刚创建的凭证 {credential_name!r}，"
+                f"list(workspace_id={ws!r}) 未返回刚创建的凭证"
+                f" {credential_name!r}，"
                 f"实际返回 {names!r}"
             )
             # 列表项的 workspace_id 也应该是同一个
@@ -152,7 +151,8 @@ class TestWorkspaceId:
             )
             names = [item.credential_name for item in list_results]
             assert credential_name in names, (
-                f"list(workspace_id={ws!r}) 未返回刚创建的凭证 {credential_name!r}，"
+                f"list(workspace_id={ws!r}) 未返回刚创建的凭证"
+                f" {credential_name!r}，"
                 f"实际返回 {names!r}"
             )
             # 列表项的 workspace_id 也应该是同一个
@@ -202,7 +202,7 @@ class TestWorkspaceId:
             list_results = await Template.list_templates_async(
                 PageableInput(workspace_id=ws, page_size=100)
             )
-            names = [t.template_name for t in (list_results or [])]
+            names = [t.template_name for t in list_results or []]
             assert template_name in names, (
                 f"list_templates(workspace_id={ws!r}) 未返回刚创建的"
                 f" Template {template_name!r}，实际返回 {names!r}"
@@ -250,7 +250,7 @@ class TestWorkspaceId:
             list_results = Template.list_templates(
                 PageableInput(workspace_id=ws, page_size=100)
             )
-            names = [t.template_name for t in (list_results or [])]
+            names = [t.template_name for t in list_results or []]
             assert template_name in names, (
                 f"list_templates(workspace_id={ws!r}) 未返回刚创建的"
                 f" Template {template_name!r}，实际返回 {names!r}"

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: tests/e2e/__test_model_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/tests/e2e/__test_model_async_template.py
 
 
 Model 模块的 E2E 测试
@@ -274,7 +274,9 @@ class TestModelService:
 
         # 更新 model service
         new_description = f"更新后的描述 - {time.time()}"
-        ms.update(ModelServiceUpdateInput(description=new_description))
+        ms.update(
+            ModelServiceUpdateInput(description=new_description)
+        )
         ms.wait_until_ready_or_failed()
 
         # 检查返回的内容是否符合预期
@@ -310,7 +312,9 @@ class TestModelService:
         assert_model_service_2(ms2)
 
         # 列举 model services
-        ms_list = client.list(ModelServiceListInput(model_type=ModelType.LLM))
+        ms_list = client.list(
+            ModelServiceListInput(model_type=ModelType.LLM)
+        )
         assert len(ms_list) > 0
         matched_ms = 0
         for m in ms_list:
@@ -531,7 +535,10 @@ class TestModelService:
         await ms.delete_async()
         await cr.delete_async()
 
-    def test_model_service_with_credential(self, model_service_name: str):
+
+    def test_model_service_with_credential(
+        self, model_service_name: str
+    ):
         # 创建 Credential
         from agentrun.credential import (
             Credential,
@@ -812,7 +819,9 @@ class TestModelProxy:
         time2 = datetime.datetime.now(datetime.timezone.utc)
 
         assert mp.model_proxy_id
-        mp2 = client.get(name=model_proxy_name, backend_type=BackendType.PROXY)
+        mp2 = client.get(
+            name=model_proxy_name, backend_type=BackendType.PROXY
+        )
 
         # 检查返回的内容是否符合预期
         pre_created_at: datetime.datetime
@@ -849,7 +858,9 @@ class TestModelProxy:
 
         # 更新 model proxy
         new_description = f"更新后的描述 - {time.time()}"
-        mp.update(ModelProxyUpdateInput(description=new_description))
+        mp.update(
+            ModelProxyUpdateInput(description=new_description)
+        )
         mp.wait_until_ready_or_failed()
 
         # 检查返回的内容是否符合预期
@@ -912,7 +923,9 @@ class TestModelProxy:
 
         # 验证删除
         with pytest.raises(ResourceNotExistError):
-            client.get(name=model_proxy_name, backend_type=BackendType.PROXY)
+            client.get(
+                name=model_proxy_name, backend_type=BackendType.PROXY
+            )
 
         defer()
 
@@ -1113,7 +1126,9 @@ class TestModelProxy:
 
         return ms, mp, defer2
 
-    def prepare_model_proxy_with_credential(self, model_proxy_name: str):
+    def prepare_model_proxy_with_credential(
+        self, model_proxy_name: str
+    ):
 
         from agentrun.credential import (
             Credential,
@@ -1208,7 +1223,9 @@ class TestModelProxy:
 
         await defer()
 
-    def test_model_proxy_invoke_credential(self, model_proxy_name: str):
+    def test_model_proxy_invoke_credential(
+        self, model_proxy_name: str
+    ):
         _, mp, defer = self.prepare_model_proxy_with_credential(
             model_proxy_name
         )

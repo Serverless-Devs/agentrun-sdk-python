@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: tests/e2e/__test_sandbox_template_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/tests/e2e/__test_sandbox_template_async_template.py
 
 
 Sandbox Template 模块的 E2E 测试
@@ -266,7 +266,9 @@ class TestSandboxTemplate:
 
         try:
             # 获取 Template
-            template = Template.get_by_name(template_name=template_name)
+            template = Template.get_by_name(
+                template_name=template_name
+            )
 
             assert template is not None
             assert template.template_name == template_name
@@ -289,7 +291,9 @@ class TestSandboxTemplate:
     def test_get_nonexistent_template(self):
         """测试获取不存在的 Template 会抛出异常"""
         with pytest.raises(ResourceNotExistError):
-            Template.get_by_name(template_name="nonexistent-template-xyz-12345")
+            Template.get_by_name(
+                template_name="nonexistent-template-xyz-12345"
+            )
 
     async def test_list_templates_async(self, template_name: str):
         """测试列举 Templates"""
@@ -367,7 +371,9 @@ class TestSandboxTemplate:
             # 清理资源
             await Template.delete_by_name_async(template_name=template_name)
 
-    def test_list_templates_with_pagination(self, template_name: str):
+    def test_list_templates_with_pagination(
+        self, template_name: str
+    ):
         """测试带分页参数列举 Templates"""
         # 创建测试 Template
         template = Template.create(
@@ -596,10 +602,13 @@ class TestSandboxTemplate:
             # 注意：服务端 API 不返回 description 字段，但会返回 environment_variables
             # assert updated_template.description == new_description
             # 更新操作是同步的，需要等待更新完成再验证
+            
 
             time.sleep(5)
             # 重新获取确保更新完成
-            fetched_template = Template.get_by_name(template_name=template_name)
+            fetched_template = Template.get_by_name(
+                template_name=template_name
+            )
             assert fetched_template.cpu == 2.0
             assert fetched_template.memory == 4096
             assert fetched_template.sandbox_idle_timeout_in_seconds == 1200
@@ -683,16 +692,21 @@ class TestSandboxTemplate:
         assert template.template_name == template_name
 
         # 删除 Template
-        deleted_template = Template.delete_by_name(template_name=template_name)
+        deleted_template = Template.delete_by_name(
+            template_name=template_name
+        )
         assert deleted_template is not None
 
         # 等待删除操作完成（删除是同步的，需要更长时间）
+        
 
         time.sleep(5)
 
         # 验证删除成功 - 尝试获取应该抛出异常或状态为 DELETING
         try:
-            template = Template.get_by_name(template_name=template_name)
+            template = Template.get_by_name(
+                template_name=template_name
+            )
             # 如果还能获取到，状态应该是 DELETING
             assert template.status in [
                 "DELETING"
@@ -804,7 +818,9 @@ class TestSandboxTemplate:
         assert template.template_type == TemplateType.CODE_INTERPRETER
 
         # 2. 获取
-        fetched_template = Template.get_by_name(template_name=template_name)
+        fetched_template = Template.get_by_name(
+            template_name=template_name
+        )
         assert fetched_template.template_id == template.template_id
         # 注意：服务端 API 不返回 description 字段
         # assert fetched_template.description == "生命周期测试"
@@ -822,9 +838,12 @@ class TestSandboxTemplate:
         # 注意：服务端 API 不返回 description 字段
         # assert updated_template.description == "更新后的描述"
         # 更新操作是同步的，需要等待更新完成再验证
+        
 
         time.sleep(2)
-        updated_template = Template.get_by_name(template_name=template_name)
+        updated_template = Template.get_by_name(
+            template_name=template_name
+        )
         assert updated_template.cpu == 2.0
         assert updated_template.memory == 4096
 
@@ -837,12 +856,15 @@ class TestSandboxTemplate:
         Template.delete_by_name(template_name=template_name)
 
         # 等待删除操作完成
+        
 
         time.sleep(5)
 
         # 6. 验证删除
         try:
-            template = Template.get_by_name(template_name=template_name)
+            template = Template.get_by_name(
+                template_name=template_name
+            )
             # 如果还能获取到，状态应该是 DELETING
             assert template.status in [
                 "DELETING"
@@ -924,7 +946,9 @@ class TestSandboxTemplate:
             assert template.template_name == template_name
 
             # 通过 Sandbox 类获取 Template
-            fetched_template = Sandbox.get_template(template_name=template_name)
+            fetched_template = Sandbox.get_template(
+                template_name=template_name
+            )
             assert fetched_template.template_id == template.template_id
 
             # 通过 Sandbox 类更新 Template
@@ -940,9 +964,12 @@ class TestSandboxTemplate:
             # 注意：服务端 API 不返回 description 字段
             # assert updated_template.description == "通过 Sandbox 类更新"
             # 更新操作可能是同步的，需要重新获取验证
+            
 
             time.sleep(2)
-            fetched_again = Sandbox.get_template(template_name=template_name)
+            fetched_again = Sandbox.get_template(
+                template_name=template_name
+            )
             assert fetched_again.cpu == 2.0
             assert fetched_again.memory == 4096
 
@@ -971,7 +998,9 @@ class TestSandboxTemplate:
                 )
             )
 
-    def test_template_validation_browser_disk_size(self, template_name: str):
+    def test_template_validation_browser_disk_size(
+        self, template_name: str
+    ):
         """测试 Browser 类型 Template 的磁盘大小验证"""
         # Browser 类型的 disk_size 必须是 10240
         with pytest.raises(ValueError, match="disk_size should be 10240"):
@@ -1052,7 +1081,9 @@ class TestSandboxTemplate:
             for name in template_names:
                 await Template.delete_by_name_async(template_name=name)
 
-    def test_concurrent_template_operations(self, template_name: str):
+    def test_concurrent_template_operations(
+        self, template_name: str
+    ):
         """测试并发创建多个 Templates"""
         template_names = [f"{template_name}-{i}" for i in range(3)]
 
@@ -1071,7 +1102,7 @@ class TestSandboxTemplate:
                 for i, name in enumerate(template_names)
             ]
 
-            templates = create_tasks
+            templates = (create_tasks)
 
             # 验证所有 Templates 都创建成功
             assert len(templates) == 3
