@@ -77,7 +77,9 @@ class AgentRuntime(
             ResourceAlreadyExistError: 资源已存在 / Resource already exists
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return await cls.__get_client(config=config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(
+            input, config=config
+        )
 
     @classmethod
     async def delete_by_id_async(cls, id: str, config: Optional[Config] = None):
@@ -155,7 +157,9 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return await cls.__get_client(config=config).get_async(id, config=config)
+        return await cls.__get_client(config=config).get_async(
+            id, config=config
+        )
 
     @classmethod
     async def _list_page_async(
@@ -174,16 +178,22 @@ class AgentRuntime(
         cls,
         *,
         agent_runtime_name: Optional[str] = None,
-        tags: Optional[str] = None,
+        system_tags: Optional[str] = None,
         search_mode: Optional[str] = None,
+        status: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        workspace_ids: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> List["AgentRuntime"]:
         return await cls._list_all_async(
             lambda ar: ar.agent_runtime_id or "",
             config=config,
             agent_runtime_name=agent_runtime_name,
-            tags=tags,
+            system_tags=system_tags,
             search_mode=search_mode,
+            status=status,
+            workspace_id=workspace_id,
+            workspace_ids=workspace_ids,
         )
 
     @classmethod
