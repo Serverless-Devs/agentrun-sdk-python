@@ -139,13 +139,63 @@ class AgentRuntimeCode(BaseModel):
         return c
 
 
+class RegistryAuthConfig(BaseModel):
+    """镜像仓库认证配置 / Registry Authentication Configuration"""
+
+    password: Optional[str] = None
+    """镜像仓库的登录密码 / Registry login password"""
+    user_name: Optional[str] = None
+    """镜像仓库的登录用户名 / Registry login username"""
+
+
+class RegistryCertConfig(BaseModel):
+    """镜像仓库证书配置 / Registry Certificate Configuration"""
+
+    insecure: Optional[bool] = None
+    """是否跳过 TLS 证书验证 / Whether to skip TLS certificate verification"""
+    root_ca_cert_base_64: Optional[str] = None
+    """镜像仓库根 CA 证书 Base64 编码 / Registry root CA certificate (Base64 encoded)"""
+
+
+class RegistryNetworkConfig(BaseModel):
+    """镜像仓库网络配置 / Registry Network Configuration"""
+
+    security_group_id: Optional[str] = None
+    """镜像仓库的安全组 ID / Registry security group ID"""
+    v_switch_id: Optional[str] = None
+    """镜像仓库所在的交换机 ID / Registry vSwitch ID"""
+    vpc_id: Optional[str] = None
+    """镜像仓库所在的 VPC ID / Registry VPC ID"""
+
+
+class RegistryConfig(BaseModel):
+    """自定义镜像仓库配置 / Custom Registry Configuration"""
+
+    auth_config: Optional[RegistryAuthConfig] = None
+    """镜像仓库的认证配置 / Registry authentication configuration"""
+    cert_config: Optional[RegistryCertConfig] = None
+    """镜像仓库的证书配置 / Registry certificate configuration"""
+    network_config: Optional[RegistryNetworkConfig] = None
+    """镜像仓库的网络配置 / Registry network configuration"""
+
+
 class AgentRuntimeContainer(BaseModel):
     """Agent Runtime 容器配置"""
 
+    acr_instance_id: Optional[str] = None
+    """阿里云容器镜像服务（ACR）的实例 ID / Aliyun Container Registry (ACR) instance ID"""
     command: Optional[List[str]] = Field(alias="command", default=None)
     """在运行时中运行的命令（例如：["python"]）"""
     image: Optional[str] = Field(alias="image", default=None)
     """容器镜像地址"""
+    image_registry_type: Optional[str] = None
+    """容器镜像来源类型，支持 ACR / ACREE / CUSTOM
+    / Container image registry type: ACR / ACREE / CUSTOM"""
+    port: Optional[int] = None
+    """容器内部监听端口 / Container internal port"""
+    registry_config: Optional[RegistryConfig] = None
+    """自定义镜像仓库配置（当 image_registry_type 为 CUSTOM 时使用）
+    / Custom registry configuration (used when image_registry_type is CUSTOM)"""
 
 
 class AgentRuntimeHealthCheckConfig(BaseModel):
@@ -188,20 +238,132 @@ class AgentRuntimeProtocolType(str, Enum):
     SUPER_AGENT = "SUPER_AGENT"
 
 
+class ProtocolSettings(BaseModel):
+    """详细协议配置项 / Detailed Protocol Settings
+
+    用于配置单个协议的明细参数（路径、HTTP 方法、请求/响应 schema 等）。
+    Used to configure detailed parameters for a single protocol (path, HTTP method,
+    request/response schemas, etc.).
+    """
+
+    a_2aagent_card: Optional[str] = Field(alias="A2AAgentCard", default=None)
+    """A2A Agent Card（兼容旧字段名 A2AAgentCard）/ A2A Agent Card (legacy field name)"""
+    a_2a_agent_card: Optional[str] = Field(alias="a2aAgentCard", default=None)
+    """A2A Agent Card / A2A Agent Card"""
+    a_2a_agent_card_url: Optional[str] = Field(
+        alias="a2aAgentCardUrl", default=None
+    )
+    """A2A Agent Card URL / A2A Agent Card URL"""
+    config: Optional[str] = None
+    """协议配置的 JSON 字符串 / Protocol configuration JSON string"""
+    headers: Optional[str] = None
+    """请求头 / Request headers"""
+    input_body_json_schema: Optional[str] = None
+    """请求体 JSON Schema / Request body JSON schema"""
+    method: Optional[str] = None
+    """HTTP 方法 / HTTP method"""
+    name: Optional[str] = None
+    """可选展示名 / Optional display name"""
+    output_body_json_schema: Optional[str] = None
+    """响应体 JSON Schema / Response body JSON schema"""
+    path: Optional[str] = None
+    """协议路径 / Protocol path"""
+    path_prefix: Optional[str] = None
+    """协议路径前缀 / Protocol path prefix"""
+    request_content_type: Optional[str] = None
+    """请求内容类型 / Request content type"""
+    response_content_type: Optional[str] = None
+    """响应内容类型 / Response content type"""
+    type: Optional[str] = None
+    """协议类型标识 / Protocol type identifier"""
+
+
 class AgentRuntimeProtocolConfig(BaseModel):
     """Agent Runtime 协议配置"""
 
+    protocol_settings: Optional[List[ProtocolSettings]] = None
+    """详细的协议配置信息 / Detailed protocol settings"""
     type: AgentRuntimeProtocolType = Field(
         alias="type", default=AgentRuntimeProtocolType.HTTP
     )
     """协议类型"""
 
 
+class NASMountConfig(BaseModel):
+    """NAS 挂载点配置 / NAS Mount Configuration"""
+
+    enable_tls: Optional[bool] = Field(alias="enableTLS", default=None)
+    """是否启用 TLS / Whether to enable TLS"""
+    mount_dir: Optional[str] = None
+    """挂载目录 / Mount directory"""
+    server_addr: Optional[str] = None
+    """NAS 服务地址 / NAS server address"""
+
+
+class NASConfig(BaseModel):
+    """NAS 文件系统配置 / NAS Filesystem Configuration"""
+
+    group_id: Optional[int] = None
+    """用户组 ID / Group ID"""
+    mount_points: Optional[List[NASMountConfig]] = None
+    """挂载点列表 / Mount points"""
+    user_id: Optional[int] = None
+    """用户 ID / User ID"""
+
+
+class OSSMountPoint(BaseModel):
+    """OSS 挂载点 / OSS Mount Point"""
+
+    bucket_name: Optional[str] = None
+    """OSS Bucket 名称 / OSS bucket name"""
+    bucket_path: Optional[str] = None
+    """OSS Bucket 中要挂载的路径 / Path inside the bucket to mount"""
+    endpoint: Optional[str] = None
+    """OSS Endpoint / OSS endpoint"""
+    mount_dir: Optional[str] = None
+    """容器内挂载目录 / Mount directory inside the container"""
+    read_only: Optional[bool] = None
+    """是否只读挂载 / Whether to mount read-only"""
+
+
+class OSSMountConfig(BaseModel):
+    """OSS 挂载配置 / OSS Mount Configuration"""
+
+    mount_points: Optional[List[OSSMountPoint]] = None
+    """挂载点列表 / Mount points"""
+
+
+class ScheduledPolicy(BaseModel):
+    """端点弹性伸缩定时策略 / Endpoint Scaling Scheduled Policy"""
+
+    end_time: Optional[str] = None
+    """结束时间 / End time"""
+    name: Optional[str] = None
+    """策略名称 / Policy name"""
+    schedule_expression: Optional[str] = None
+    """定时表达式（cron） / Schedule expression (cron)"""
+    start_time: Optional[str] = None
+    """开始时间 / Start time"""
+    target: Optional[int] = None
+    """目标实例数 / Target instance count"""
+    time_zone: Optional[str] = None
+    """时区 / Time zone"""
+
+
+class ScalingConfig(BaseModel):
+    """端点弹性伸缩配置 / Endpoint Scaling Configuration"""
+
+    min_instances: Optional[int] = None
+    """最小实例数 / Minimum instance count"""
+    scheduled_policies: Optional[List[ScheduledPolicy]] = None
+    """定时扩缩容策略列表 / Scheduled scaling policies"""
+
+
 class AgentRuntimeEndpointRoutingWeight(BaseModel):
     """智能体运行时端点路由配置"""
 
     version: Optional[str] = None
-    weight: Optional[int] = None
+    weight: Optional[float] = None
 
 
 class AgentRuntimeEndpointRoutingConfig(BaseModel):
@@ -226,6 +388,12 @@ class AgentRuntimeMutableProps(BaseModel):
     """Agent Runtime 凭证 ID"""
     description: Optional[str] = None
     """Agent Runtime 描述"""
+    disk_size: Optional[int] = None
+    """Agent Runtime 实例磁盘大小，单位：GB
+    / Instance disk size in GB"""
+    enable_session_isolation: Optional[bool] = None
+    """是否启用会话隔离，启用后每个会话将在独立的环境中运行
+    / Whether to enable session isolation; each session runs in an isolated environment when enabled"""
     environment_variables: Optional[Dict[str, str]] = None
     """环境变量"""
     execution_role_arn: Optional[str] = None
@@ -238,8 +406,12 @@ class AgentRuntimeMutableProps(BaseModel):
     """日志配置"""
     memory: Optional[int] = 4096
     """Agent Runtime 内存配置，单位：MB"""
+    nas_config: Optional[NASConfig] = None
+    """NAS 文件系统挂载配置 / NAS filesystem mount configuration"""
     network_configuration: Optional[NetworkConfig] = None
     """Agent Runtime 网络配置"""
+    oss_mount_config: Optional[OSSMountConfig] = None
+    """OSS 挂载配置 / OSS mount configuration"""
     port: Optional[int] = 9000
     """Agent Runtime 端口配置"""
     protocol_configuration: Optional[AgentRuntimeProtocolConfig] = None
@@ -250,10 +422,9 @@ class AgentRuntimeMutableProps(BaseModel):
     """每实例会话并发限制"""
     session_idle_timeout_seconds: Optional[int] = None
     """会话空闲超时时间，单位：秒"""
-    tags: Optional[List[str]] = None
-    """标签列表"""
     system_tags: Optional[List[str]] = None
-    """系统标签列表 (由平台内部使用, 例如 SuperAgent 用来标识下游 AgentRuntime)"""
+    """系统标签列表 (由平台内部使用, 例如 SuperAgent 用来标识下游 AgentRuntime)
+    / System tags (used internally by the platform, e.g. by SuperAgent to mark downstream AgentRuntimes)"""
 
 
 class AgentRuntimeImmutableProps(BaseModel):
@@ -284,9 +455,14 @@ class AgentRuntimeSystemProps(BaseModel):
 class AgentRuntimeEndpointMutableProps(BaseModel):
     agent_runtime_endpoint_name: Optional[str] = None
     description: Optional[str] = None
+    disable_public_network_access: Optional[bool] = None
+    """是否禁用该端点的公网访问
+    / Whether to disable public network access for this endpoint"""
     routing_configuration: Optional[AgentRuntimeEndpointRoutingConfig] = None
     """智能体运行时端点的路由配置，支持多版本权重分配"""
-    tags: Optional[List[str]] = None
+    scaling_config: Optional[ScalingConfig] = None
+    """端点的弹性伸缩配置，包括最小实例数和定时扩容策略
+    / Endpoint scaling configuration: min instances and scheduled policies"""
     target_version: Optional[str] = "LATEST"
     """智能体运行时的目标版本"""
 
@@ -325,15 +501,20 @@ class AgentRuntimeUpdateInput(AgentRuntimeMutableProps):
 class AgentRuntimeListInput(PageableInput):
     agent_runtime_name: Optional[str] = None
     """Agent Runtime 名称"""
-    tags: Optional[str] = None
-    """标签过滤，多个标签用逗号分隔"""
     system_tags: Optional[str] = None
-    """系统标签过滤, 多个标签用逗号分隔"""
+    """系统标签过滤, 多个标签用逗号分隔
+    / Filter by system tags, comma separated"""
     search_mode: Optional[str] = None
     """搜索模式"""
+    status: Optional[str] = None
+    """按状态过滤，多个状态用逗号分隔，支持精确匹配
+    / Filter by status, comma separated"""
     workspace_id: Optional[str] = None
     """按工作空间标识符过滤
     / Filter by workspace identifier"""
+    workspace_ids: Optional[str] = None
+    """按多个工作空间标识符过滤，逗号分隔
+    / Filter by multiple workspace identifiers, comma separated"""
 
 
 class AgentRuntimeEndpointCreateInput(
@@ -343,7 +524,9 @@ class AgentRuntimeEndpointCreateInput(
 
 
 class AgentRuntimeEndpointUpdateInput(AgentRuntimeEndpointMutableProps):
-    pass
+    delete_scaling_config: Optional[bool] = None
+    """为 true 时删除该端点的弹性伸缩配置
+    / If true, delete the existing scaling configuration for this endpoint"""
 
 
 class AgentRuntimeEndpointListInput(PageableInput):
