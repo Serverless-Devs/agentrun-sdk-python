@@ -174,16 +174,22 @@ class AgentRuntime(
         cls,
         *,
         agent_runtime_name: Optional[str] = None,
-        tags: Optional[str] = None,
+        system_tags: Optional[str] = None,
         search_mode: Optional[str] = None,
+        status: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        workspace_ids: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> List["AgentRuntime"]:
         return await cls._list_all_async(
             lambda ar: ar.agent_runtime_id or "",
             config=config,
             agent_runtime_name=agent_runtime_name,
-            tags=tags,
+            system_tags=system_tags,
             search_mode=search_mode,
+            status=status,
+            workspace_id=workspace_id,
+            workspace_ids=workspace_ids,
         )
 
     @classmethod

@@ -33,6 +33,17 @@ from agentrun.agent_runtime.model import (
     AgentRuntimeUpdateInput,
     AgentRuntimeVersion,
     AgentRuntimeVersionListInput,
+    NASConfig,
+    NASMountConfig,
+    OSSMountConfig,
+    OSSMountPoint,
+    ProtocolSettings,
+    RegistryAuthConfig,
+    RegistryCertConfig,
+    RegistryConfig,
+    RegistryNetworkConfig,
+    ScalingConfig,
+    ScheduledPolicy,
 )
 from agentrun.utils.model import Status
 
@@ -370,8 +381,9 @@ class TestAgentRuntimeEndpointMutableProps:
         props = AgentRuntimeEndpointMutableProps()
         assert props.agent_runtime_endpoint_name is None
         assert props.description is None
+        assert props.disable_public_network_access is None
         assert props.routing_configuration is None
-        assert props.tags is None
+        assert props.scaling_config is None
         assert props.target_version == "LATEST"
 
 
@@ -423,18 +435,25 @@ class TestAgentRuntimeListInput:
     def test_init_empty(self):
         input_obj = AgentRuntimeListInput()
         assert input_obj.agent_runtime_name is None
-        assert input_obj.tags is None
+        assert input_obj.system_tags is None
         assert input_obj.search_mode is None
+        assert input_obj.status is None
+        assert input_obj.workspace_id is None
+        assert input_obj.workspace_ids is None
 
     def test_init_with_values(self):
         input_obj = AgentRuntimeListInput(
             agent_runtime_name="test",
-            tags="env:prod,team:ai",
+            system_tags="env:prod,team:ai",
             search_mode="prefix",
+            status="READY",
+            workspace_ids="ws-1,ws-2",
         )
         assert input_obj.agent_runtime_name == "test"
-        assert input_obj.tags == "env:prod,team:ai"
+        assert input_obj.system_tags == "env:prod,team:ai"
         assert input_obj.search_mode == "prefix"
+        assert input_obj.status == "READY"
+        assert input_obj.workspace_ids == "ws-1,ws-2"
 
 
 class TestAgentRuntimeEndpointCreateInput:
@@ -527,3 +546,260 @@ class TestModelDump:
         assert dumped is not None
         # 验证值存在
         assert "agentRuntimeName" in dumped or "agent_runtime_name" in dumped
+
+
+class TestRegistryConfig:
+    """RegistryConfig 及其子模型测试"""
+
+    def test_auth_config_round_trip(self):
+        cfg = RegistryAuthConfig(user_name="alice", password="pwd")
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert dumped == {"userName": "alice", "password": "pwd"}
+
+    def test_cert_config_round_trip(self):
+        cfg = RegistryCertConfig(insecure=True, root_ca_cert_base_64="abc")
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert dumped == {
+            "insecure": True,
+            "rootCaCertBase64": "abc",
+        }
+
+    def test_network_config_round_trip(self):
+        cfg = RegistryNetworkConfig(
+            security_group_id="sg-1",
+            v_switch_id="vsw-1",
+            vpc_id="vpc-1",
+        )
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert dumped == {
+            "securityGroupId": "sg-1",
+            "vSwitchId": "vsw-1",
+            "vpcId": "vpc-1",
+        }
+
+    def test_registry_config_nested(self):
+        cfg = RegistryConfig(
+            auth_config=RegistryAuthConfig(user_name="u", password="p"),
+            cert_config=RegistryCertConfig(insecure=False),
+            network_config=RegistryNetworkConfig(vpc_id="vpc-1"),
+        )
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["authConfig"]["userName"] == "u"
+        assert dumped["certConfig"]["insecure"] is False
+        assert dumped["networkConfig"]["vpcId"] == "vpc-1"
+
+
+class TestContainerNewFields:
+    """AgentRuntimeContainer 新增字段测试"""
+
+    def test_acr_and_registry_fields(self):
+        c = AgentRuntimeContainer(
+            image="img:1",
+            command=["python"],
+            acr_instance_id="cri-xxx",
+            image_registry_type="CUSTOM",
+            port=9001,
+            registry_config=RegistryConfig(
+                auth_config=RegistryAuthConfig(user_name="u", password="p")
+            ),
+        )
+        dumped = c.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["acrInstanceId"] == "cri-xxx"
+        assert dumped["imageRegistryType"] == "CUSTOM"
+        assert dumped["port"] == 9001
+        assert dumped["registryConfig"]["authConfig"]["userName"] == "u"
+
+
+class TestProtocolSettings:
+    """ProtocolSettings & AgentRuntimeProtocolConfig.protocol_settings 测试"""
+
+    def test_protocol_settings_aliases(self):
+        ps = ProtocolSettings(
+            a_2aagent_card="legacy",
+            a_2a_agent_card="new",
+            a_2a_agent_card_url="https://example.com/card",
+            config='{"k":"v"}',
+            method="POST",
+            path="/invoke",
+            path_prefix="/api",
+            request_content_type="application/json",
+            response_content_type="application/json",
+            type="http",
+        )
+        dumped = ps.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["A2AAgentCard"] == "legacy"
+        assert dumped["a2aAgentCard"] == "new"
+        assert dumped["a2aAgentCardUrl"] == "https://example.com/card"
+        assert dumped["pathPrefix"] == "/api"
+        assert dumped["requestContentType"] == "application/json"
+        assert dumped["responseContentType"] == "application/json"
+
+    def test_protocol_config_with_settings(self):
+        cfg = AgentRuntimeProtocolConfig(
+            type=AgentRuntimeProtocolType.HTTP,
+            protocol_settings=[
+                ProtocolSettings(name="s1", type="http"),
+                ProtocolSettings(name="s2", type="grpc"),
+            ],
+        )
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert len(dumped["protocolSettings"]) == 2
+        assert dumped["protocolSettings"][0]["name"] == "s1"
+
+
+class TestRoutingWeightFloat:
+    """AgentRuntimeEndpointRoutingWeight.weight 改为 float"""
+
+    def test_weight_accepts_float(self):
+        w = AgentRuntimeEndpointRoutingWeight(version="v1", weight=0.3)
+        assert w.weight == pytest.approx(0.3)
+
+    def test_routing_config_serialization(self):
+        cfg = AgentRuntimeEndpointRoutingConfig(
+            version_weights=[
+                AgentRuntimeEndpointRoutingWeight(version="v1", weight=0.7),
+                AgentRuntimeEndpointRoutingWeight(version="v2", weight=0.3),
+            ]
+        )
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["versionWeights"][0]["weight"] == pytest.approx(0.7)
+        assert dumped["versionWeights"][1]["weight"] == pytest.approx(0.3)
+
+
+class TestNASAndOSSMountConfigs:
+    """NASConfig / OSSMountConfig 及其子模型测试"""
+
+    def test_nas_mount_config_round_trip(self):
+        m = NASMountConfig(
+            enable_tls=True,
+            mount_dir="/mnt/nas",
+            server_addr="addr.cn-hangzhou.nas.aliyuncs.com",
+        )
+        dumped = m.model_dump(by_alias=True, exclude_none=True)
+        assert dumped == {
+            "enableTLS": True,
+            "mountDir": "/mnt/nas",
+            "serverAddr": "addr.cn-hangzhou.nas.aliyuncs.com",
+        }
+
+    def test_nas_config_with_mount_points(self):
+        cfg = NASConfig(
+            group_id=100,
+            user_id=200,
+            mount_points=[
+                NASMountConfig(
+                    mount_dir="/mnt/a", server_addr="addr.aliyuncs.com"
+                ),
+            ],
+        )
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["groupId"] == 100
+        assert dumped["userId"] == 200
+        assert dumped["mountPoints"][0]["mountDir"] == "/mnt/a"
+
+    def test_oss_mount_point_round_trip(self):
+        p = OSSMountPoint(
+            bucket_name="bkt",
+            bucket_path="/path",
+            endpoint="oss-cn-hangzhou.aliyuncs.com",
+            mount_dir="/mnt/oss",
+            read_only=True,
+        )
+        dumped = p.model_dump(by_alias=True, exclude_none=True)
+        assert dumped == {
+            "bucketName": "bkt",
+            "bucketPath": "/path",
+            "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+            "mountDir": "/mnt/oss",
+            "readOnly": True,
+        }
+
+    def test_oss_mount_config_with_points(self):
+        cfg = OSSMountConfig(
+            mount_points=[
+                OSSMountPoint(bucket_name="bkt", mount_dir="/mnt"),
+            ]
+        )
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["mountPoints"][0]["bucketName"] == "bkt"
+
+
+class TestScalingConfig:
+    """ScalingConfig & ScheduledPolicy 测试"""
+
+    def test_scheduled_policy_round_trip(self):
+        sp = ScheduledPolicy(
+            name="daily",
+            schedule_expression="0 0 9 * * ?",
+            start_time="2026-05-01T00:00:00Z",
+            end_time="2026-06-01T00:00:00Z",
+            target=3,
+            time_zone="Asia/Shanghai",
+        )
+        dumped = sp.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["scheduleExpression"] == "0 0 9 * * ?"
+        assert dumped["startTime"] == "2026-05-01T00:00:00Z"
+        assert dumped["endTime"] == "2026-06-01T00:00:00Z"
+        assert dumped["timeZone"] == "Asia/Shanghai"
+        assert dumped["target"] == 3
+
+    def test_scaling_config_with_policies(self):
+        cfg = ScalingConfig(
+            min_instances=2,
+            scheduled_policies=[
+                ScheduledPolicy(name="p1", target=5),
+            ],
+        )
+        dumped = cfg.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["minInstances"] == 2
+        assert dumped["scheduledPolicies"][0]["name"] == "p1"
+
+
+class TestEndpointNewFields:
+    """AgentRuntimeEndpoint Create/Update 新增字段测试"""
+
+    def test_create_input_with_disable_public_and_scaling(self):
+        i = AgentRuntimeEndpointCreateInput(
+            agent_runtime_endpoint_name="ep",
+            disable_public_network_access=True,
+            scaling_config=ScalingConfig(min_instances=1),
+        )
+        dumped = i.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["disablePublicNetworkAccess"] is True
+        assert dumped["scalingConfig"]["minInstances"] == 1
+
+    def test_update_input_delete_scaling_config(self):
+        i = AgentRuntimeEndpointUpdateInput(
+            agent_runtime_endpoint_name="ep",
+            delete_scaling_config=True,
+        )
+        dumped = i.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["deleteScalingConfig"] is True
+
+
+class TestRuntimeNewFields:
+    """AgentRuntimeMutableProps 新增字段测试"""
+
+    def test_disk_size_and_session_isolation(self):
+        m = AgentRuntimeMutableProps(
+            disk_size=30,
+            enable_session_isolation=True,
+        )
+        dumped = m.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["diskSize"] == 30
+        assert dumped["enableSessionIsolation"] is True
+
+    def test_nas_and_oss_mount_in_create_input(self):
+        i = AgentRuntimeCreateInput(
+            agent_runtime_name="r",
+            nas_config=NASConfig(
+                user_id=1, mount_points=[NASMountConfig(mount_dir="/mnt/nas")]
+            ),
+            oss_mount_config=OSSMountConfig(
+                mount_points=[OSSMountPoint(bucket_name="b", mount_dir="/mnt")]
+            ),
+        )
+        dumped = i.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["nasConfig"]["userId"] == 1
+        assert dumped["nasConfig"]["mountPoints"][0]["mountDir"] == "/mnt/nas"
+        assert dumped["ossMountConfig"]["mountPoints"][0]["bucketName"] == "b"
