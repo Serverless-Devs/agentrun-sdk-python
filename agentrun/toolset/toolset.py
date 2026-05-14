@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/toolset/__toolset_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/toolset/__toolset_async_template.py
 
 ToolSet 资源类 / ToolSet Resource Class
 
@@ -74,7 +74,9 @@ class ToolSet(BaseModel):
         return await cli.get_async(name=name)
 
     @classmethod
-    def get_by_name(cls, name: str, config: Optional[Config] = None):
+    def get_by_name(
+        cls, name: str, config: Optional[Config] = None
+    ):
         cli = cls.__get_client(config=config)
         return cli.get(name=name)
 
@@ -223,7 +225,9 @@ class ToolSet(BaseModel):
                         break
 
         logger.debug("invoke tool %s with arguments %s", name, arguments)
-        result = apiset.invoke(name=name, arguments=arguments, config=config)
+        result = apiset.invoke(
+            name=name, arguments=arguments, config=config
+        )
         logger.debug("invoke tool %s got result %s", name, result)
         return result
 

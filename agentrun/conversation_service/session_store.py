@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/conversation_service/__session_store_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/conversation_service/__session_store_async_template.py
 
 SessionStore 核心业务逻辑层。
 
@@ -530,7 +530,9 @@ class SessionStore:
         Returns:
             ConversationSession 对象，不存在时返回 None。
         """
-        return self._backend.get_session(agent_id, user_id, session_id)
+        return self._backend.get_session(
+            agent_id, user_id, session_id
+        )
 
     async def list_sessions_async(
         self,
@@ -610,7 +612,9 @@ class SessionStore:
         Returns:
             ConversationSession 列表。
         """
-        return self._backend.list_all_sessions(agent_id, limit=limit)
+        return self._backend.list_all_sessions(
+            agent_id, limit=limit
+        )
 
     async def search_sessions_async(
         self,
@@ -847,7 +851,9 @@ class SessionStore:
         )
 
         # 3. 删除 Session 行
-        self._backend.delete_session_row(agent_id, user_id, session_id)
+        self._backend.delete_session_row(
+            agent_id, user_id, session_id
+        )
 
         logger.info(
             "Cascade deleted session %s/%s/%s",
@@ -1085,7 +1091,9 @@ class SessionStore:
 
         # 2. 更新 Session 的 updated_at（保证二级索引排序正确）
         # 先读取当前 Session 获取 version
-        session = self._backend.get_session(agent_id, user_id, session_id)
+        session = self._backend.get_session(
+            agent_id, user_id, session_id
+        )
         if session is not None:
             try:
                 self._backend.update_session(
@@ -1325,7 +1333,9 @@ class SessionStore:
 
     def get_app_state(self, agent_id: str) -> dict[str, Any]:
         """获取 app 级 state，不存在返回 {}（同步）。"""
-        state_data = self._backend.get_state(StateScope.APP, agent_id, "", "")
+        state_data = self._backend.get_state(
+            StateScope.APP, agent_id, "", ""
+        )
         return state_data.state if state_data else {}
 
     async def update_app_state_async(
@@ -1359,7 +1369,9 @@ class SessionStore:
         )
         return state_data.state if state_data else {}
 
-    def get_user_state(self, agent_id: str, user_id: str) -> dict[str, Any]:
+    def get_user_state(
+        self, agent_id: str, user_id: str
+    ) -> dict[str, Any]:
         """获取 user 级 state，不存在返回 {}（同步）。"""
         state_data = self._backend.get_state(
             StateScope.USER, agent_id, user_id, ""
@@ -1453,7 +1465,9 @@ class SessionStore:
         merged: dict[str, Any] = {}
         merged.update(self.get_app_state(agent_id))
         merged.update(self.get_user_state(agent_id, user_id))
-        merged.update(self.get_session_state(agent_id, user_id, session_id))
+        merged.update(
+            self.get_session_state(agent_id, user_id, session_id)
+        )
         return merged
 
     # -------------------------------------------------------------------
@@ -1536,7 +1550,9 @@ class SessionStore:
             session_id: 会话 ID。
             delta: 增量更新字典。
         """
-        existing = self._backend.get_state(scope, agent_id, user_id, session_id)
+        existing = self._backend.get_state(
+            scope, agent_id, user_id, session_id
+        )
 
         if existing is None:
             # 首次写入，过滤 None 值
@@ -1725,7 +1741,9 @@ class SessionStore:
         )
 
         # 1. 获取 MemoryCollection 配置
-        mc = MemoryCollection.get_by_name(memory_collection_name, config=config)
+        mc = MemoryCollection.get_by_name(
+            memory_collection_name, config=config
+        )
 
         # 2. 提取 OTS 连接信息
         if not mc.vector_store_config or not mc.vector_store_config.config:

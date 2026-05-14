@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/super_agent/api/__data_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/super_agent/api/__data_async_template.py
 
 Super Agent 数据面 API / Super Agent Data Plane API
 
@@ -16,7 +16,11 @@ Super Agent 数据面 API / Super Agent Data Plane API
 - ``get_base_url`` / ``with_path``: URL 拼接 (含版本号)
 - ``auth``: RAM 签名头生成 (``Agentrun-Authorization`` / ``x-acs-*``)
 
-同步方法第一版抛 ``NotImplementedError``, 仅保留骨架以备未来扩展。
+本文件为 **模板** (``__data_async_template.py``);
+当前 ``codegen`` 的 async→sync 转换不支持 async generator (``async for + yield``)
+以及 ``async with ... as x`` 里的作用域保留, 所以 ``api/data.py`` 的同步骨架
+(同步方法第一版仅保留 ``NotImplementedError`` 占位) 目前 **手工维护**。
+运行 ``make codegen`` 会生成不可运行的版本, 请不要直接覆盖。
 """
 
 import json
@@ -154,6 +158,43 @@ class SuperAgentDataAPI(DataAPI):
         config: Optional[Config] = None,
         forwarded_extras: Optional[Dict[str, Any]] = None,
     ) -> InvokeResponseData:
+        """Phase 1: POST /invoke, 返回 Phase 2 的 URL 与 headers."""
+        cfg = Config.with_configs(self.config, config)
+        url = self.with_path("invoke", config=cfg)
+        body = self._build_invoke_body(
+            messages, conversation_id, forwarded_extras
+        )
+        body_bytes = json.dumps(body).encode("utf-8")
+        _, signed_headers, _ = self.auth(
+            url=url,
+            method="POST",
+            headers=cfg.get_headers(),
+            body=body_bytes,
+            config=cfg,
+        )
+        signed_headers.setdefault("Content-Type", "application/json")
+        logger.debug("super_agent invoke request: POST %s body=%s", url, body)
+
+        with httpx.Client(timeout=cfg.get_timeout()) as client:
+            resp = client.post(
+                url, headers=signed_headers, content=body_bytes
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        logger.debug(
+            "super_agent invoke response: status=%d payload=%s",
+            resp.status_code,
+            payload,
+        )
+        return self._parse_invoke_response(payload)
+
+    def invoke(
+        self,
+        messages: List[Dict[str, Any]],
+        conversation_id: Optional[str] = None,
+        config: Optional[Config] = None,
+        forwarded_extras: Optional[Dict[str, Any]] = None,
+    ) -> InvokeResponseData:
         raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
 
     async def stream_async(
@@ -205,6 +246,50 @@ class SuperAgentDataAPI(DataAPI):
         stream_url: str,
         stream_headers: Optional[Dict[str, str]] = None,
         config: Optional[Config] = None,
+    ) -> SyncIterator[SSEEvent]:
+        """Phase 2: GET stream_url → 流式 yield SSEEvent.
+
+        合并优先级 (低 → 高): ``cfg.get_headers()`` → ``stream_headers`` → RAM 签名头。
+        """
+        cfg = Config.with_configs(self.config, config)
+        _, signed_headers, _ = self.auth(
+            url=stream_url,
+            method="GET",
+            headers=cfg.get_headers(),
+            config=cfg,
+        )
+        merged_headers: Dict[str, str] = {}
+        merged_headers.update(cfg.get_headers())
+        if stream_headers:
+            merged_headers.update(stream_headers)
+        merged_headers.update(signed_headers)
+
+        logger.debug("super_agent stream request: GET %s", stream_url)
+        timeout = httpx.Timeout(cfg.get_timeout(), read=None)
+        client = httpx.Client(timeout=timeout)
+        try:
+            ctx = client.stream("GET", stream_url, headers=merged_headers)
+            response = ctx.__enter__()
+            try:
+                response.raise_for_status()
+                logger.debug(
+                    "super_agent stream response: status=%d headers=%s",
+                    response.status_code,
+                    dict(response.headers),
+                )
+                async for event in parse_sse(response):
+                    logger.debug("super_agent stream event: %s", event)
+                    yield event
+            finally:
+                ctx.__exit__(None, None, None)
+        finally:
+            client.aclose()
+
+    def stream(
+        self,
+        stream_url: str,
+        stream_headers: Optional[Dict[str, str]] = None,
+        config: Optional[Config] = None,
     ) -> Iterator[SSEEvent]:
         raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
 
@@ -233,6 +318,48 @@ class SuperAgentDataAPI(DataAPI):
         logger.debug("super_agent list_conversations request: GET %s", url)
         async with httpx.AsyncClient(timeout=cfg.get_timeout()) as client:
             resp = await client.get(url, headers=signed_headers)
+            resp.raise_for_status()
+            payload = resp.json() if resp.text else {}
+        logger.debug(
+            "super_agent list_conversations response: status=%d payload=%s",
+            resp.status_code,
+            payload,
+        )
+        if not isinstance(payload, dict):
+            return []
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return []
+        raw_list = data.get("conversations")
+        if not isinstance(raw_list, list):
+            return []
+        return [item for item in raw_list if isinstance(item, dict)]
+
+    def list_conversations(
+        self,
+        metadata: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
+    ) -> List[Dict[str, Any]]:
+        """GET /conversations → 返回服务端 ``data.conversations`` 数组 (缺失时返回 [])。
+
+        ``metadata`` 若非 None, 会以 JSON 编码后通过 ``metadata`` query 参数下发;
+        服务端按该 metadata 过滤 (例如 ``{"agentRuntimeName": "..."}``)。
+        不传则由服务端按当前 sub uid 过滤。
+        """
+        cfg = Config.with_configs(self.config, config)
+        query: Optional[Dict[str, Any]] = None
+        if metadata is not None:
+            query = {"metadata": json.dumps(metadata, ensure_ascii=False)}
+        url = self.with_path("conversations", query=query, config=cfg)
+        _, signed_headers, _ = self.auth(
+            url=url,
+            method="GET",
+            headers=cfg.get_headers(),
+            config=cfg,
+        )
+        logger.debug("super_agent list_conversations request: GET %s", url)
+        with httpx.Client(timeout=cfg.get_timeout()) as client:
+            resp = client.get(url, headers=signed_headers)
             resp.raise_for_status()
             payload = resp.json() if resp.text else {}
         logger.debug(
@@ -291,6 +418,35 @@ class SuperAgentDataAPI(DataAPI):
         conversation_id: str,
         config: Optional[Config] = None,
     ) -> Dict[str, Any]:
+        """GET /conversations/{id} → 返回服务端 ``data`` 字段 dict."""
+        cfg = Config.with_configs(self.config, config)
+        url = self.with_path(f"conversations/{conversation_id}", config=cfg)
+        _, signed_headers, _ = self.auth(
+            url=url,
+            method="GET",
+            headers=cfg.get_headers(),
+            config=cfg,
+        )
+        logger.debug("super_agent get_conversation request: GET %s", url)
+        with httpx.Client(timeout=cfg.get_timeout()) as client:
+            resp = client.get(url, headers=signed_headers)
+            resp.raise_for_status()
+            payload = resp.json() if resp.text else {}
+        logger.debug(
+            "super_agent get_conversation response: status=%d payload=%s",
+            resp.status_code,
+            payload,
+        )
+        if not isinstance(payload, dict):
+            return {}
+        data = payload.get("data")
+        return data if isinstance(data, dict) else {}
+
+    def get_conversation(
+        self,
+        conversation_id: str,
+        config: Optional[Config] = None,
+    ) -> Dict[str, Any]:
         raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
 
     async def delete_conversation_async(
@@ -310,6 +466,30 @@ class SuperAgentDataAPI(DataAPI):
         logger.debug("super_agent delete_conversation request: DELETE %s", url)
         async with httpx.AsyncClient(timeout=cfg.get_timeout()) as client:
             resp = await client.delete(url, headers=signed_headers)
+            resp.raise_for_status()
+        logger.debug(
+            "super_agent delete_conversation response: status=%d body=%s",
+            resp.status_code,
+            resp.text,
+        )
+
+    def delete_conversation(
+        self,
+        conversation_id: str,
+        config: Optional[Config] = None,
+    ) -> None:
+        """DELETE /conversations/{id}."""
+        cfg = Config.with_configs(self.config, config)
+        url = self.with_path(f"conversations/{conversation_id}", config=cfg)
+        _, signed_headers, _ = self.auth(
+            url=url,
+            method="DELETE",
+            headers=cfg.get_headers(),
+            config=cfg,
+        )
+        logger.debug("super_agent delete_conversation request: DELETE %s", url)
+        with httpx.Client(timeout=cfg.get_timeout()) as client:
+            resp = client.delete(url, headers=signed_headers)
             resp.raise_for_status()
         logger.debug(
             "super_agent delete_conversation response: status=%d body=%s",

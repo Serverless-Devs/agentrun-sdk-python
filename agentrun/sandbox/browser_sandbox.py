@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/sandbox/__browser_sandbox_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/sandbox/__browser_sandbox_async_template.py
 
 浏览器沙箱高层API模板 / Browser Sandbox High-Level API Template
 

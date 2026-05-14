@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/agent_runtime/__client_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/agent_runtime/__client_async_template.py
 
 Agent Runtime 客户端 / Agent Runtime Client
 
@@ -180,7 +180,9 @@ class AgentRuntimeClient:
         except HTTPError as e:
             raise e.to_resource_error("AgentRuntime", id) from e
 
-    def delete(self, id: str, config: Optional[Config] = None) -> AgentRuntime:
+    def delete(
+        self, id: str, config: Optional[Config] = None
+    ) -> AgentRuntime:
         """同步删除 Agent Runtime / Delete Agent Runtime synchronously
 
         Args:
@@ -195,7 +197,9 @@ class AgentRuntimeClient:
             HTTPError: HTTP 请求错误 / HTTP request error
         """
         try:
-            result = self.__control_api.delete_agent_runtime(id, config=config)
+            result = self.__control_api.delete_agent_runtime(
+                id, config=config
+            )
             # Delete 响应只有 agentRuntimeId 有效，其他字段为空字符串/零值，
             # 走 from_inner_object 会在 status/artifactType 等 Enum 字段上触发
             # 伪校验错误。这里直接构造一个只带 id 的极简对象。
@@ -443,12 +447,14 @@ class AgentRuntimeClient:
             HTTPError: HTTP 请求错误 / HTTP request error
         """
         try:
-            result = self.__control_api.create_agent_runtime_endpoint(
-                agent_runtime_id,
-                CreateAgentRuntimeEndpointInput().from_map(
-                    endpoint.model_dump()
-                ),
-                config=config,
+            result = (
+                self.__control_api.create_agent_runtime_endpoint(
+                    agent_runtime_id,
+                    CreateAgentRuntimeEndpointInput().from_map(
+                        endpoint.model_dump()
+                    ),
+                    config=config,
+                )
             )
         except HTTPError as e:
             raise e.to_resource_error(
@@ -521,10 +527,12 @@ class AgentRuntimeClient:
             HTTPError: HTTP 请求错误 / HTTP request error
         """
         try:
-            result = self.__control_api.delete_agent_runtime_endpoint(
-                agent_runtime_id,
-                endpoint_id,
-                config=config,
+            result = (
+                self.__control_api.delete_agent_runtime_endpoint(
+                    agent_runtime_id,
+                    endpoint_id,
+                    config=config,
+                )
             )
         except HTTPError as e:
             raise e.to_resource_error(
@@ -604,13 +612,15 @@ class AgentRuntimeClient:
             HTTPError: HTTP 请求错误 / HTTP request error
         """
         try:
-            result = self.__control_api.update_agent_runtime_endpoint(
-                agent_runtime_id,
-                endpoint_id,
-                UpdateAgentRuntimeEndpointInput().from_map(
-                    endpoint.model_dump()
-                ),
-                config=config,
+            result = (
+                self.__control_api.update_agent_runtime_endpoint(
+                    agent_runtime_id,
+                    endpoint_id,
+                    UpdateAgentRuntimeEndpointInput().from_map(
+                        endpoint.model_dump()
+                    ),
+                    config=config,
+                )
             )
         except HTTPError as e:
             raise e.to_resource_error(
@@ -759,10 +769,14 @@ class AgentRuntimeClient:
             if input is None:
                 input = AgentRuntimeEndpointListInput()
 
-            results = self.__control_api.list_agent_runtime_endpoints(
-                agent_runtime_id,
-                ListAgentRuntimeEndpointsRequest().from_map(input.model_dump()),
-                config=config,
+            results = (
+                self.__control_api.list_agent_runtime_endpoints(
+                    agent_runtime_id,
+                    ListAgentRuntimeEndpointsRequest().from_map(
+                        input.model_dump()
+                    ),
+                    config=config,
+                )
             )
             return [
                 AgentRuntimeEndpoint.from_inner_object(item)
@@ -833,10 +847,14 @@ class AgentRuntimeClient:
             if input is None:
                 input = AgentRuntimeVersionListInput()
 
-            results = self.__control_api.list_agent_runtime_versions(
-                agent_runtime_id,
-                ListAgentRuntimeVersionsRequest().from_map(input.model_dump()),
-                config=config,
+            results = (
+                self.__control_api.list_agent_runtime_versions(
+                    agent_runtime_id,
+                    ListAgentRuntimeVersionsRequest().from_map(
+                        input.model_dump()
+                    ),
+                    config=config,
+                )
             )
             return [
                 AgentRuntimeVersion.from_inner_object(item)

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/tool/__tool_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/tool/__tool_async_template.py
 
 Tool 资源类 / Tool Resource Class
 
@@ -170,7 +170,9 @@ class Tool(BaseModel):
         return await cli.get_async(name=name)
 
     @classmethod
-    def get_by_name(cls, name: str, config: Optional[Config] = None) -> "Tool":
+    def get_by_name(
+        cls, name: str, config: Optional[Config] = None
+    ) -> "Tool":
         """同步通过名称获取工具 / Get tool by name synchronously"""
         cli = cls.__get_client(config=config)
         return cli.get(name=name)
@@ -192,7 +194,9 @@ class Tool(BaseModel):
         if effective_name is None:
             raise ValueError("Tool name is required to get the Tool.")
 
-        result = self.get_by_name(name=effective_name, config=config)
+        result = self.get_by_name(
+            name=effective_name, config=config
+        )
         return self.update_self(result)
 
     def _get_functioncall_server_url(
@@ -397,7 +401,9 @@ class Tool(BaseModel):
 
         return []
 
-    def list_tools(self, config: Optional[Config] = None) -> List[ToolInfo]:
+    def list_tools(
+        self, config: Optional[Config] = None
+    ) -> List[ToolInfo]:
         """同步获取子工具列表 / Get sub-tool list synchronously
 
         对于 MCP 类型，通过 MCP 协议获取工具列表。
@@ -811,7 +817,9 @@ class Tool(BaseModel):
         cfg = Config.with_configs(config)
         headers = self._get_auth_headers(download_url, cfg)
 
-        with httpx.Client(timeout=300, follow_redirects=True) as http_client:
+        with httpx.Client(
+            timeout=300, follow_redirects=True
+        ) as http_client:
             response = http_client.get(download_url, headers=headers)
             response.raise_for_status()
 

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/knowledgebase/__client_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/knowledgebase/__client_async_template.py
 
 KnowledgeBase 客户端 / KnowledgeBase Client
 
@@ -130,7 +130,9 @@ class KnowledgeBaseClient:
                 "KnowledgeBase", knowledge_base_name
             ) from e
 
-    def delete(self, knowledge_base_name: str, config: Optional[Config] = None):
+    def delete(
+        self, knowledge_base_name: str, config: Optional[Config] = None
+    ):
         """删除知识库（同步）/ Delete knowledge base synchronously
 
         Args:
@@ -241,7 +243,9 @@ class KnowledgeBaseClient:
                 "KnowledgeBase", knowledge_base_name
             ) from e
 
-    def get(self, knowledge_base_name: str, config: Optional[Config] = None):
+    def get(
+        self, knowledge_base_name: str, config: Optional[Config] = None
+    ):
         """获取知识库（同步）/ Get knowledge base synchronously
 
         Args:

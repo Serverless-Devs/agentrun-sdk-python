@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/utils/__data_api_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/utils/__data_api_async_template.py
 
 AgentRun Data Client SDK / AgentRun 数据客户端 SDK
 
@@ -447,7 +447,9 @@ class DataAPI:
         )
 
         try:
-            with httpx.Client(timeout=self.config.get_timeout()) as client:
+            with httpx.Client(
+                timeout=self.config.get_timeout()
+            ) as client:
                 response = client.request(
                     method,
                     url,
@@ -933,7 +935,9 @@ class DataAPI:
                 data = form_data or {}
                 data["path"] = target_file_path
 
-                with httpx.Client(timeout=self.config.get_timeout()) as client:
+                with httpx.Client(
+                    timeout=self.config.get_timeout()
+                ) as client:
                     response = client.post(
                         url, files=files, data=data, headers=req_headers
                     )
@@ -1031,7 +1035,9 @@ class DataAPI:
         )
 
         try:
-            with httpx.Client(timeout=self.config.get_timeout()) as client:
+            with httpx.Client(
+                timeout=self.config.get_timeout()
+            ) as client:
                 response = client.get(url, headers=req_headers)
                 response.raise_for_status()
 
@@ -1131,7 +1137,9 @@ class DataAPI:
         )
 
         try:
-            with httpx.Client(timeout=self.config.get_timeout()) as client:
+            with httpx.Client(
+                timeout=self.config.get_timeout()
+            ) as client:
                 response = client.get(url, headers=req_headers)
                 response.raise_for_status()
 

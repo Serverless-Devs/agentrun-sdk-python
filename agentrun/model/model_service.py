@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/model/__model_service_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/model/__model_service_async_template.py
 
 Model Service 高层 API / Model Service High-Level API
 
@@ -311,7 +311,9 @@ class ModelService(
                 "model_service_name is required to delete a ModelService"
             )
 
-        return self.delete_by_name(self.model_service_name, config=config)
+        return self.delete_by_name(
+            self.model_service_name, config=config
+        )
 
     async def get_async(self, config: Optional[Config] = None):
         """刷新模型服务信息（异步）
@@ -348,7 +350,9 @@ class ModelService(
                 "model_service_name is required to refresh a ModelService"
             )
 
-        result = self.get_by_name(self.model_service_name, config=config)
+        result = self.get_by_name(
+            self.model_service_name, config=config
+        )
         self.update_self(result)
 
         return self

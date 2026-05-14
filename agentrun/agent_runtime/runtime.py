@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/agent_runtime/__runtime_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/agent_runtime/__runtime_async_template.py
 
 Agent Runtime 高层 API / Agent Runtime High-Level API
 
@@ -172,6 +172,7 @@ class AgentRuntime(
 
         # 等待所有端点删除完成 / Wait for all endpoints to be deleted
         while len(cli.list_endpoints(id, config=config)) > 0:
+            
 
             time.sleep(1)
 
@@ -226,7 +227,9 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return cls.__get_client(config=config).update(id, input, config=config)
+        return cls.__get_client(config=config).update(
+            id, input, config=config
+        )
 
     @classmethod
     async def get_by_id_async(cls, id: str, config: Optional[Config] = None):
@@ -620,7 +623,9 @@ class AgentRuntime(
                 "agent_runtime_id is required to delete an Agent Runtime"
             )
 
-        result = self.delete_by_id(self.agent_runtime_id, config=config)
+        result = self.delete_by_id(
+            self.agent_runtime_id, config=config
+        )
         self.update_self(result)
         return self
 
@@ -670,7 +675,9 @@ class AgentRuntime(
                 "agent_runtime_id is required to get an Agent Runtime"
             )
 
-        result = self.get_by_id(self.agent_runtime_id, config=config)
+        result = self.get_by_id(
+            self.agent_runtime_id, config=config
+        )
         self.update_self(result)
         return self
 
@@ -912,6 +919,6 @@ class AgentRuntime(
                 config=cfg,
             )
 
-        return self._data_api[agent_runtime_endpoint_name].invoke_openai(
-            **kwargs
-        )
+        return self._data_api[
+            agent_runtime_endpoint_name
+        ].invoke_openai(**kwargs)

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/knowledgebase/__knowledgebase_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/knowledgebase/__knowledgebase_async_template.py
 
 KnowledgeBase 高层 API / KnowledgeBase High-Level API
 
@@ -208,7 +208,9 @@ class KnowledgeBase(
         Returns:
             KnowledgeBase: 知识库对象 / KnowledgeBase object
         """
-        return cls.__get_client(config=config).get(knowledge_base_name, config=config)
+        return cls.__get_client(config=config).get(
+            knowledge_base_name, config=config
+        )
 
     @classmethod
     async def _list_page_async(
@@ -352,7 +354,9 @@ class KnowledgeBase(
                 "knowledge_base_name is required to delete a KnowledgeBase"
             )
 
-        return self.delete_by_name(self.knowledge_base_name, config=config)
+        return self.delete_by_name(
+            self.knowledge_base_name, config=config
+        )
 
     async def get_async(self, config: Optional[Config] = None):
         """刷新知识库信息（异步）/ Refresh knowledge base info asynchronously
@@ -389,7 +393,9 @@ class KnowledgeBase(
                 "knowledge_base_name is required to refresh a KnowledgeBase"
             )
 
-        result = self.get_by_name(self.knowledge_base_name, config=config)
+        result = self.get_by_name(
+            self.knowledge_base_name, config=config
+        )
         self.update_self(result)
 
         return self
@@ -892,19 +898,21 @@ class KnowledgeBase(
         """
         # 1. 根据 knowledge_base_names 并发获取各知识库配置（安全方式）
         #    Fetch all knowledge bases concurrently by name (safely)
-        knowledge_base_results = [
+        knowledge_base_results = ([
             cls._safe_get_kb(name, config=config)
             for name in knowledge_base_names
-        ]
+        ])
 
         # 2. 并发执行各知识库的检索（安全方式）
         #    Execute retrieval for each knowledge base concurrently (safely)
-        retrieve_results = [
-            cls._safe_retrieve_kb(kb_name, kb_or_error, query, config=config)
+        retrieve_results = ([
+            cls._safe_retrieve_kb(
+                kb_name, kb_or_error, query, config=config
+            )
             for kb_name, kb_or_error in zip(
                 knowledge_base_names, knowledge_base_results
             )
-        ]
+        ])
 
         # 3. 合并返回结果，按知识库名称分组
         #    Merge results, grouped by knowledge base name

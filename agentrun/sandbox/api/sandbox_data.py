@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/sandbox/api/__sandbox_data_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/sandbox/api/__sandbox_data_async_template.py
 
 Sandbox数据API模板 / Sandbox Data API Template
 
@@ -217,7 +217,9 @@ class SandboxDataAPI(DataAPI):
         )
 
         try:
-            with httpx.Client(timeout=self.config.get_timeout()) as client:
+            with httpx.Client(
+                timeout=self.config.get_timeout()
+            ) as client:
                 response = client.request(
                     method,
                     url,
@@ -297,7 +299,9 @@ class SandboxDataAPI(DataAPI):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
         return await self.delete_async("/", config=config)
 
-    def delete_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
+    def delete_sandbox(
+        self, sandbox_id: str, config: Optional[Config] = None
+    ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
         return self.delete("/", config=config)
 
@@ -307,7 +311,9 @@ class SandboxDataAPI(DataAPI):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
         return await self.post_async("/stop", config=config)
 
-    def stop_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
+    def stop_sandbox(
+        self, sandbox_id: str, config: Optional[Config] = None
+    ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
         return self.post("/stop", config=config)
 
@@ -317,6 +323,8 @@ class SandboxDataAPI(DataAPI):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
         return await self.get_async("/", config=config)
 
-    def get_sandbox(self, sandbox_id: str, config: Optional[Config] = None):
+    def get_sandbox(
+        self, sandbox_id: str, config: Optional[Config] = None
+    ):
         self.__refresh_access_token(sandbox_id=sandbox_id, config=config)
         return self.get("/", config=config)

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/agent_runtime/__endpoint_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/agent_runtime/__endpoint_async_template.py
 
 Agent Runtime 端点资源 / Agent Runtime Endpoint Resource
 
@@ -413,7 +413,9 @@ class AgentRuntimeEndpoint(
         return results
 
     @classmethod
-    def list_by_id(cls, agent_runtime_id: str, config: Optional[Config] = None):
+    def list_by_id(
+        cls, agent_runtime_id: str, config: Optional[Config] = None
+    ):
         """根据 Agent Runtime ID 同步列出所有端点 / List all endpoints by Agent Runtime ID synchronously
 
         此方法会自动分页获取所有端点并去重。
@@ -488,7 +490,9 @@ class AgentRuntimeEndpoint(
         self.update_self(result)
         return self
 
-    def delete(self, config: Optional[Config] = None) -> "AgentRuntimeEndpoint":
+    def delete(
+        self, config: Optional[Config] = None
+    ) -> "AgentRuntimeEndpoint":
         """同步删除当前端点 / Delete current endpoint synchronously
 
         Args:
@@ -719,7 +723,9 @@ class AgentRuntimeEndpoint(
         if self.__data_api is None:
             if not self.__agent_runtime_name:
                 client = self.__get_client(cfg)
-                ar = client.get(id=self.agent_runtime_id or "", config=cfg)
+                ar = client.get(
+                    id=self.agent_runtime_id or "", config=cfg
+                )
                 self.__agent_runtime_name = ar.agent_runtime_name
 
             self.__data_api = AgentRuntimeDataAPI(

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/credential/__credential_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/credential/__credential_async_template.py
 
 Credential 高层 API / Credential High-Level API
 
@@ -113,7 +113,9 @@ class Credential(
             credential_name: 凭证名称
             config: 配置
         """
-        return cls.__get_client(config=config).delete(credential_name, config=config)
+        return cls.__get_client(config=config).delete(
+            credential_name, config=config
+        )
 
     @classmethod
     async def update_by_name_async(
@@ -175,7 +177,9 @@ class Credential(
         )
 
     @classmethod
-    def get_by_name(cls, credential_name: str, config: Optional[Config] = None):
+    def get_by_name(
+        cls, credential_name: str, config: Optional[Config] = None
+    ):
         """根据名称获取凭证（同步）
 
         Args:
@@ -185,7 +189,9 @@ class Credential(
         Returns:
             Credential: 凭证对象
         """
-        return cls.__get_client(config=config).get(credential_name, config=config)
+        return cls.__get_client(config=config).get(
+            credential_name, config=config
+        )
 
     @classmethod
     async def _list_page_async(
@@ -290,7 +296,9 @@ class Credential(
                 "credential_name is required to update a Credential"
             )
 
-        result = self.update_by_name(self.credential_name, input, config=config)
+        result = self.update_by_name(
+            self.credential_name, input, config=config
+        )
         self.update_self(result)
 
         return self
@@ -321,7 +329,9 @@ class Credential(
                 "credential_name is required to delete a Credential"
             )
 
-        return self.delete_by_name(self.credential_name, config=config)
+        return self.delete_by_name(
+            self.credential_name, config=config
+        )
 
     async def get_async(self, config: Optional[Config] = None):
         """刷新凭证信息（异步）
@@ -358,7 +368,9 @@ class Credential(
                 "credential_name is required to refresh a Credential"
             )
 
-        result = self.get_by_name(self.credential_name, config=config)
+        result = self.get_by_name(
+            self.credential_name, config=config
+        )
         self.update_self(result)
 
         return self

@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/super_agent/__client_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/super_agent/__client_async_template.py
 
 SuperAgentClient / 超级 Agent 客户端
 
@@ -140,6 +140,32 @@ class SuperAgentClient:
         interval_seconds: int = _WAIT_INTERVAL_SECONDS,
         timeout_seconds: int = _WAIT_TIMEOUT_SECONDS,
     ) -> AgentRuntime:
+        """轮询 get 直到 status 进入最终态 (READY / *_FAILED)."""
+        cfg = Config.with_configs(self.config, config)
+        start = time.monotonic()
+        while True:
+            rt = self._rt.get(agent_runtime_id, config=cfg)
+            status = getattr(rt, "status", None)
+            logger.debug(
+                "super agent %s poll status=%s", agent_runtime_id, status
+            )
+            if Status.is_final_status(status):
+                return rt
+            if time.monotonic() - start > timeout_seconds:
+                raise TimeoutError(
+                    f"Timed out waiting for super agent {agent_runtime_id!r}"
+                    f" to reach final status (last status={status})"
+                )
+            time.sleep(interval_seconds)
+
+    def _wait_final(
+        self,
+        agent_runtime_id: str,
+        *,
+        config: Optional[Config] = None,
+        interval_seconds: int = _WAIT_INTERVAL_SECONDS,
+        timeout_seconds: int = _WAIT_TIMEOUT_SECONDS,
+    ) -> AgentRuntime:
         """同步版 _wait_final_async."""
         cfg = Config.with_configs(self.config, config)
         start = time.monotonic()
@@ -196,8 +222,52 @@ class SuperAgentClient:
         rt = AgentRuntime.from_inner_object(result)
         # 轮询直到进入最终态; 失败则抛出带 status_reason 的错误。
         agent_id = getattr(rt, "agent_runtime_id", None)
-        if agent_id and not Status.is_final_status(getattr(rt, "status", None)):
+        if agent_id:
             rt = await self._wait_final_async(agent_id, config=cfg)
+        _raise_if_failed(rt, action="create")
+        agent = from_agent_runtime(rt)
+        agent._client = self
+        return agent
+
+    def create(
+        self,
+        *,
+        name: str,
+        description: Optional[str] = None,
+        prompt: Optional[str] = None,
+        agents: Optional[List[str]] = None,
+        tools: Optional[List[str]] = None,
+        skills: Optional[List[str]] = None,
+        sandboxes: Optional[List[str]] = None,
+        workspaces: Optional[List[str]] = None,
+        model_service_name: Optional[str] = None,
+        model_name: Optional[str] = None,
+        config: Optional[Config] = None,
+    ) -> SuperAgent:
+        """同步创建超级 Agent."""
+        cfg = Config.with_configs(self.config, config)
+        rt_input = to_create_input(
+            name,
+            description=description,
+            prompt=prompt,
+            agents=agents,
+            tools=tools,
+            skills=skills,
+            sandboxes=sandboxes,
+            workspaces=workspaces,
+            model_service_name=model_service_name,
+            model_name=model_name,
+            cfg=cfg,
+        )
+        dara_input = CreateAgentRuntimeInput().from_map(rt_input.model_dump())
+        result = self._rt_control.create_agent_runtime(
+            dara_input, config=cfg
+        )
+        rt = AgentRuntime.from_inner_object(result)
+        # 轮询直到进入最终态; 失败则抛出带 status_reason 的错误。
+        agent_id = getattr(rt, "agent_runtime_id", None)
+        if agent_id:
+            rt = self._wait_final(agent_id, config=cfg)
         _raise_if_failed(rt, action="create")
         agent = from_agent_runtime(rt)
         agent._client = self
@@ -289,12 +359,48 @@ class SuperAgentClient:
                 return None
             page_number += 1
 
+    def _find_rt_by_name(
+        self, name: str, config: Optional[Config]
+    ) -> Any:
+        cfg = Config.with_configs(self.config, config)
+        page_number = 1
+        page_size = 50
+        while True:
+            runtimes = self._rt.list(
+                AgentRuntimeListInput(
+                    page_number=page_number,
+                    page_size=page_size,
+                    system_tags=SUPER_AGENT_TAG,
+                ),
+                config=cfg,
+            )
+            for rt in runtimes:
+                if getattr(rt, "agent_runtime_name", None) == name:
+                    return rt
+            if len(runtimes) < page_size:
+                return None
+            page_number += 1
+
     async def get_async(
         self, name: str, *, config: Optional[Config] = None
     ) -> SuperAgent:
         """异步获取超级 Agent (名称解析 → ID)."""
         cfg = Config.with_configs(self.config, config)
         rt = await self._find_rt_by_name_async(name, config=cfg)
+        if rt is None:
+            raise ValueError(f"Super agent {name!r} not found")
+        if not is_super_agent(rt):
+            raise ValueError(f"Resource {name!r} is not a super agent")
+        agent = from_agent_runtime(rt)
+        agent._client = self
+        return agent
+
+    def get(
+        self, name: str, *, config: Optional[Config] = None
+    ) -> SuperAgent:
+        """同步获取超级 Agent (名称解析 → ID)."""
+        cfg = Config.with_configs(self.config, config)
+        rt = self._find_rt_by_name(name, config=cfg)
         if rt is None:
             raise ValueError(f"Super agent {name!r} not found")
         if not is_super_agent(rt):
@@ -419,6 +525,56 @@ class SuperAgentClient:
         agent._client = self
         return agent
 
+    def update(
+        self,
+        name: str,
+        *,
+        description: Optional[str] = _UNSET,  # type: ignore[assignment]
+        prompt: Optional[str] = _UNSET,  # type: ignore[assignment]
+        agents: Optional[List[str]] = _UNSET,  # type: ignore[assignment]
+        tools: Optional[List[str]] = _UNSET,  # type: ignore[assignment]
+        skills: Optional[List[str]] = _UNSET,  # type: ignore[assignment]
+        sandboxes: Optional[List[str]] = _UNSET,  # type: ignore[assignment]
+        workspaces: Optional[List[str]] = _UNSET,  # type: ignore[assignment]
+        model_service_name: Optional[str] = _UNSET,  # type: ignore[assignment]
+        model_name: Optional[str] = _UNSET,  # type: ignore[assignment]
+        config: Optional[Config] = None,
+    ) -> SuperAgent:
+        """同步更新超级 Agent (read-merge-write)."""
+        cfg = Config.with_configs(self.config, config)
+        rt = self._find_rt_by_name(name, config=cfg)
+        if rt is None:
+            raise ValueError(f"Super agent {name!r} not found")
+        if not is_super_agent(rt):
+            raise ValueError(f"Resource {name!r} is not a super agent")
+        current = _super_agent_to_business_dict(from_agent_runtime(rt))
+        updates = {
+            "description": description,
+            "prompt": prompt,
+            "agents": agents,
+            "tools": tools,
+            "skills": skills,
+            "sandboxes": sandboxes,
+            "workspaces": workspaces,
+            "model_service_name": model_service_name,
+            "model_name": model_name,
+        }
+        merged = _merge(current, updates)
+        rt_input = to_update_input(name, merged, cfg=cfg)
+        dara_input = UpdateAgentRuntimeInput().from_map(rt_input.model_dump())
+        agent_id = getattr(rt, "agent_runtime_id", None) or name
+        result = self._rt_control.update_agent_runtime(
+            agent_id, dara_input, config=cfg
+        )
+        rt = AgentRuntime.from_inner_object(result)
+        rt_id = getattr(rt, "agent_runtime_id", None) or agent_id
+        if rt_id:
+            rt = self._wait_final(rt_id, config=cfg)
+        _raise_if_failed(rt, action="update")
+        agent = from_agent_runtime(rt)
+        agent._client = self
+        return agent
+
     # ─── Delete ───────────────────────────────────────
     async def delete_async(
         self, name: str, *, config: Optional[Config] = None
@@ -430,6 +586,17 @@ class SuperAgentClient:
             raise ValueError(f"Super agent {name!r} not found")
         agent_id = getattr(rt, "agent_runtime_id", None) or name
         await self._rt.delete_async(agent_id, config=cfg)
+
+    def delete(
+        self, name: str, *, config: Optional[Config] = None
+    ) -> None:
+        """同步删除超级 Agent (名称解析 → ID)."""
+        cfg = Config.with_configs(self.config, config)
+        rt = self._find_rt_by_name(name, config=cfg)
+        if rt is None:
+            raise ValueError(f"Super agent {name!r} not found")
+        agent_id = getattr(rt, "agent_runtime_id", None) or name
+        self._rt.delete(agent_id, config=cfg)
 
     def delete(self, name: str, *, config: Optional[Config] = None) -> None:
         """同步删除超级 Agent (名称解析 → ID)."""
@@ -489,6 +656,30 @@ class SuperAgentClient:
             result.append(agent)
         return result
 
+    def list(
+        self,
+        *,
+        page_number: int = 1,
+        page_size: int = 20,
+        config: Optional[Config] = None,
+    ) -> List[SuperAgent]:
+        """同步列出超级 Agent (固定 systemTag 过滤, 过滤非 SUPER_AGENT)."""
+        cfg = Config.with_configs(self.config, config)
+        rt_input = AgentRuntimeListInput(
+            page_number=page_number,
+            page_size=page_size,
+            system_tags=SUPER_AGENT_TAG,
+        )
+        runtimes = self._rt.list(rt_input, config=cfg)
+        result: List[SuperAgent] = []
+        for rt in runtimes:
+            if not is_super_agent(rt):
+                continue
+            agent = from_agent_runtime(rt)
+            agent._client = self
+            result.append(agent)
+        return result
+
     async def list_all_async(
         self, *, config: Optional[Config] = None, page_size: int = 50
     ) -> List[SuperAgent]:
@@ -498,6 +689,25 @@ class SuperAgentClient:
         page_number = 1
         while True:
             page = await self.list_async(
+                page_number=page_number, page_size=page_size, config=cfg
+            )
+            if not page:
+                break
+            result.extend(page)
+            if len(page) < page_size:
+                break
+            page_number += 1
+        return result
+
+    def list_all(
+        self, *, config: Optional[Config] = None, page_size: int = 50
+    ) -> List[SuperAgent]:
+        """同步一次性拉取所有超级 Agent (自动分页)."""
+        cfg = Config.with_configs(self.config, config)
+        result: List[SuperAgent] = []
+        page_number = 1
+        while True:
+            page = self.list(
                 page_number=page_number, page_size=page_size, config=cfg
             )
             if not page:

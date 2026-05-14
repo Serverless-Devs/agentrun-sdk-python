@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/sandbox/__code_interpreter_sandbox_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/sandbox/__code_interpreter_sandbox_async_template.py
 
 代码解释器沙箱高层API模板 / Code Interpreter Sandbox High-Level API Template
 
@@ -71,6 +71,7 @@ class FileOperations:
             create_dir=create_dir,
         )
 
+
     def write(
         self,
         path: str,
@@ -115,7 +116,9 @@ class FileSystemOperations:
             path=path, depth=depth
         )
 
-    def list(self, path: Optional[str] = None, depth: Optional[int] = None):
+    def list(
+        self, path: Optional[str] = None, depth: Optional[int] = None
+    ):
         """List directory contents (async).
 
         Args:
@@ -125,7 +128,9 @@ class FileSystemOperations:
         Returns:
             Directory contents
         """
-        return self._sandbox.data_api.list_directory(path=path, depth=depth)
+        return self._sandbox.data_api.list_directory(
+            path=path, depth=depth
+        )
 
     async def move_async(self, source: str, destination: str):
         """Move a file or directory (async).
@@ -289,6 +294,7 @@ class FileSystemOperations:
             path=path, save_path=save_path
         )
 
+
     def download(self, path: str, save_path: str):
         """Download a file from the code interpreter (async).
 
@@ -327,7 +333,9 @@ class ProcessOperations:
             command=command, cwd=cwd, timeout=timeout
         )
 
-    def cmd(self, command: str, cwd: str, timeout: Optional[int] = 30):
+    def cmd(
+        self, command: str, cwd: str, timeout: Optional[int] = 30
+    ):
         """Execute a command in the code interpreter (async).
 
         Args:
@@ -390,6 +398,7 @@ class ProcessOperations:
             Kill operation result
         """
         return await self._sandbox.data_api.kill_process_async(pid=pid)
+
 
     def kill(self, pid: str):
         """Kill a specific process by PID (async).
@@ -499,7 +508,9 @@ class ContextOperations:
             return self
         raise ServerError(500, "Failed to create context")
 
-    def get(self, context_id: Optional[str] = None) -> "ContextOperations":
+    def get(
+        self, context_id: Optional[str] = None
+    ) -> "ContextOperations":
         """Get a specific context by ID (async).
         Args:
             context_id: Context ID
@@ -511,7 +522,9 @@ class ContextOperations:
         if context_id is None:
             logger.error(f"context id is not set")
             raise ValueError("context id is not set,")
-        result = self._sandbox.data_api.get_context(context_id=context_id)
+        result = self._sandbox.data_api.get_context(
+            context_id=context_id
+        )
         if all(result.get(key) for key in ("id", "cwd", "language")):
             self._context_id = result["id"]
             self._language = result["language"]
@@ -622,7 +635,9 @@ class ContextOperations:
                 "context_id is required. Either pass it as parameter or create"
                 " a context first."
             )
-        result = self._sandbox.data_api.delete_context(context_id=context_id)
+        result = self._sandbox.data_api.delete_context(
+            context_id=context_id
+        )
         # Clear the saved context_id after deletion
         self._context_id = None
         return result
@@ -658,11 +673,14 @@ class ContextOperations:
                 )
         return False
 
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Synchronous context manager exit - deletes the context."""
         if self._context_id is not None:
             try:
-                self._sandbox.data_api.delete_context(self._context_id)
+                self._sandbox.data_api.delete_context(
+                    self._context_id
+                )
             except Exception as e:
                 logger.error(
                     f"Warning: Failed to delete context {self._context_id}: {e}"

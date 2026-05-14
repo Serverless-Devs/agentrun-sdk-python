@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/sandbox/__client_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/sandbox/__client_async_template.py
 
 Sandbox客户端模板 / Sandbox Client Template
 
@@ -138,10 +138,13 @@ class SandboxClient:
             TimeoutError: Timeout error
             ClientError: Client error
         """
+        
 
         start_time = time.time()
         while True:
-            template = self.get_template(template_name, config=config)
+            template = self.get_template(
+                template_name, config=config
+            )
 
             # Check if ready
             if template.status == "READY":
@@ -222,7 +225,9 @@ class SandboxClient:
         sdk_input = CreateTemplateInput().from_map(
             input.model_dump(by_alias=True)
         )
-        result = self.__control_api.create_template(sdk_input, config=config)
+        result = self.__control_api.create_template(
+            sdk_input, config=config
+        )
         template = Template.from_inner_object(result)
 
         # Poll and wait for Template to be ready
@@ -487,7 +492,9 @@ class SandboxClient:
         sdk_input = ListTemplatesRequest().from_map(
             input.model_dump(by_alias=True)
         )
-        results = self.__control_api.list_templates(sdk_input, config=config)
+        results = self.__control_api.list_templates(
+            sdk_input, config=config
+        )
         return (
             [Template.from_inner_object(item) for item in results.items]
             if results.items
@@ -717,11 +724,7 @@ class SandboxClient:
             Sandbox: 停止后的 Sandbox 对象
 
         Raises:
-            ResourceNotExistError: Sandbox 不存在（包括 HTTP 404 与数据面业务层
-                not-found 两种情形）。调用方可 catch 此异常实现幂等删除。
-                Sandbox does not exist (covers both HTTP 404 and data-plane
-                business-level not-found).  Callers can catch this exception
-                for idempotent delete logic.
+            ResourceNotExistError: Sandbox 不存在
             ClientError: 客户端错误
             ServerError: 服务器错误
         """
@@ -732,24 +735,11 @@ class SandboxClient:
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
-                message = result.get("message", "")
-                # 数据面报告 sandbox 不存在时，与 HTTP 404 路径保持一致，
-                # 统一抛出 ResourceNotExistError，方便调用方幂等处理。
-                # When the data plane reports sandbox not found, raise
-                # ResourceNotExistError for consistency with the HTTP 404 path.
-                # Callers can catch ResourceNotExistError to implement idempotent
-                # deletion (e.g. when TERMINATED instances still appear in list
-                # results but have already been removed from the data plane).
-                # Note: long-term the server should return a stable error_code
-                # (e.g. SandboxNotFound) so the SDK can match on that instead
-                # of a message string.
-                if "sandbox not found" in message.lower():
-                    raise ResourceNotExistError("Sandbox", sandbox_id)
                 raise ClientError(
                     status_code=0,
                     message=(
                         "Failed to stop sandbox:"
-                        f" {message or 'Unknown error'}"
+                        f" {result.get('message', 'Unknown error')}"
                     ),
                 )
 
@@ -774,11 +764,7 @@ class SandboxClient:
             Sandbox: 停止后的 Sandbox 对象
 
         Raises:
-            ResourceNotExistError: Sandbox 不存在（包括 HTTP 404 与数据面业务层
-                not-found 两种情形）。调用方可 catch 此异常实现幂等删除。
-                Sandbox does not exist (covers both HTTP 404 and data-plane
-                business-level not-found).  Callers can catch this exception
-                for idempotent delete logic.
+            ResourceNotExistError: Sandbox 不存在
             ClientError: 客户端错误
             ServerError: 服务器错误
         """
@@ -789,24 +775,11 @@ class SandboxClient:
 
             # 判断返回结果是否成功
             if result.get("code") != "SUCCESS":
-                message = result.get("message", "")
-                # 数据面报告 sandbox 不存在时，与 HTTP 404 路径保持一致，
-                # 统一抛出 ResourceNotExistError，方便调用方幂等处理。
-                # When the data plane reports sandbox not found, raise
-                # ResourceNotExistError for consistency with the HTTP 404 path.
-                # Callers can catch ResourceNotExistError to implement idempotent
-                # deletion (e.g. when TERMINATED instances still appear in list
-                # results but have already been removed from the data plane).
-                # Note: long-term the server should return a stable error_code
-                # (e.g. SandboxNotFound) so the SDK can match on that instead
-                # of a message string.
-                if "sandbox not found" in message.lower():
-                    raise ResourceNotExistError("Sandbox", sandbox_id)
                 raise ClientError(
                     status_code=0,
                     message=(
                         "Failed to stop sandbox:"
-                        f" {message or 'Unknown error'}"
+                        f" {result.get('message', 'Unknown error')}"
                     ),
                 )
 
@@ -964,7 +937,9 @@ class SandboxClient:
             input.model_dump(by_alias=True)
         )
 
-        results = self.__control_api.list_sandboxes(sdk_input, config=config)
+        results = self.__control_api.list_sandboxes(
+            sdk_input, config=config
+        )
         return ListSandboxesOutput(
             sandboxes=[
                 Sandbox.from_inner_object(item) for item in results.items

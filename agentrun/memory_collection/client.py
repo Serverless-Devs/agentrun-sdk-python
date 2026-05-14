@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/memory_collection/__client_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/memory_collection/__client_async_template.py
 
 MemoryCollection 客户端 / MemoryCollection Client
 
@@ -247,7 +247,9 @@ class MemoryCollectionClient:
                 "MemoryCollection", memory_collection_name
             ) from e
 
-    def get(self, memory_collection_name: str, config: Optional[Config] = None):
+    def get(
+        self, memory_collection_name: str, config: Optional[Config] = None
+    ):
         """获取记忆集合（同步）
 
         Args:

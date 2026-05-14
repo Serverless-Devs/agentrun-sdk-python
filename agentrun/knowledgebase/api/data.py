@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/knowledgebase/api/__data_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/knowledgebase/api/__data_async_template.py
 
 KnowledgeBase 数据链路 API / KnowledgeBase Data API
 
@@ -80,6 +80,7 @@ class KnowledgeBaseDataAPI(ABC):
             Dict[str, Any]: 检索结果 / Retrieval results
         """
         raise NotImplementedError("Subclasses must implement retrieve_async")
+
 
     @abstractmethod
     def retrieve(
@@ -175,7 +176,9 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
 
         from agentrun.credential import Credential
 
-        credential = Credential.get_by_name(self.credential_name, config=config)
+        credential = Credential.get_by_name(
+            self.credential_name, config=config
+        )
         if not credential.credential_secret:
             raise ValueError(
                 f"Credential '{self.credential_name}' has no secret configured"
@@ -282,6 +285,7 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
                 "error": True,
             }
 
+
     def retrieve(
         self,
         query: str,
@@ -315,7 +319,9 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
             body = self._build_request_body(query)
 
             # 发送请求 / Send request
-            with httpx.Client(timeout=self.config.get_timeout()) as client:
+            with httpx.Client(
+                timeout=self.config.get_timeout()
+            ) as client:
                 response = client.post(url, json=body, headers=headers)
                 response.raise_for_status()
                 result = response.json()
@@ -466,6 +472,7 @@ class BailianDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                 "knowledge_base_name": self.knowledge_base_name,
                 "error": True,
             }
+
 
     def retrieve(
         self,
@@ -757,6 +764,7 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                 "error": True,
             }
 
+
     def retrieve(
         self,
         query: str,
@@ -1027,6 +1035,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
                 "knowledge_base_name": self.knowledge_base_name,
                 "error": True,
             }
+
 
     def retrieve(
         self,

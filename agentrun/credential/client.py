@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/credential/__client_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/credential/__client_async_template.py
 
 Credential 客户端 / Credential Client
 
@@ -134,7 +134,9 @@ class CredentialClient:
         except HTTPError as e:
             raise e.to_resource_error("Credential", credential_name) from e
 
-    def delete(self, credential_name: str, config: Optional[Config] = None):
+    def delete(
+        self, credential_name: str, config: Optional[Config] = None
+    ):
         """删除凭证（同步）
 
         Args:
@@ -251,7 +253,9 @@ class CredentialClient:
         except HTTPError as e:
             raise e.to_resource_error("Credential", credential_name) from e
 
-    def get(self, credential_name: str, config: Optional[Config] = None):
+    def get(
+        self, credential_name: str, config: Optional[Config] = None
+    ):
         """获取凭证（同步）
 
         Args:

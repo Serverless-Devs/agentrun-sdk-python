@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/sandbox/api/__browser_data_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/sandbox/api/__browser_data_async_template.py
 
 浏览器沙箱数据API模板 / Browser Sandbox Data API Template
 
@@ -261,4 +261,6 @@ class BrowserDataAPI(SandboxDataAPI):
         Examples:
             >>> api.download_recording("recording.mp4", "/local/video.mkv")
         """
-        return self.get_video(f"/recordings/{filename}", save_path=save_path)
+        return self.get_video(
+            f"/recordings/{filename}", save_path=save_path
+        )

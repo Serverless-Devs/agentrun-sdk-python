@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/memory_collection/__memory_collection_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/memory_collection/__memory_collection_async_template.py
 
 MemoryCollection 高层 API / MemoryCollection High-Level API
 
@@ -353,7 +353,9 @@ class MemoryCollection(
                 " MemoryCollection"
             )
 
-        return self.delete_by_name(self.memory_collection_name, config=config)
+        return self.delete_by_name(
+            self.memory_collection_name, config=config
+        )
 
     async def get_async(self, config: Optional[Config] = None):
         """刷新记忆集合信息（异步）
@@ -392,7 +394,9 @@ class MemoryCollection(
                 " MemoryCollection"
             )
 
-        result = self.get_by_name(self.memory_collection_name, config=config)
+        result = self.get_by_name(
+            self.memory_collection_name, config=config
+        )
         self.update_self(result)
 
         return self
@@ -850,8 +854,10 @@ class MemoryCollection(
 
             if model_service_name and llm_config.config:
                 # 使用高层 API 获取 ModelService 配置
-                base_url, api_key = cls._resolve_model_service_config(
-                    model_service_name, config
+                base_url, api_key = (
+                    cls._resolve_model_service_config(
+                        model_service_name, config
+                    )
                 )
 
                 mem0_config["llm"] = {
@@ -870,8 +876,10 @@ class MemoryCollection(
 
             if model_service_name and embedder_config.config:
                 # 使用高层 API 获取 ModelService 配置
-                base_url, api_key = cls._resolve_model_service_config(
-                    model_service_name, config
+                base_url, api_key = (
+                    cls._resolve_model_service_config(
+                        model_service_name, config
+                    )
                 )
 
                 embedder_config_dict = {
@@ -948,7 +956,9 @@ class MemoryCollection(
         """
         from agentrun.credential import Credential
 
-        credential = Credential.get_by_name(credential_name, config=config)
+        credential = Credential.get_by_name(
+            credential_name, config=config
+        )
         if not credential.credential_secret:
             raise ValueError(
                 f"Credential {credential_name} secret is empty. "
@@ -1041,7 +1051,9 @@ class MemoryCollection(
         # 如果有 credentialName，使用高层 API 获取 credential secret
         credential_name = model_service.credential_name
         if credential_name:
-            credential = Credential.get_by_name(credential_name, config=config)
+            credential = Credential.get_by_name(
+                credential_name, config=config
+            )
             if credential.credential_secret:
                 api_key = credential.credential_secret
 

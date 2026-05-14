@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/sandbox/__sandbox_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/sandbox/__sandbox_async_template.py
 
 Sandbox 高层 API / Sandbox High-Level API
 
@@ -328,7 +328,9 @@ class Sandbox(BaseModel):
             )
 
         # 创建 Sandbox（返回基类实例）
-        base_sandbox = cls.__get_client(config=config).create_sandbox(
+        base_sandbox = cls.__get_client(
+            config=config
+        ).create_sandbox(
             template_name=template_name,
             sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
             sandbox_id=sandbox_id,
@@ -384,7 +386,9 @@ class Sandbox(BaseModel):
         )
 
     @classmethod
-    def stop_by_id(cls, sandbox_id: str, config: Optional[Config] = None):
+    def stop_by_id(
+        cls, sandbox_id: str, config: Optional[Config] = None
+    ):
         """通过 ID 停止 Sandbox（同步）
 
         Args:
@@ -420,7 +424,9 @@ class Sandbox(BaseModel):
         )
 
     @classmethod
-    def delete_by_id(cls, sandbox_id: str, config: Optional[Config] = None):
+    def delete_by_id(
+        cls, sandbox_id: str, config: Optional[Config] = None
+    ):
         """通过 ID 删除 Sandbox（同步）
 
         Args:
@@ -470,7 +476,9 @@ class Sandbox(BaseModel):
         Returns:
             ListSandboxesOutput: Sandbox 列表结果
         """
-        return cls.__get_client(config=config).list_sandboxes(input, config)
+        return cls.__get_client(config=config).list_sandboxes(
+            input, config
+        )
 
     @classmethod
     @overload
@@ -657,7 +665,9 @@ class Sandbox(BaseModel):
             if sandbox.template_name is None:
                 raise ValueError(f"Sandbox {sandbox_id} has no template_name")
 
-            template = cls.get_template(sandbox.template_name, config=config)
+            template = cls.get_template(
+                sandbox.template_name, config=config
+            )
             resolved_type = template.template_type
 
         from agentrun.sandbox.aio_sandbox import AioSandbox
@@ -912,7 +922,9 @@ class Sandbox(BaseModel):
         if self.sandbox_id is None:
             raise ValueError("sandbox_id is required to delete a Sandbox")
 
-        return self.delete_by_id(self.sandbox_id, config=self._config)
+        return self.delete_by_id(
+            self.sandbox_id, config=self._config
+        )
 
     async def stop_async(self):
         if self.sandbox_id is None:

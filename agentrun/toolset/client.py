@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/toolset/__client_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/toolset/__client_async_template.py
 
 ToolSet 客户端 / ToolSet Client
 

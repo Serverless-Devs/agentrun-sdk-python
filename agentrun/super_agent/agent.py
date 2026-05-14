@@ -6,13 +6,15 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/super_agent/__agent_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/super_agent/__agent_async_template.py
 
 SuperAgent 实例 / Super Agent Instance
 
 ``SuperAgent`` 是暴露给应用开发者的强类型实例对象, 承载 ``invoke`` / 会话管理
 两类方法 (仅异步; 见决策 14)。CRUDL 由 ``SuperAgentClient`` 管理。
-同步方法保留 ``NotImplementedError`` 占位, 以备未来扩展。
+
+本文件为模板 (``__agent_async_template.py``), codegen 会把 ``async def ...``
+转换成同步骨架; 实际第一版异步主路径 + 同步 NotImplementedError 占位。
 """
 
 from dataclasses import dataclass, field
@@ -125,6 +127,42 @@ class SuperAgent:
         conversation_id: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> InvokeStream:
+        """Phase 1: POST /invoke; 返回包含 ``conversation_id`` 的 :class:`InvokeStream`.
+
+        首次 ``async for ev in stream`` 才触发 Phase 2 拉流 (lazy)。
+        """
+        cfg = self._resolve_config(config)
+        api = SuperAgentDataAPI(self.name, config=cfg)
+        resp = api.invoke(
+            messages,
+            conversation_id=conversation_id,
+            config=cfg,
+            forwarded_extras=self._forwarded_business_fields(),
+        )
+        stream_url = resp.stream_url
+        stream_headers = dict(resp.stream_headers)
+        session_id = stream_headers.get("X-Super-Agent-Session-Id", "")
+
+        def _factory():
+            return api.stream(
+                stream_url, stream_headers=stream_headers, config=cfg
+            )
+
+        return InvokeStream(
+            conversation_id=resp.conversation_id,
+            session_id=session_id,
+            stream_url=stream_url,
+            stream_headers=stream_headers,
+            _stream_factory=_factory,
+        )
+
+    def invoke(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        conversation_id: Optional[str] = None,
+        config: Optional[Config] = None,
+    ) -> InvokeStream:
         raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
 
     async def list_conversations_async(
@@ -144,6 +182,33 @@ class SuperAgent:
             {"agentRuntimeName": self.name} if metadata is None else metadata
         )
         raw_list = await api.list_conversations_async(
+            metadata=effective_metadata, config=cfg
+        )
+        return [
+            _conversation_info_from_dict(
+                raw,
+                fallback_conversation_id=str(raw.get("conversationId") or ""),
+            )
+            for raw in raw_list
+        ]
+
+    def list_conversations(
+        self,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
+    ) -> List[ConversationInfo]:
+        """GET /conversations → ``List[ConversationInfo]``.
+
+        默认按 ``{"agentRuntimeName": self.name}`` 过滤 (仅返回当前 agent 的会话);
+        传入 ``metadata={}`` 或自定义 dict 可覆盖默认过滤条件。
+        """
+        cfg = self._resolve_config(config)
+        api = SuperAgentDataAPI(self.name, config=cfg)
+        effective_metadata = (
+            {"agentRuntimeName": self.name} if metadata is None else metadata
+        )
+        raw_list = api.list_conversations(
             metadata=effective_metadata, config=cfg
         )
         return [
@@ -182,6 +247,20 @@ class SuperAgent:
         *,
         config: Optional[Config] = None,
     ) -> ConversationInfo:
+        """GET /conversations/{id} → :class:`ConversationInfo` (缺字段用默认值)."""
+        cfg = self._resolve_config(config)
+        api = SuperAgentDataAPI(self.name, config=cfg)
+        data = api.get_conversation(conversation_id, config=cfg)
+        return _conversation_info_from_dict(
+            data, fallback_conversation_id=conversation_id
+        )
+
+    def get_conversation(
+        self,
+        conversation_id: str,
+        *,
+        config: Optional[Config] = None,
+    ) -> ConversationInfo:
         raise NotImplementedError(_SYNC_UNSUPPORTED_MSG)
 
     async def delete_conversation_async(
@@ -194,6 +273,17 @@ class SuperAgent:
         cfg = self._resolve_config(config)
         api = SuperAgentDataAPI(self.name, config=cfg)
         await api.delete_conversation_async(conversation_id, config=cfg)
+
+    def delete_conversation(
+        self,
+        conversation_id: str,
+        *,
+        config: Optional[Config] = None,
+    ) -> None:
+        """DELETE /conversations/{id}."""
+        cfg = self._resolve_config(config)
+        api = SuperAgentDataAPI(self.name, config=cfg)
+        api.delete_conversation(conversation_id, config=cfg)
 
     def delete_conversation(
         self,

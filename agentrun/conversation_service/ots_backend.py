@@ -6,7 +6,7 @@ Use the `make codegen` command to regenerate.
 当前文件为自动生成的控制 API 客户端代码。请勿手动修改此文件。
 使用 `make codegen` 命令重新生成。
 
-source: agentrun/conversation_service/__ots_backend_async_template.py
+source: .claude/worktrees/infallible-pasteur-94186e/agentrun/conversation_service/__ots_backend_async_template.py
 
 OTS 存储后端。
 
@@ -1175,7 +1175,9 @@ class OTSBackend:
 
         row = Row(primary_key, attribute_columns)
         condition = Condition(RowExistenceExpectation.IGNORE)
-        self._client.put_row(self._conversation_table, row, condition)
+        self._client.put_row(
+            self._conversation_table, row, condition
+        )
 
     async def get_session_async(
         self,
@@ -1257,7 +1259,9 @@ class OTSBackend:
         ]
         row = Row(primary_key)
         condition = Condition(RowExistenceExpectation.IGNORE)
-        self._client.delete_row(self._conversation_table, row, condition)
+        self._client.delete_row(
+            self._conversation_table, row, condition
+        )
 
     async def update_session_async(
         self,
@@ -1333,7 +1337,9 @@ class OTSBackend:
                 ComparatorType.EQUAL,
             ),
         )
-        self._client.update_row(self._conversation_table, row, condition)
+        self._client.update_row(
+            self._conversation_table, row, condition
+        )
 
     async def list_sessions_async(
         self,
@@ -2411,7 +2417,9 @@ class OTSBackend:
         # 如果是更新（version > 0），需要清理旧的分片列
         delete_cols: list[str] = []
         if version > 0:
-            old_chunk_count = self._get_chunk_count(table_name, primary_key)
+            old_chunk_count = self._get_chunk_count(
+                table_name, primary_key
+            )
 
             if new_chunk_count == 0 and old_chunk_count > 0:
                 # 旧的有分片，新的不分片：删除所有 state_N 列
@@ -3093,7 +3101,9 @@ class OTSBackend:
         ]
         row = Row(primary_key, attribute_columns)
         condition = Condition(RowExistenceExpectation.IGNORE)
-        self._client.put_row(self._checkpoint_blobs_table, row, condition)
+        self._client.put_row(
+            self._checkpoint_blobs_table, row, condition
+        )
 
     async def get_checkpoint_blobs_async(
         self,
