@@ -64,22 +64,53 @@ class TestHTTPError:
             status_code=404,
             message="Not Found",
             request_id="req-123",
+            error_code="ERR_NOT_FOUND",
+            response_body={"code": "ERR_NOT_FOUND"},
+            response_headers={"x-request-id": "req-123"},
             extra="info",
         )
         assert error.status_code == 404
         assert error.message == "Not Found"
         assert error.request_id == "req-123"
+        assert error.error_code == "ERR_NOT_FOUND"
+        assert error.response_body == {"code": "ERR_NOT_FOUND"}
+        assert error.response_headers == {"x-request-id": "req-123"}
         assert error.details["extra"] == "info"
+        assert "error_code" not in error.details
+        assert "response_body" not in error.details
+        assert "response_headers" not in error.details
 
     def test_str(self):
         """测试字符串表示"""
         error = HTTPError(
-            status_code=500, message="Internal Error", request_id="req-456"
+            status_code=500,
+            message="Internal Error",
+            request_id="req-456",
+            error_code="ERR_INTERNAL",
         )
         result = str(error)
         assert "HTTP 500" in result
         assert "Internal Error" in result
+        assert "ERR_INTERNAL" in result
         assert "req-456" in result
+        assert "response_headers" not in result
+
+    def test_str_keeps_custom_details(self):
+        """测试字符串保留额外详情但不展开响应元数据"""
+        error = HTTPError(
+            status_code=400,
+            message="Bad Request",
+            request_id="req-1",
+            error_code="ERR_BAD_REQUEST",
+            response_body={"code": "ERR_BAD_REQUEST"},
+            response_headers={"x-request-id": "req-1"},
+            field="name",
+        )
+        result = str(error)
+        assert "field" in result
+        assert "name" in result
+        assert "response_body" not in result
+        assert "response_headers" not in result
 
     def test_to_resource_error_not_found(self):
         """测试转换为 ResourceNotExistError (does not exist)"""
@@ -147,11 +178,15 @@ class TestClientError:
             status_code=400,
             message="Bad Request",
             request_id="req-789",
+            error_code="ERR_BAD_REQUEST",
+            response_body={"code": "ERR_BAD_REQUEST"},
             field="value",
         )
         assert error.status_code == 400
         assert error.message == "Bad Request"
         assert error.request_id == "req-789"
+        assert error.error_code == "ERR_BAD_REQUEST"
+        assert error.response_body == {"code": "ERR_BAD_REQUEST"}
 
 
 class TestServerError:
@@ -160,11 +195,17 @@ class TestServerError:
     def test_init(self):
         """测试初始化"""
         error = ServerError(
-            status_code=503, message="Service Unavailable", request_id="req-000"
+            status_code=503,
+            message="Service Unavailable",
+            request_id="req-000",
+            error_code="ERR_UNAVAILABLE",
+            response_headers={"x-request-id": "req-000"},
         )
         assert error.status_code == 503
         assert error.message == "Service Unavailable"
         assert error.request_id == "req-000"
+        assert error.error_code == "ERR_UNAVAILABLE"
+        assert error.response_headers == {"x-request-id": "req-000"}
 
 
 class TestResourceNotExistError:

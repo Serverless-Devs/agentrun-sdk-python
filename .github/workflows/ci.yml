@@ -163,6 +163,10 @@ jobs:
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
         verify-metadata: false
+        # 当 PR 多次 push 或并发 CI 跑出相同版本号时，跳过已存在版本而非报错。
+        # 根因是版本号自增逻辑依赖 PyPI API 拉取最新版本，存在缓存/并发窗口。
+        # 不阻塞 PR 合入即可，长期方案是在版本号中嵌入 commit SHA 实现唯一化。
+        skip-existing: true
 
     - name: Create and push tag
       if: steps.changes.outputs.agentrun_changed == 'true'

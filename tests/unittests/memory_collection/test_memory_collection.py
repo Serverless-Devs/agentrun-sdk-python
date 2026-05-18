@@ -630,6 +630,75 @@ class TestMemoryCollectionMySQLSupport:
         assert vs_config["port"] == 3307
         assert vs_config["embedding_model_dims"] == 1024
 
+    @patch("agentrun.memory_collection.memory_collection.MemoryCollection._resolve_model_service_config")
+    @patch("agentrun.credential.Credential.get_by_name")
+    def test_build_mem0_config_mysql_embedder_dims_sync(
+        self, mock_get_credential, mock_resolve
+    ):
+        """测试 MySQL provider 时 embedder 的 embedding_dims 应从 mysql_config 读取"""
+        mock_credential = MagicMock()
+        mock_credential.credential_secret = "test-password"
+        mock_get_credential.return_value = mock_credential
+        mock_resolve.return_value = ("https://api.example.com", "sk-fake")
+
+        memory_collection = MemoryCollection(
+            memory_collection_name="t",
+            vector_store_config=VectorStoreConfig(
+                provider="alibabacloud_mysql",
+                mysql_config=VectorStoreConfigMysqlConfig(
+                    host="h",
+                    port=3306,
+                    db_name="d",
+                    user="u",
+                    collection_name="c",
+                    credential_name="cred",
+                    vector_dimension=1024,
+                ),
+            ),
+            embedder_config=EmbedderConfig(
+                model_service_name="my-model-svc",
+                config=EmbedderConfigConfig(model="text-embedding-v3"),
+            ),
+        )
+        config = MemoryCollection._build_mem0_config(memory_collection, None, None)
+        assert config["embedder"]["config"]["embedding_dims"] == 1024
+
+    @patch("agentrun.memory_collection.memory_collection.MemoryCollection._resolve_model_service_config_async")
+    @patch("agentrun.credential.Credential.get_by_name_async")
+    @pytest.mark.asyncio
+    async def test_build_mem0_config_mysql_embedder_dims_async(
+        self, mock_get_credential, mock_resolve
+    ):
+        """测试 MySQL provider 时异步 embedder 的 embedding_dims 应从 mysql_config 读取"""
+        mock_credential = MagicMock()
+        mock_credential.credential_secret = "test-password"
+        mock_get_credential.return_value = mock_credential
+        mock_resolve.return_value = ("https://api.example.com", "sk-fake")
+
+        memory_collection = MemoryCollection(
+            memory_collection_name="t",
+            vector_store_config=VectorStoreConfig(
+                provider="alibabacloud_mysql",
+                mysql_config=VectorStoreConfigMysqlConfig(
+                    host="h",
+                    port=3306,
+                    db_name="d",
+                    user="u",
+                    collection_name="c",
+                    credential_name="cred",
+                    vector_dimension=1024,
+                ),
+            ),
+            embedder_config=EmbedderConfig(
+                model_service_name="my-model-svc",
+                config=EmbedderConfigConfig(model="text-embedding-v3"),
+            ),
+        )
+        config = await MemoryCollection._build_mem0_config_async(
+            memory_collection, None, None
+        )
+        assert config["embedder"]["config"]["embedding_dims"] == 1024
+
     @patch("agentrun.credential.Credential.get_by_name_async")
     @pytest.mark.asyncio
     async def test_build_mem0_config_mysql_default_values(

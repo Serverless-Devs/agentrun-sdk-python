@@ -2,9 +2,15 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from agentrun.sandbox.api.sandbox_data import SandboxDataAPI
+from agentrun.utils.config import Config
+from agentrun.utils.exception import ClientError, ServerError
+
+DATA_ENDPOINT = "https://sandbox-data.example.com"
 
 
 @pytest.fixture
@@ -179,3 +185,140 @@ class TestSandboxDataAPICRUD:
         api._SandboxDataAPI__refresh_access_token = MagicMock()
         await api.get_sandbox_async("sb-1")
         api.get_async.assert_called_once_with("/", config=None)
+
+
+class TestSandboxDataAPIHTTPHandling:
+
+    @staticmethod
+    def make_api():
+        config = Config(
+            account_id="test-account",
+            data_endpoint=DATA_ENDPOINT,
+            access_key_id="",
+            access_key_secret="",
+        )
+        return SandboxDataAPI(sandbox_id="sb-1", config=config)
+
+    @respx.mock
+    def test_sync_success_returns_business_body(self):
+        api = self.make_api()
+        body = {"executionId": "exec-1", "status": "completed"}
+        respx.post(f"{DATA_ENDPOINT}/sandboxes/sb-1/processes/cmd").mock(
+            return_value=httpx.Response(200, json=body)
+        )
+
+        result = api.post("/processes/cmd", data={"command": "ls"})
+
+        assert result == body
+
+    @respx.mock
+    def test_sync_success_code_body_is_not_treated_as_error(self):
+        api = self.make_api()
+        body = {"code": "SUCCESS", "data": {"sandboxId": "sb-1"}}
+        respx.get(f"{DATA_ENDPOINT}/sandboxes/sb-1/health").mock(
+            return_value=httpx.Response(200, json=body)
+        )
+
+        result = api.get("/health")
+
+        assert result == body
+
+    @respx.mock
+    def test_sync_success_non_json_body_raises_client_error(self):
+        api = self.make_api()
+        respx.get(f"{DATA_ENDPOINT}/sandboxes/sb-1/health").mock(
+            return_value=httpx.Response(200, text="<html>ok</html>")
+        )
+
+        with pytest.raises(ClientError) as exc_info:
+            api.get("/health")
+
+        error = exc_info.value
+        assert error.status_code == 200
+        assert "Failed to parse JSON response" in error.message
+        assert error.response_body == "<html>ok</html>"
+
+    @respx.mock
+    def test_sync_client_error_extracts_error_envelope(self):
+        api = self.make_api()
+        body = {
+            "code": "ERR_FORBIDDEN",
+            "requestId": "req-body",
+            "message": "Signature verification failed",
+        }
+        respx.get(f"{DATA_ENDPOINT}/sandboxes/sb-1/health").mock(
+            return_value=httpx.Response(
+                403,
+                json=body,
+                headers={"x-acs-request-id": "req-header"},
+            )
+        )
+
+        with pytest.raises(ClientError) as exc_info:
+            api.get("/health")
+
+        error = exc_info.value
+        assert error.status_code == 403
+        assert error.error_code == "ERR_FORBIDDEN"
+        assert error.request_id == "req-body"
+        assert error.message == "Signature verification failed"
+        assert error.response_body == body
+        assert error.response_headers is not None
+
+    @respx.mock
+    def test_sync_client_error_uses_text_body_and_header_request_id(self):
+        api = self.make_api()
+        respx.get(f"{DATA_ENDPOINT}/sandboxes/sb-1/missing").mock(
+            return_value=httpx.Response(
+                404,
+                text="sandbox not found",
+                headers={"x-request-id": "req-header"},
+            )
+        )
+
+        with pytest.raises(ClientError) as exc_info:
+            api.get("/missing")
+
+        error = exc_info.value
+        assert error.status_code == 404
+        assert error.error_code is None
+        assert error.request_id == "req-header"
+        assert error.message == "sandbox not found"
+        assert error.response_body == "sandbox not found"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_async_server_error_extracts_error_envelope(self):
+        api = self.make_api()
+        body = {
+            "code": "ERR_INTERNAL_SERVER",
+            "requestId": "req-500",
+            "message": "Internal server error",
+        }
+        respx.get(f"{DATA_ENDPOINT}/sandboxes/sb-1/health").mock(
+            return_value=httpx.Response(503, json=body)
+        )
+
+        with pytest.raises(ServerError) as exc_info:
+            await api.get_async("/health")
+
+        error = exc_info.value
+        assert error.status_code == 503
+        assert error.error_code == "ERR_INTERNAL_SERVER"
+        assert error.request_id == "req-500"
+        assert error.message == "Internal server error"
+        assert error.response_body == body
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_async_request_error_still_raises_client_error(self):
+        api = self.make_api()
+        respx.get(f"{DATA_ENDPOINT}/sandboxes/sb-1/health").mock(
+            side_effect=httpx.RequestError("Connection failed")
+        )
+
+        with pytest.raises(ClientError) as exc_info:
+            await api.get_async("/health")
+
+        assert exc_info.value.status_code == 0
+        assert "Connection failed" in exc_info.value.message

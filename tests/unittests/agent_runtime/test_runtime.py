@@ -521,8 +521,10 @@ class TestAgentRuntimeListAll:
 
         result = AgentRuntime.list_all(
             agent_runtime_name="test",
-            tags="env:prod",
+            system_tags="env:prod",
             search_mode="prefix",
+            status="READY",
+            workspace_ids="ws-1,ws-2",
         )
 
         assert len(result) >= 1

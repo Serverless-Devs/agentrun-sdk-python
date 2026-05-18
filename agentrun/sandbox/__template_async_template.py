@@ -80,6 +80,9 @@ class Template(BaseModel):
     """MCP 状态 / MCP State"""
     allow_anonymous_manage: Optional[bool] = None
     """是否允许匿名管理 / Whether to allow anonymous management"""
+    workspace_id: Optional[str] = None
+    """Template 所属的工作空间标识符
+    / Workspace identifier the template belongs to"""
     created_at: Optional[str] = None
     """创建时间 / Creation Time"""
     last_updated_at: Optional[str] = None

@@ -1,6 +1,6 @@
 """异常定义"""
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 class AgentRunError(Exception):
@@ -58,18 +58,34 @@ class HTTPError(AgentRunError):
         status_code: int,
         message: str,
         request_id: Optional[str] = None,
+        error_code: Optional[str] = None,
+        response_body: Any = None,
+        response_headers: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
         self.status_code = status_code
         self.request_id = request_id
-        self.details = kwargs
+        self.error_code = error_code
+        self.response_body = response_body
+        self.response_headers = response_headers
         super().__init__(message, **kwargs)
 
     def __str__(self) -> str:
-        return (
-            f"HTTP {self.status_code}: {self.message}. Request ID:"
-            f" {self.request_id}. Details: {self.details_str()}"
-        )
+        parts = [f"HTTP {self.status_code}: {self.message}"]
+        if self.error_code:
+            parts.append(f"Error Code: {self.error_code}")
+        if self.request_id:
+            parts.append(f"Request ID: {self.request_id}")
+
+        extra_details = {
+            key: value
+            for key, value in self.details.items()
+            if key not in {"error_code", "response_body", "response_headers"}
+        }
+        if extra_details:
+            parts.append(f"Details: {self.kwargs_str(**extra_details)}")
+
+        return ". ".join(parts)
 
     def to_resource_error(
         self, resource_type: str, resource_id: Optional[str] = ""
@@ -92,23 +108,9 @@ class HTTPError(AgentRunError):
 class ClientError(HTTPError):
     """客户端异常类"""
 
-    def __init__(
-        self,
-        status_code: int,
-        message: str,
-        request_id: Optional[str] = None,
-        **kwargs,
-    ):
-        super().__init__(status_code, message, request_id=request_id, **kwargs)
-
 
 class ServerError(HTTPError):
     """服务端异常类"""
-
-    def __init__(
-        self, status_code: int, message: str, request_id: Optional[str] = None
-    ):
-        super().__init__(status_code, message, request_id=request_id)
 
 
 class ResourceNotExistError(AgentRunError):

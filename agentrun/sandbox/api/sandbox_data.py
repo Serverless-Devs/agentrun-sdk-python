@@ -14,13 +14,23 @@ Sandbox数据API模板 / Sandbox Data API Template
 This template is used to generate sandbox data API code.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple, Union
+
+import httpx
 
 from agentrun.utils.config import Config
 from agentrun.utils.data_api import DataAPI, ResourceType
+from agentrun.utils.exception import ClientError, ServerError
+from agentrun.utils.log import logger
 
 
 class SandboxDataAPI(DataAPI):
+    _REQUEST_ID_HEADERS = (
+        "x-acs-request-id",
+        "x-agentrun-request-id",
+        "x-request-id",
+        "x-fc-request-id",
+    )
 
     def __init__(
         self,
@@ -72,6 +82,158 @@ class SandboxDataAPI(DataAPI):
         self.access_token = None
         self.auth(config=cfg)
         self.access_token_map[sandbox_id or template_name] = self.access_token
+
+    @classmethod
+    def _extract_error_fields(
+        cls, response: httpx.Response, response_body: Any
+    ) -> Tuple[Optional[str], Optional[str], str]:
+        error_code = None
+        request_id = None
+        message = ""
+
+        if isinstance(response_body, dict):
+            raw_code = response_body.get("code")
+            if raw_code is not None:
+                error_code = str(raw_code)
+
+            raw_request_id = response_body.get("requestId")
+            if raw_request_id is not None:
+                request_id = str(raw_request_id)
+
+            raw_message = response_body.get("message")
+            if raw_message is not None:
+                message = str(raw_message)
+        elif isinstance(response_body, str):
+            message = response_body.strip()
+
+        if request_id is None:
+            for header in cls._REQUEST_ID_HEADERS:
+                value = response.headers.get(header)
+                if value:
+                    request_id = value
+                    break
+
+        if not message:
+            message = (
+                response.reason_phrase or f"HTTP {response.status_code} error"
+            )
+
+        return error_code, request_id, message
+
+    @staticmethod
+    def _parse_error_response_body(response: httpx.Response) -> Any:
+        if not response.text:
+            return {}
+        try:
+            return response.json()
+        except ValueError:
+            return response.text
+
+    @staticmethod
+    def _parse_success_response(response: httpx.Response) -> Dict[str, Any]:
+        if not response.text:
+            return {}
+        try:
+            return response.json()
+        except ValueError as e:
+            error_msg = f"Failed to parse JSON response: {e}"
+            logger.error(error_msg)
+            raise ClientError(
+                status_code=response.status_code,
+                message=error_msg,
+                response_body=response.text,
+                response_headers=dict(response.headers),
+            ) from e
+
+    @classmethod
+    def _raise_for_error_response(cls, response: httpx.Response) -> None:
+        response_body = cls._parse_error_response_body(response)
+        error_code, request_id, message = cls._extract_error_fields(
+            response, response_body
+        )
+        if response.status_code >= 500:
+            raise ServerError(
+                status_code=response.status_code,
+                message=message,
+                request_id=request_id,
+                error_code=error_code,
+                response_body=response_body,
+                response_headers=dict(response.headers),
+            )
+        raise ClientError(
+            status_code=response.status_code,
+            message=message,
+            request_id=request_id,
+            error_code=error_code,
+            response_body=response_body,
+            response_headers=dict(response.headers),
+        )
+
+    async def _make_request_async(
+        self,
+        method: str,
+        url: str,
+        data: Optional[Union[Dict[str, Any], str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        query: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
+    ) -> Dict[str, Any]:
+        method, url, req_headers, req_json, req_content = self._prepare_request(
+            method, url, data, headers, query, config=config
+        )
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.config.get_timeout()
+            ) as client:
+                response = await client.request(
+                    method,
+                    url,
+                    headers=req_headers,
+                    json=req_json,
+                    content=req_content,
+                )
+                logger.debug(f"Response: {response.text}")
+
+                if response.status_code >= 400:
+                    self._raise_for_error_response(response)
+
+                return self._parse_success_response(response)
+        except httpx.RequestError as e:
+            error_msg = f"Request error: {e!s}"
+            raise ClientError(status_code=0, message=error_msg) from e
+
+    def _make_request(
+        self,
+        method: str,
+        url: str,
+        data: Optional[Union[Dict[str, Any], str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        query: Optional[Dict[str, Any]] = None,
+        config: Optional[Config] = None,
+    ) -> Dict[str, Any]:
+        method, url, req_headers, req_json, req_content = self._prepare_request(
+            method, url, data, headers, query, config=config
+        )
+
+        try:
+            with httpx.Client(timeout=self.config.get_timeout()) as client:
+                response = client.request(
+                    method,
+                    url,
+                    headers=req_headers,
+                    json=req_json,
+                    content=req_content,
+                )
+                logger.debug(f"Response: {response.text}")
+
+                if response.status_code >= 400:
+                    self._raise_for_error_response(response)
+
+                return self._parse_success_response(response)
+        except httpx.RequestError as e:
+            error_msg = f"Request error: {e!s}"
+            raise ClientError(status_code=0, message=error_msg) from e
 
     async def check_health_async(self):
         return await self.get_async("/health")

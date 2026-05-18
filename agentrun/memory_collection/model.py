@@ -122,6 +122,9 @@ class MemoryCollectionImmutableProps(BaseModel):
     """Memory Collection 名称"""
     type: Optional[str] = None
     """类型"""
+    workspace_id: Optional[str] = None
+    """Memory Collection 所属的工作空间标识符；可选项，不填则使用默认工作空间
+    / Workspace identifier the memory collection belongs to; optional, defaults to the default workspace if not provided"""
 
 
 class MemoryCollectionSystemProps(BaseModel):
@@ -158,6 +161,9 @@ class MemoryCollectionListInput(PageableInput):
     """状态 / Status"""
     type: Optional[str] = None
     """类型 / Type"""
+    workspace_id: Optional[str] = None
+    """按工作空间标识符过滤
+    / Filter by workspace identifier"""
 
 
 class MemoryCollectionListOutput(BaseModel):
@@ -169,6 +175,9 @@ class MemoryCollectionListOutput(BaseModel):
     type: Optional[str] = None
     created_at: Optional[str] = None
     last_updated_at: Optional[str] = None
+    workspace_id: Optional[str] = None
+    """Memory Collection 所属的工作空间标识符
+    / Workspace identifier the memory collection belongs to"""
 
     async def to_memory_collection_async(self, config: Optional[Config] = None):
         """转换为完整的 MemoryCollection 对象（异步）"""

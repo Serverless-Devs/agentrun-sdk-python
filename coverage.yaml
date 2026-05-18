@@ -3,42 +3,82 @@
 #
 # 注意：文件排除配置已迁移到 pyproject.toml 的 [tool.coverage.*] 部分
 # Note: File exclusion settings have been moved to [tool.coverage.*] in pyproject.toml
+#
+# 调整策略 / Calibration strategy:
+# - 全量阈值取自当前真实覆盖率（line 90.74% / branch 82.85%）下方约 5% 的 buffer，
+#   作为"不回退"闸；既能挡住明显回归，又不会被 CI 抖动误伤。
+# - 增量阈值更高一些，推动新增代码自带测试；首次新建文件等极端情况下仍可通过。
+# - memory_collection 和 conversation_service 历史覆盖率较低，单独 override
+#   到不严于当前现状的水位，等待后续专项补测试再统一上调。
+#
+# Calibration strategy:
+# - Full thresholds sit ~5% below current real coverage (line 90.74% / branch 82.85%)
+#   to act as a "no regression" gate without flapping on CI noise.
+# - Incremental thresholds are higher to drive tests for new code.
+# - memory_collection / conversation_service have historically lower coverage;
+#   their overrides sit no stricter than today and will be tightened in a
+#   dedicated test-improvement pass later.
 
 # ============================================================================
 # 全量代码覆盖率要求
 # ============================================================================
 full:
   # 分支覆盖率要求 (百分比)
-  branch_coverage: 0
+  branch_coverage: 78
   # 行覆盖率要求 (百分比)
-  line_coverage: 0
+  line_coverage: 85
 
 # ============================================================================
 # 增量代码覆盖率要求 (相对于基准分支的变更代码)
 # ============================================================================
 incremental:
   # 分支覆盖率要求 (百分比)
-  branch_coverage: 0
+  branch_coverage: 75
   # 行覆盖率要求 (百分比)
-  line_coverage: 0
+  line_coverage: 85
 
 # ============================================================================
 # 特定目录的覆盖率要求
 # 可以为特定目录设置不同的覆盖率阈值
 # ============================================================================
 directory_overrides:
-  # 示例：为特定目录设置不同的阈值
-   agentrun/knowledgebase:
-     full:
-       branch_coverage: 0
-       line_coverage: 0
-     incremental:
-       branch_coverage: 0
-       line_coverage: 0
-   agentrun/utils:
-     full:
-       branch_coverage: 90
-       line_coverage: 90
-     incremental:
-       branch_coverage: 90
-       line_coverage: 90
+  # utils 模块要求高覆盖率（基础设施代码）
+  # / utils module is infrastructure code, requires high coverage
+  agentrun/utils:
+    full:
+      branch_coverage: 90
+      line_coverage: 90
+    incremental:
+      branch_coverage: 90
+      line_coverage: 90
+
+  # knowledgebase 历史保持高覆盖率
+  # / knowledgebase has historically maintained high coverage
+  agentrun/knowledgebase:
+    full:
+      branch_coverage: 90
+      line_coverage: 95
+    incremental:
+      branch_coverage: 90
+      line_coverage: 90
+
+  # memory_collection 历史 branch 覆盖率较低（56.11%），先放行不回退
+  # / memory_collection has historically low branch coverage (56.11%); allow
+  # current state, plan to tighten later
+  agentrun/memory_collection:
+    full:
+      branch_coverage: 50
+      line_coverage: 80
+    incremental:
+      branch_coverage: 75
+      line_coverage: 85
+
+  # conversation_service 历史覆盖率较低（line 70.68% / branch 64.94%）
+  # / conversation_service has historically lower coverage; allow current state
+  agentrun/conversation_service:
+    full:
+      branch_coverage: 60
+      line_coverage: 65
+    incremental:
+      branch_coverage: 75
+      line_coverage: 85

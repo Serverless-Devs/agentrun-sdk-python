@@ -15,11 +15,17 @@ from agentrun.utils.helper import mask_password
 
 def auto_load_env():
     folder = Path(__file__).parent
-    while folder != "/":
+    # 一直向上查找 .env 文件，直到根目录为止
+    # / Walk up to root looking for a .env file
+    while True:
         dotfile = folder / ".env"
         if dotfile.exists():
             load_dotenv(dotfile)
             print("load .env:", dotfile)
+            break
+        if folder.parent == folder:
+            # 已到根目录，未找到 .env，依赖外部环境变量
+            # / Reached the filesystem root with no .env found; rely on env vars
             break
         folder = folder.parent
 

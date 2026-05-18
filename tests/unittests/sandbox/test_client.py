@@ -812,6 +812,119 @@ class TestSandboxClientDeleteSandbox:
 
     @patch("agentrun.sandbox.client.SandboxControlAPI")
     @patch("agentrun.sandbox.client.SandboxDataAPI")
+    def test_delete_sandbox_not_found_in_response_raises_resource_not_exist(
+        self, mock_data_api_class, mock_control_api_class
+    ):
+        """数据面业务层返回 not-found 时，与 HTTP 404 路径统一抛 ResourceNotExistError。
+
+        Callers can catch ResourceNotExistError for idempotent deletion when the
+        control plane still lists a TERMINATED sandbox but the data plane has
+        already removed it (e.g. ``except ResourceNotExistError: pass``).
+        """
+        mock_data_api = MagicMock()
+        mock_data_api.delete_sandbox.return_value = {
+            "code": "FAILED",
+            "message": "sandbox not found",
+        }
+        mock_data_api_class.return_value = mock_data_api
+
+        client = SandboxClient()
+        with pytest.raises(ResourceNotExistError):
+            client.delete_sandbox("sandbox-123")
+
+    @patch("agentrun.sandbox.client.SandboxControlAPI")
+    @patch("agentrun.sandbox.client.SandboxDataAPI")
+    def test_delete_sandbox_not_found_case_insensitive(
+        self, mock_data_api_class, mock_control_api_class
+    ):
+        """大小写变体（如 'Sandbox NOT FOUND'）也应触发 ResourceNotExistError。"""
+        mock_data_api = MagicMock()
+        mock_data_api.delete_sandbox.return_value = {
+            "code": "FAILED",
+            "message": "Sandbox NOT FOUND",
+        }
+        mock_data_api_class.return_value = mock_data_api
+
+        client = SandboxClient()
+        with pytest.raises(ResourceNotExistError):
+            client.delete_sandbox("sandbox-123")
+
+    @patch("agentrun.sandbox.client.SandboxControlAPI")
+    @patch("agentrun.sandbox.client.SandboxDataAPI")
+    def test_delete_sandbox_other_failure_message_raises_client_error(
+        self, mock_data_api_class, mock_control_api_class
+    ):
+        """无关 not-found 的失败消息（如 'sandbox is busy'）应仍抛 ClientError。"""
+        mock_data_api = MagicMock()
+        mock_data_api.delete_sandbox.return_value = {
+            "code": "FAILED",
+            "message": "sandbox is busy",
+        }
+        mock_data_api_class.return_value = mock_data_api
+
+        client = SandboxClient()
+        with pytest.raises(ClientError, match="Failed to stop sandbox"):
+            client.delete_sandbox("sandbox-123")
+
+    @patch("agentrun.sandbox.client.SandboxControlAPI")
+    @patch("agentrun.sandbox.client.SandboxDataAPI")
+    def test_delete_sandbox_empty_message_raises_client_error(
+        self, mock_data_api_class, mock_control_api_class
+    ):
+        """message 为空时不应误触 not-found 逻辑，应抛 ClientError。"""
+        mock_data_api = MagicMock()
+        mock_data_api.delete_sandbox.return_value = {
+            "code": "FAILED",
+            "message": "",
+        }
+        mock_data_api_class.return_value = mock_data_api
+
+        client = SandboxClient()
+        with pytest.raises(ClientError, match="Failed to stop sandbox"):
+            client.delete_sandbox("sandbox-123")
+
+    @patch("agentrun.sandbox.client.SandboxControlAPI")
+    @patch("agentrun.sandbox.client.SandboxDataAPI")
+    @pytest.mark.asyncio
+    async def test_delete_sandbox_async_not_found_in_response_raises_resource_not_exist(
+        self, mock_data_api_class, mock_control_api_class
+    ):
+        """数据面业务层返回 not-found 时（async），与 HTTP 404 路径统一抛 ResourceNotExistError。"""
+        mock_data_api = MagicMock()
+        mock_data_api.delete_sandbox_async = AsyncMock(
+            return_value={
+                "code": "FAILED",
+                "message": "sandbox not found",
+            }
+        )
+        mock_data_api_class.return_value = mock_data_api
+
+        client = SandboxClient()
+        with pytest.raises(ResourceNotExistError):
+            await client.delete_sandbox_async("sandbox-123")
+
+    @patch("agentrun.sandbox.client.SandboxControlAPI")
+    @patch("agentrun.sandbox.client.SandboxDataAPI")
+    @pytest.mark.asyncio
+    async def test_delete_sandbox_async_other_failure_raises_client_error(
+        self, mock_data_api_class, mock_control_api_class
+    ):
+        """无关 not-found 的失败消息（async）应仍抛 ClientError。"""
+        mock_data_api = MagicMock()
+        mock_data_api.delete_sandbox_async = AsyncMock(
+            return_value={
+                "code": "FAILED",
+                "message": "sandbox is busy",
+            }
+        )
+        mock_data_api_class.return_value = mock_data_api
+
+        client = SandboxClient()
+        with pytest.raises(ClientError, match="Failed to stop sandbox"):
+            await client.delete_sandbox_async("sandbox-123")
+
+    @patch("agentrun.sandbox.client.SandboxControlAPI")
+    @patch("agentrun.sandbox.client.SandboxDataAPI")
     @pytest.mark.asyncio
     async def test_delete_sandbox_async_not_exist(
         self, mock_data_api_class, mock_control_api_class

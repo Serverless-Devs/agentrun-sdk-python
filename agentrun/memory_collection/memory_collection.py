@@ -44,15 +44,18 @@ class MemoryCollection(
     """
 
     @classmethod
-    def __get_client(cls):
+    def __get_client(cls, config: Optional[Config] = None):
         """获取客户端实例 / Get client instance
+
+        Args:
+            config: 配置对象,可选 / Configuration object, optional
 
         Returns:
             MemoryCollectionClient: 客户端实例 / Client instance
         """
         from .client import MemoryCollectionClient
 
-        return MemoryCollectionClient()
+        return MemoryCollectionClient(config=config)
 
     @classmethod
     async def create_async(
@@ -67,7 +70,7 @@ class MemoryCollection(
         Returns:
             MemoryCollection: 创建的记忆集合对象
         """
-        return await cls.__get_client().create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(input, config=config)
 
     @classmethod
     def create(
@@ -82,7 +85,7 @@ class MemoryCollection(
         Returns:
             MemoryCollection: 创建的记忆集合对象
         """
-        return cls.__get_client().create(input, config=config)
+        return cls.__get_client(config=config).create(input, config=config)
 
     @classmethod
     async def delete_by_name_async(
@@ -94,7 +97,7 @@ class MemoryCollection(
             memory_collection_name: 记忆集合名称
             config: 配置
         """
-        return await cls.__get_client().delete_async(
+        return await cls.__get_client(config=config).delete_async(
             memory_collection_name, config=config
         )
 
@@ -108,7 +111,9 @@ class MemoryCollection(
             memory_collection_name: 记忆集合名称
             config: 配置
         """
-        return cls.__get_client().delete(memory_collection_name, config=config)
+        return cls.__get_client(config=config).delete(
+            memory_collection_name, config=config
+        )
 
     @classmethod
     async def update_by_name_async(
@@ -127,7 +132,7 @@ class MemoryCollection(
         Returns:
             MemoryCollection: 更新后的记忆集合对象
         """
-        return await cls.__get_client().update_async(
+        return await cls.__get_client(config=config).update_async(
             memory_collection_name, input, config=config
         )
 
@@ -148,7 +153,7 @@ class MemoryCollection(
         Returns:
             MemoryCollection: 更新后的记忆集合对象
         """
-        return cls.__get_client().update(
+        return cls.__get_client(config=config).update(
             memory_collection_name, input, config=config
         )
 
@@ -165,7 +170,7 @@ class MemoryCollection(
         Returns:
             MemoryCollection: 记忆集合对象
         """
-        return await cls.__get_client().get_async(
+        return await cls.__get_client(config=config).get_async(
             memory_collection_name, config=config
         )
 
@@ -182,13 +187,15 @@ class MemoryCollection(
         Returns:
             MemoryCollection: 记忆集合对象
         """
-        return cls.__get_client().get(memory_collection_name, config=config)
+        return cls.__get_client(config=config).get(
+            memory_collection_name, config=config
+        )
 
     @classmethod
     async def _list_page_async(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return await cls.__get_client().list_async(
+        return await cls.__get_client(config=config).list_async(
             input=MemoryCollectionListInput(
                 **kwargs,
                 **page_input.model_dump(),
@@ -200,7 +207,7 @@ class MemoryCollection(
     def _list_page(
         cls, page_input: PageableInput, config: Config | None = None, **kwargs
     ):
-        return cls.__get_client().list(
+        return cls.__get_client(config=config).list(
             input=MemoryCollectionListInput(
                 **kwargs,
                 **page_input.model_dump(),
@@ -576,9 +583,6 @@ class MemoryCollection(
         """
         mem0_config: Dict[str, Any] = {}
 
-        # 提取向量维度，用于确保 embedder 和 vector_store 维度一致
-        vector_dimension: Optional[int] = None
-
         # 构建 vector_store 配置
         if memory_collection.vector_store_config:
             vector_store_config = memory_collection.vector_store_config
@@ -610,7 +614,6 @@ class MemoryCollection(
                             effective_config.get_access_key_secret()
                         ),
                     }
-                    vector_dimension = vs_config.vector_dimension
                     # 如果有 security_token，添加它
                     security_token = effective_config.get_security_token()
                     if security_token:
@@ -625,7 +628,6 @@ class MemoryCollection(
                         vector_store["config"][
                             "vector_dimension"
                         ] = vs_config.vector_dimension
-                        vector_dimension = vs_config.vector_dimension
 
                 mem0_config["vector_store"] = vector_store
 
@@ -667,7 +669,6 @@ class MemoryCollection(
                     "distance_function": "cosine",
                     "m_value": 16,
                 }
-                vector_dimension = mysql_config.vector_dimension
 
                 mem0_config["vector_store"] = vector_store
 
@@ -712,6 +713,14 @@ class MemoryCollection(
                     "api_key": api_key,
                 }
 
+                # 从 vector_store_config 中获取向量维度
+                vector_dimension: Optional[int] = None
+                if memory_collection.vector_store_config:
+                    vsc = memory_collection.vector_store_config
+                    if vsc.config and vsc.config.vector_dimension:
+                        vector_dimension = vsc.config.vector_dimension
+                    elif vsc.mysql_config and vsc.mysql_config.vector_dimension:
+                        vector_dimension = vsc.mysql_config.vector_dimension
                 if vector_dimension:
                     embedder_config_dict["embedding_dims"] = vector_dimension
 
@@ -745,9 +754,6 @@ class MemoryCollection(
         """
         mem0_config: Dict[str, Any] = {}
 
-        # 提取向量维度，用于确保 embedder 和 vector_store 维度一致
-        vector_dimension: Optional[int] = None
-
         # 构建 vector_store 配置
         if memory_collection.vector_store_config:
             vector_store_config = memory_collection.vector_store_config
@@ -779,7 +785,6 @@ class MemoryCollection(
                             effective_config.get_access_key_secret()
                         ),
                     }
-                    vector_dimension = vs_config.vector_dimension
                     # 如果有 security_token，添加它
                     security_token = effective_config.get_security_token()
                     if security_token:
@@ -794,7 +799,6 @@ class MemoryCollection(
                         vector_store["config"][
                             "vector_dimension"
                         ] = vs_config.vector_dimension
-                        vector_dimension = vs_config.vector_dimension
 
                 mem0_config["vector_store"] = vector_store
 
@@ -836,7 +840,6 @@ class MemoryCollection(
                     "distance_function": "cosine",
                     "m_value": 16,
                 }
-                vector_dimension = mysql_config.vector_dimension
 
                 mem0_config["vector_store"] = vector_store
 
@@ -877,6 +880,14 @@ class MemoryCollection(
                     "api_key": api_key,
                 }
 
+                # 从 vector_store_config 中获取向量维度
+                vector_dimension: Optional[int] = None
+                if memory_collection.vector_store_config:
+                    vsc = memory_collection.vector_store_config
+                    if vsc.config and vsc.config.vector_dimension:
+                        vector_dimension = vsc.config.vector_dimension
+                    elif vsc.mysql_config and vsc.mysql_config.vector_dimension:
+                        vector_dimension = vsc.mysql_config.vector_dimension
                 if vector_dimension:
                     embedder_config_dict["embedding_dims"] = vector_dimension
 

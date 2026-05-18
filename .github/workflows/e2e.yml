@@ -1,0 +1,86 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# OIDC token generation requires id-token:write permission
+permissions:
+  id-token: write
+  contents: read
+
+# Prevent parallel e2e runs from conflicting on shared test resources
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    # Skip e2e for PRs from forks (they cannot access OIDC secrets)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    strategy:
+      matrix:
+        python-version: ['3.10']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        make setup PYTHON_VERSION=${{ matrix.python-version }}
+
+    # Obtain temporary Alibaba Cloud credentials via OIDC (keyless)
+    # This action exchanges the GitHub OIDC token for temporary AK/SK/SecurityToken
+    # and exports them as ALIBABA_CLOUD_ACCESS_KEY_ID, ALIBABA_CLOUD_ACCESS_KEY_SECRET,
+    # ALIBABA_CLOUD_SECURITY_TOKEN environment variables.
+    - name: Configure Alibaba Cloud credentials (OIDC)
+      uses: aliyun/configure-aliyun-credentials-action@v1
+      with:
+        role-to-assume: ${{ secrets.ALIBABA_CLOUD_OIDC_ROLE_ARN }}
+        oidc-provider-arn: ${{ secrets.ALIBABA_CLOUD_OIDC_PROVIDER_ARN }}
+        role-session-name: agentrun-e2e-${{ github.run_id }}
+        role-session-expiration: 3600
+
+    - name: Run E2E tests
+      env:
+        # Credentials are auto-injected by configure-aliyun-credentials-action:
+        #   ALIBABA_CLOUD_ACCESS_KEY_ID
+        #   ALIBABA_CLOUD_ACCESS_KEY_SECRET
+        #   ALIBABA_CLOUD_SECURITY_TOKEN
+        AGENTRUN_ACCOUNT_ID: ${{ secrets.AGENTRUN_ACCOUNT_ID }}
+        AGENTRUN_REGION: ${{ secrets.AGENTRUN_REGION }}
+        AGENTRUN_CONTROL_ENDPOINT: ${{ secrets.AGENTRUN_CONTROL_ENDPOINT }}
+        AGENTRUN_DATA_ENDPOINT: ${{ secrets.AGENTRUN_DATA_ENDPOINT }}
+        # API_KEY and AGENTRUN_TEST_WORKSPACE_ID are intentionally NOT set.
+        # Tests requiring them are excluded via --ignore and -k filters below.
+      run: |
+        uv run pytest tests/e2e/ -v --tb=short \
+          --ignore=tests/e2e/integration \
+          --ignore=tests/e2e/test_agent_ruintime.py \
+          --ignore=tests/e2e/test_workspace_id.py \
+          --ignore=tests/e2e/test_sandbox_browser.py \
+          --ignore=tests/e2e/test_sandbox_code_interpreter.py \
+          -k "not (invoke or with_credential or model_proxy or process_get or delete_sandbox or delete_nonexistent_sandbox or connect_nonexistent or connect_sandbox_async or sandbox_lifecycle or connect_with_wrong_template or template_validation_code_interpreter_network)"
+
+    - name: E2E Summary
+      if: always()
+      run: |
+        echo "## E2E Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Auth:** OIDC keyless (temporary credentials)" >> $GITHUB_STEP_SUMMARY
