@@ -431,6 +431,11 @@ class AgentRuntimeImmutableProps(BaseModel):
     workspace_id: Optional[str] = None
     """Agent Runtime 所属的工作空间标识符；可选项，不填则使用默认工作空间
     / Workspace identifier the Agent Runtime belongs to; optional, defaults to the default workspace if not provided"""
+    workspace_name: Optional[str] = None
+    """Agent Runtime 所属的工作空间名称；SDK 会在创建时自动解析为 workspace_id。
+    与 workspace_id 二选一，同时传入会抛出 ValueError。
+    / Workspace name the Agent Runtime belongs to; the SDK resolves it to
+    workspace_id on create. Mutually exclusive with workspace_id."""
 
 
 class AgentRuntimeSystemProps(BaseModel):
@@ -515,6 +520,16 @@ class AgentRuntimeListInput(PageableInput):
     workspace_ids: Optional[str] = None
     """按多个工作空间标识符过滤，逗号分隔
     / Filter by multiple workspace identifiers, comma separated"""
+    workspace_name: Optional[str] = None
+    """按工作空间名称过滤；SDK 会在调用时自动解析为 workspace_id。
+    与 workspace_id 二选一，同时传入会抛出 ValueError。
+    / Filter by workspace name; resolved to workspace_id by the SDK.
+    Mutually exclusive with workspace_id."""
+    workspace_names: Optional[str] = None
+    """按多个工作空间名称过滤，逗号分隔；SDK 会逐个解析并填入 workspace_ids。
+    与 workspace_ids 二选一。
+    / Filter by multiple workspace names (comma separated); resolved to
+    workspace_ids by the SDK. Mutually exclusive with workspace_ids."""
 
 
 class AgentRuntimeEndpointCreateInput(

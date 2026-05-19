@@ -28,6 +28,12 @@ from alibabacloud_agentrun20250910.models import (
 )
 from typing_extensions import Unpack
 
+from agentrun.agent_runtime._workspace import (
+    resolve_workspace_id_by_name,
+    resolve_workspace_id_by_name_async,
+    resolve_workspace_ids_by_names,
+    resolve_workspace_ids_by_names_async,
+)
 from agentrun.agent_runtime.api.data import InvokeArgs
 from agentrun.agent_runtime.model import (
     AgentRuntimeArtifact,
@@ -78,11 +84,26 @@ class AgentRuntimeClient:
             AgentRuntime: 创建的 Agent Runtime 对象 / Created Agent Runtime object
 
         Raises:
-            ValueError: 当既未提供代码配置也未提供容器配置时 / When neither code nor container configuration is provided
+            ValueError: 当既未提供代码配置也未提供容器配置时；或同时传入
+                workspace_id 与 workspace_name / When neither code nor container
+                configuration is provided, or when workspace_id and workspace_name
+                are both set
             ResourceAlreadyExistError: 资源已存在 / Resource already exists
-            ResourceNotExistError: 资源不存在 / Resource does not exist
+            ResourceNotExistError: 资源不存在；或 workspace_name 在该账号下未找到
+                / Resource does not exist, or no workspace matches workspace_name
             HTTPError: HTTP 请求错误 / HTTP request error
         """
+        if input.workspace_id and input.workspace_name:
+            raise ValueError(
+                "workspace_id and workspace_name are mutually exclusive; please"
+                " only set one of them."
+            )
+        if input.workspace_name:
+            input.workspace_id = await resolve_workspace_id_by_name_async(
+                input.workspace_name, config
+            )
+            input.workspace_name = None
+
         if input.network_configuration is None:
             input.network_configuration = NetworkConfig()
 
@@ -121,11 +142,26 @@ class AgentRuntimeClient:
             AgentRuntime: 创建的 Agent Runtime 对象 / Created Agent Runtime object
 
         Raises:
-            ValueError: 当既未提供代码配置也未提供容器配置时 / When neither code nor container configuration is provided
+            ValueError: 当既未提供代码配置也未提供容器配置时；或同时传入
+                workspace_id 与 workspace_name / When neither code nor container
+                configuration is provided, or when workspace_id and workspace_name
+                are both set
             ResourceAlreadyExistError: 资源已存在 / Resource already exists
-            ResourceNotExistError: 资源不存在 / Resource does not exist
+            ResourceNotExistError: 资源不存在；或 workspace_name 在该账号下未找到
+                / Resource does not exist, or no workspace matches workspace_name
             HTTPError: HTTP 请求错误 / HTTP request error
         """
+        if input.workspace_id and input.workspace_name:
+            raise ValueError(
+                "workspace_id and workspace_name are mutually exclusive; please"
+                " only set one of them."
+            )
+        if input.workspace_name:
+            input.workspace_id = resolve_workspace_id_by_name(
+                input.workspace_name, config
+            )
+            input.workspace_name = None
+
         if input.network_configuration is None:
             input.network_configuration = NetworkConfig()
 
@@ -332,11 +368,40 @@ class AgentRuntimeClient:
             List[AgentRuntime]: Agent Runtime 对象列表 / List of Agent Runtime objects
 
         Raises:
+            ValueError: 同时传入 workspace_id 与 workspace_name，或同时传入
+                workspace_ids 与 workspace_names / When workspace_id and
+                workspace_name (or workspace_ids and workspace_names) are
+                both set
+            ResourceNotExistError: workspace_name(s) 在该账号下未找到
+                / No workspace matches the given workspace_name(s)
             HTTPError: HTTP 请求错误 / HTTP request error
         """
         try:
             if input is None:
                 input = AgentRuntimeListInput()
+
+            if input.workspace_id and input.workspace_name:
+                raise ValueError(
+                    "workspace_id and workspace_name are mutually exclusive;"
+                    " please only set one of them."
+                )
+            if input.workspace_ids and input.workspace_names:
+                raise ValueError(
+                    "workspace_ids and workspace_names are mutually exclusive;"
+                    " please only set one of them."
+                )
+            if input.workspace_name:
+                input.workspace_id = await resolve_workspace_id_by_name_async(
+                    input.workspace_name, config
+                )
+                input.workspace_name = None
+            if input.workspace_names:
+                input.workspace_ids = (
+                    await resolve_workspace_ids_by_names_async(
+                        input.workspace_names, config
+                    )
+                )
+                input.workspace_names = None
 
             results = await self.__control_api.list_agent_runtimes_async(
                 ListAgentRuntimesRequest().from_map(input.model_dump()),
@@ -363,11 +428,38 @@ class AgentRuntimeClient:
             List[AgentRuntime]: Agent Runtime 对象列表 / List of Agent Runtime objects
 
         Raises:
+            ValueError: 同时传入 workspace_id 与 workspace_name，或同时传入
+                workspace_ids 与 workspace_names / When workspace_id and
+                workspace_name (or workspace_ids and workspace_names) are
+                both set
+            ResourceNotExistError: workspace_name(s) 在该账号下未找到
+                / No workspace matches the given workspace_name(s)
             HTTPError: HTTP 请求错误 / HTTP request error
         """
         try:
             if input is None:
                 input = AgentRuntimeListInput()
+
+            if input.workspace_id and input.workspace_name:
+                raise ValueError(
+                    "workspace_id and workspace_name are mutually exclusive;"
+                    " please only set one of them."
+                )
+            if input.workspace_ids and input.workspace_names:
+                raise ValueError(
+                    "workspace_ids and workspace_names are mutually exclusive;"
+                    " please only set one of them."
+                )
+            if input.workspace_name:
+                input.workspace_id = resolve_workspace_id_by_name(
+                    input.workspace_name, config
+                )
+                input.workspace_name = None
+            if input.workspace_names:
+                input.workspace_ids = resolve_workspace_ids_by_names(
+                    input.workspace_names, config
+                )
+                input.workspace_names = None
 
             results = self.__control_api.list_agent_runtimes(
                 ListAgentRuntimesRequest().from_map(input.model_dump()),
