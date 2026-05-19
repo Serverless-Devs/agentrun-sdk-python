@@ -87,7 +87,9 @@ class AgentRuntime(
             ResourceAlreadyExistError: 资源已存在 / Resource already exists
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return await cls.__get_client(config=config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(
+            input, config=config
+        )
 
     @classmethod
     def create(
@@ -243,7 +245,9 @@ class AgentRuntime(
             ResourceNotExistError: 资源不存在 / Resource does not exist
             HTTPError: HTTP 请求错误 / HTTP request error
         """
-        return await cls.__get_client(config=config).get_async(id, config=config)
+        return await cls.__get_client(config=config).get_async(
+            id, config=config
+        )
 
     @classmethod
     def get_by_id(cls, id: str, config: Optional[Config] = None):
@@ -296,6 +300,8 @@ class AgentRuntime(
         status: Optional[str] = None,
         workspace_id: Optional[str] = None,
         workspace_ids: Optional[str] = None,
+        workspace_name: Optional[str] = None,
+        workspace_names: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> List["AgentRuntime"]:
         return await cls._list_all_async(
@@ -307,6 +313,8 @@ class AgentRuntime(
             status=status,
             workspace_id=workspace_id,
             workspace_ids=workspace_ids,
+            workspace_name=workspace_name,
+            workspace_names=workspace_names,
         )
 
     @classmethod
@@ -319,6 +327,8 @@ class AgentRuntime(
         status: Optional[str] = None,
         workspace_id: Optional[str] = None,
         workspace_ids: Optional[str] = None,
+        workspace_name: Optional[str] = None,
+        workspace_names: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> List["AgentRuntime"]:
         return cls._list_all(
@@ -330,6 +340,8 @@ class AgentRuntime(
             status=status,
             workspace_id=workspace_id,
             workspace_ids=workspace_ids,
+            workspace_name=workspace_name,
+            workspace_names=workspace_names,
         )
 
     @classmethod
