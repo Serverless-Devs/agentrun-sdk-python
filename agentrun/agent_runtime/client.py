@@ -100,10 +100,12 @@ class AgentRuntimeClient:
             )
         if input.workspace_name is not None:
             cfg = Config.with_configs(self.config, config)
-            input.workspace_id = await resolve_workspace_id_by_name_async(
+            resolved_id = await resolve_workspace_id_by_name_async(
                 input.workspace_name, cfg
             )
-            input.workspace_name = None
+            input = input.model_copy(
+                update={"workspace_id": resolved_id, "workspace_name": None}
+            )
 
         if input.network_configuration is None:
             input.network_configuration = NetworkConfig()
@@ -159,10 +161,12 @@ class AgentRuntimeClient:
             )
         if input.workspace_name is not None:
             cfg = Config.with_configs(self.config, config)
-            input.workspace_id = resolve_workspace_id_by_name(
+            resolved_id = resolve_workspace_id_by_name(
                 input.workspace_name, cfg
             )
-            input.workspace_name = None
+            input = input.model_copy(
+                update={"workspace_id": resolved_id, "workspace_name": None}
+            )
 
         if input.network_configuration is None:
             input.network_configuration = NetworkConfig()
@@ -394,20 +398,22 @@ class AgentRuntimeClient:
                 )
             if input.workspace_name is not None or input.workspace_names:
                 cfg = Config.with_configs(self.config, config)
+                update: dict = {}
                 if input.workspace_name is not None:
-                    input.workspace_id = (
+                    update["workspace_id"] = (
                         await resolve_workspace_id_by_name_async(
                             input.workspace_name, cfg
                         )
                     )
-                    input.workspace_name = None
+                    update["workspace_name"] = None
                 if input.workspace_names:
-                    input.workspace_ids = (
+                    update["workspace_ids"] = (
                         await resolve_workspace_ids_by_names_async(
                             input.workspace_names, cfg
                         )
                     )
-                    input.workspace_names = None
+                    update["workspace_names"] = None
+                input = input.model_copy(update=update)
 
             results = await self.__control_api.list_agent_runtimes_async(
                 ListAgentRuntimesRequest().from_map(input.model_dump()),
@@ -458,16 +464,18 @@ class AgentRuntimeClient:
                 )
             if input.workspace_name is not None or input.workspace_names:
                 cfg = Config.with_configs(self.config, config)
+                update: dict = {}
                 if input.workspace_name is not None:
-                    input.workspace_id = resolve_workspace_id_by_name(
+                    update["workspace_id"] = resolve_workspace_id_by_name(
                         input.workspace_name, cfg
                     )
-                    input.workspace_name = None
+                    update["workspace_name"] = None
                 if input.workspace_names:
-                    input.workspace_ids = resolve_workspace_ids_by_names(
+                    update["workspace_ids"] = resolve_workspace_ids_by_names(
                         input.workspace_names, cfg
                     )
-                    input.workspace_names = None
+                    update["workspace_names"] = None
+                input = input.model_copy(update=update)
 
             results = self.__control_api.list_agent_runtimes(
                 ListAgentRuntimesRequest().from_map(input.model_dump()),

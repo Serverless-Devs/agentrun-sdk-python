@@ -30,6 +30,13 @@ from agentrun.utils.exception import (
 # Value 为解析得到的 workspace_id。
 _RESOLVE_CACHE: Dict[Tuple[str, str, str], str] = {}
 
+# 翻页参数：ListWorkspaces 的 name= 参数在服务端可能是 prefix/fuzzy 匹配，
+# 单页 50 条不足以覆盖海量同前缀场景，因此累积所有页再做 exact match。
+_PAGE_SIZE = 50
+# 安全上限：避免上游异常导致死循环；20 页 × 50 条 = 1000 个候选，
+# 同名 / 同前缀 workspace 远超该值的概率极低。
+_MAX_PAGES = 20
+
 
 def _cache_key(cfg: Config, name: str) -> Tuple[str, str, str]:
     return (
@@ -113,35 +120,69 @@ class _WorkspaceResolver(ControlAPI):
         self, name: str, config: Optional[Config] = None
     ) -> Optional[Workspace]:
         client = self._get_client(config)
+        accumulated: List[Workspace] = []
+        page_number = 1
         try:
-            response = client.list_workspaces(
-                ListWorkspacesRequest(name=name, page_size="50")
-            )
+            while page_number <= _MAX_PAGES:
+                response = client.list_workspaces(
+                    ListWorkspacesRequest(
+                        name=name,
+                        page_size=str(_PAGE_SIZE),
+                        page_number=str(page_number),
+                    )
+                )
+                workspaces = (
+                    getattr(
+                        getattr(response.body, "data", None),
+                        "workspaces",
+                        None,
+                    )
+                    or []
+                )
+                if not workspaces:
+                    break
+                accumulated.extend(workspaces)
+                if len(workspaces) < _PAGE_SIZE:
+                    break
+                page_number += 1
         except (ClientException, ServerException) as e:
             _raise_for_tea_exception(e)
             raise
-        workspaces = (
-            getattr(getattr(response.body, "data", None), "workspaces", None)
-            or []
-        )
-        return _pick_exact_match(workspaces, name)
+        return _pick_exact_match(accumulated, name)
 
     async def _lookup_async(
         self, name: str, config: Optional[Config] = None
     ) -> Optional[Workspace]:
         client = self._get_client(config)
+        accumulated: List[Workspace] = []
+        page_number = 1
         try:
-            response = await client.list_workspaces_async(
-                ListWorkspacesRequest(name=name, page_size="50")
-            )
+            while page_number <= _MAX_PAGES:
+                response = await client.list_workspaces_async(
+                    ListWorkspacesRequest(
+                        name=name,
+                        page_size=str(_PAGE_SIZE),
+                        page_number=str(page_number),
+                    )
+                )
+                workspaces = (
+                    getattr(
+                        getattr(response.body, "data", None),
+                        "workspaces",
+                        None,
+                    )
+                    or []
+                )
+                if not workspaces:
+                    break
+                accumulated.extend(workspaces)
+                if len(workspaces) < _PAGE_SIZE:
+                    break
+                page_number += 1
         except (ClientException, ServerException) as e:
             _raise_for_tea_exception(e)
             raise
-        workspaces = (
-            getattr(getattr(response.body, "data", None), "workspaces", None)
-            or []
-        )
-        return _pick_exact_match(workspaces, name)
+        return _pick_exact_match(accumulated, name)
 
 
 def resolve_workspace_id_by_name(

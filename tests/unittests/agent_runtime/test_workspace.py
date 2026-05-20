@@ -242,6 +242,81 @@ class TestResolveWorkspace:
         assert result == "ws-a,ws-b"
 
 
+class TestResolveWorkspacePagination:
+    """翻页累积：避免 server-side name 模糊匹配下 50 条单页漏匹配。"""
+
+    def test_paginates_until_exact_match_across_pages(self, monkeypatch):
+        # 第 1 页 50 条都是前缀匹配但非 exact；第 2 页才含 exact，必须翻页
+        page1 = [_make_ws(f"my-ws-{i}", f"ws-p1-{i}") for i in range(50)]
+        page2 = [_make_ws("my-ws", "ws-target"), _make_ws("my-ws-x", "ws-x")]
+        client = MagicMock()
+        client.list_workspaces.side_effect = [
+            _make_response(page1),
+            _make_response(page2),
+        ]
+        monkeypatch.setattr(
+            ws_mod._WorkspaceResolver,
+            "_get_client",
+            lambda self, config=None: client,
+        )
+        assert resolve_workspace_id_by_name("my-ws") == "ws-target"
+        # 必须翻到第二页才能找到，因此至少 2 次调用
+        assert client.list_workspaces.call_count == 2
+        # page_number 应该递增
+        calls = client.list_workspaces.call_args_list
+        assert calls[0].args[0].page_number == "1"
+        assert calls[1].args[0].page_number == "2"
+
+    def test_short_page_breaks_pagination_early(self, monkeypatch):
+        # 单页返回 < page_size 即视为末页，不再翻页
+        client = MagicMock()
+        client.list_workspaces.return_value = _make_response(
+            [_make_ws("my-ws", "ws-1")]
+        )
+        monkeypatch.setattr(
+            ws_mod._WorkspaceResolver,
+            "_get_client",
+            lambda self, config=None: client,
+        )
+        assert resolve_workspace_id_by_name("my-ws") == "ws-1"
+        # 仅查 1 页就停（mock 返回 1 条 < 50）
+        assert client.list_workspaces.call_count == 1
+
+    def test_pagination_respects_max_pages_cap(self, monkeypatch):
+        # 异常情况：上游一直返回满页（不存在 exact match），
+        # 必须在 _MAX_PAGES 处停止，避免死循环。
+        full_page = [_make_ws(f"prefix-{i}", f"id-{i}") for i in range(50)]
+        client = MagicMock()
+        client.list_workspaces.return_value = _make_response(full_page)
+        monkeypatch.setattr(
+            ws_mod._WorkspaceResolver,
+            "_get_client",
+            lambda self, config=None: client,
+        )
+        with pytest.raises(ResourceNotExistError):
+            resolve_workspace_id_by_name("absent-target")
+        # 不应超过安全上限
+        assert client.list_workspaces.call_count == ws_mod._MAX_PAGES
+
+    def test_async_paginates_across_pages(self, monkeypatch):
+        page1 = [_make_ws(f"my-ws-{i}", f"ws-p1-{i}") for i in range(50)]
+        page2 = [_make_ws("my-ws", "ws-target-async")]
+        client = MagicMock()
+        client.list_workspaces_async = AsyncMock(
+            side_effect=[_make_response(page1), _make_response(page2)]
+        )
+        monkeypatch.setattr(
+            ws_mod._WorkspaceResolver,
+            "_get_client",
+            lambda self, config=None: client,
+        )
+        assert (
+            asyncio.run(resolve_workspace_id_by_name_async("my-ws"))
+            == "ws-target-async"
+        )
+        assert client.list_workspaces_async.await_count == 2
+
+
 class TestClientCreateWorkspaceResolution:
     """create 集成测试：workspace_name 自动转换为 workspace_id"""
 
@@ -282,9 +357,13 @@ class TestClientCreateWorkspaceResolution:
         args, _ = mock_resolve.call_args
         assert args[0] == "my-ws"
         assert isinstance(args[1], Config)
-        # 调用 API 前，应把 workspace_name 清空且 workspace_id 写好
-        assert inp.workspace_id == "ws-resolved"
-        assert inp.workspace_name is None
+        # 调用方传入的 input 对象不应被 mutate
+        assert inp.workspace_id is None
+        assert inp.workspace_name == "my-ws"
+        # OpenAPI 收到的对象应带解析后的 workspace_id（workspace_name
+        # 是 SDK 侧便利字段，OpenAPI 模型本就没有）
+        api_input = mock_control_api.create_agent_runtime.call_args.args[0]
+        assert api_input.workspace_id == "ws-resolved"
 
     @patch(CONTROL_API_PATH)
     def test_create_rejects_both_workspace_fields(self, mock_control_api_class):
@@ -341,8 +420,13 @@ class TestClientCreateWorkspaceResolution:
         args, _ = mock_resolve_async.call_args
         assert args[0] == "my-ws"
         assert isinstance(args[1], Config)
-        assert inp.workspace_id == "ws-resolved-async"
-        assert inp.workspace_name is None
+        # 调用方传入的 input 对象不应被 mutate
+        assert inp.workspace_id is None
+        assert inp.workspace_name == "my-ws"
+        api_input = mock_control_api.create_agent_runtime_async.call_args.args[
+            0
+        ]
+        assert api_input.workspace_id == "ws-resolved-async"
 
 
 class TestClientListWorkspaceResolution:
@@ -386,10 +470,15 @@ class TestClientListWorkspaceResolution:
         many_args, _ = mock_resolve_many.call_args
         assert many_args[0] == "ws-a,ws-b"
         assert isinstance(many_args[1], Config)
-        assert inp.workspace_id == "ws-1"
-        assert inp.workspace_ids == "ws-1,ws-2"
-        assert inp.workspace_name is None
-        assert inp.workspace_names is None
+        # 调用方传入的 input 对象不应被 mutate
+        assert inp.workspace_id is None
+        assert inp.workspace_ids is None
+        assert inp.workspace_name == "my-ws"
+        assert inp.workspace_names == "ws-a,ws-b"
+        # OpenAPI 收到的对象应带解析后的 ID
+        api_input = mock_control_api.list_agent_runtimes.call_args.args[0]
+        assert api_input.workspace_id == "ws-1"
+        assert api_input.workspace_ids == "ws-1,ws-2"
 
     @patch(CONTROL_API_PATH)
     def test_list_rejects_both_singular(self, mock_control_api_class):
@@ -461,8 +550,14 @@ class TestClientListWorkspaceResolution:
         many_args, _ = mock_resolve_many_async.call_args
         assert many_args[0] == "ws-a,ws-b"
         assert isinstance(many_args[1], Config)
-        assert inp.workspace_id == "ws-1"
-        assert inp.workspace_ids == "ws-1,ws-2"
+        # 调用方传入的 input 对象不应被 mutate
+        assert inp.workspace_id is None
+        assert inp.workspace_ids is None
+        assert inp.workspace_name == "my-ws"
+        assert inp.workspace_names == "ws-a,ws-b"
+        api_input = mock_control_api.list_agent_runtimes_async.call_args.args[0]
+        assert api_input.workspace_id == "ws-1"
+        assert api_input.workspace_ids == "ws-1,ws-2"
 
 
 class TestClientEffectiveConfig:
