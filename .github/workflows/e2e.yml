@@ -67,13 +67,22 @@ jobs:
         # API_KEY and AGENTRUN_TEST_WORKSPACE_ID are intentionally NOT set.
         # Tests requiring them are excluded via --ignore and -k filters below.
       run: |
+        # Exclusion notes:
+        # - playwright / browser_recordings / aio_combined_workflow /
+        #   browser_code_file_integration / aio_lifecycle:
+        #     all depend on Playwright connect_over_cdp, which hits flaky
+        #     502 Bad Gateway / TargetClosedError from the sandbox WebSocket
+        #     gateway. A failing async playwright test taints the
+        #     pytest-asyncio Runner so every subsequent ``_async`` test fails
+        #     with ``Runner.run() cannot be called from a running event loop``.
+        #     Excluding the trigger tests stops the cascade.
         uv run pytest tests/e2e/ -v --tb=short \
           --ignore=tests/e2e/integration \
           --ignore=tests/e2e/test_agent_ruintime.py \
           --ignore=tests/e2e/test_workspace_id.py \
           --ignore=tests/e2e/test_sandbox_browser.py \
           --ignore=tests/e2e/test_sandbox_code_interpreter.py \
-          -k "not (invoke or with_credential or model_proxy or process_get or delete_sandbox or delete_nonexistent_sandbox or connect_nonexistent or connect_sandbox_async or sandbox_lifecycle or connect_with_wrong_template or template_validation_code_interpreter_network)"
+          -k "not (invoke or with_credential or model_proxy or process_get or delete_sandbox or delete_nonexistent_sandbox or connect_nonexistent or connect_sandbox_async or sandbox_lifecycle or connect_with_wrong_template or template_validation_code_interpreter_network or playwright or browser_recordings or aio_combined_workflow or browser_code_file_integration or aio_lifecycle)"
 
     - name: E2E Summary
       if: always()
