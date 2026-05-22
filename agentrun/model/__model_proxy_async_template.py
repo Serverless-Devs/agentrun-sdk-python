@@ -57,7 +57,9 @@ class ModelProxy(
         Returns:
             ModelProxy: 创建的模型服务对象
         """
-        return await cls.__get_client(config=config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(
+            input, config=config
+        )
 
     @classmethod
     async def delete_by_name_async(

@@ -70,7 +70,9 @@ class MemoryCollection(
         Returns:
             MemoryCollection: 创建的记忆集合对象
         """
-        return await cls.__get_client(config=config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(
+            input, config=config
+        )
 
     @classmethod
     def create(

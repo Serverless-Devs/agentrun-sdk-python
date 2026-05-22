@@ -91,7 +91,9 @@ class KnowledgeBase(
         Returns:
             KnowledgeBase: 创建的知识库对象 / Created knowledge base object
         """
-        return await cls.__get_client(config=config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(
+            input, config=config
+        )
 
     @classmethod
     def create(
@@ -208,7 +210,9 @@ class KnowledgeBase(
         Returns:
             KnowledgeBase: 知识库对象 / KnowledgeBase object
         """
-        return cls.__get_client(config=config).get(knowledge_base_name, config=config)
+        return cls.__get_client(config=config).get(
+            knowledge_base_name, config=config
+        )
 
     @classmethod
     async def _list_page_async(

@@ -62,7 +62,9 @@ class Credential(
         Returns:
             Credential: 创建的凭证对象
         """
-        return await cls.__get_client(config=config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(
+            input, config=config
+        )
 
     @classmethod
     async def delete_by_name_async(
