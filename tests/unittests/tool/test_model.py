@@ -265,10 +265,9 @@ class TestToolSchema:
         schema = ToolSchema.from_any_openapi_schema(None)
         assert schema.type == "string"
 
-        # Empty dict creates a ToolSchema with None type (pydash_get returns None for missing keys)
+        # Empty dict is a valid JSON Schema meaning "any" — should not collapse to "string"
         schema = ToolSchema.from_any_openapi_schema({})
-        # Actually returns "string" due to the check at the beginning of the method
-        assert schema.type == "string"
+        assert schema.type is None
 
     def test_from_any_openapi_schema_non_dict(self):
         """测试从非 dict 输入创建"""
@@ -334,6 +333,72 @@ class TestToolSchema:
         assert len(schema.all_of) == 2
         assert schema.all_of[0].type == "object"
         assert schema.all_of[1].type == "object"
+
+    def test_from_any_openapi_schema_additional_properties_schema(self):
+        """测试 additionalProperties 为 schema 对象时的解析"""
+        openapi_schema = {
+            "type": "object",
+            "properties": {
+                "filters": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                        ]
+                    },
+                }
+            },
+        }
+
+        schema = ToolSchema.from_any_openapi_schema(openapi_schema)
+
+        assert schema.properties is not None
+        assert "filters" in schema.properties
+        filters_schema = schema.properties["filters"]
+        assert filters_schema.additional_properties is not None
+        assert filters_schema.additional_properties.any_of is not None
+        assert len(filters_schema.additional_properties.any_of) == 2
+        assert filters_schema.additional_properties.any_of[0].type == "string"
+        assert filters_schema.additional_properties.any_of[1].type == "integer"
+
+        json_schema = schema.to_json_schema()
+        assert (
+            json_schema["properties"]["filters"]["additionalProperties"][
+                "anyOf"
+            ][0]["type"]
+            == "string"
+        )
+        assert (
+            json_schema["properties"]["filters"]["additionalProperties"][
+                "anyOf"
+            ][1]["type"]
+            == "integer"
+        )
+
+    def test_from_any_openapi_schema_empty_additional_properties_schema(self):
+        """测试 additionalProperties 为空 schema 时保留原语义"""
+        openapi_schema = {
+            "type": "object",
+            "properties": {
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {},
+                }
+            },
+        }
+
+        schema = ToolSchema.from_any_openapi_schema(openapi_schema)
+
+        assert schema.properties is not None
+        metadata_schema = schema.properties["metadata"]
+        assert metadata_schema.additional_properties is not None
+        assert metadata_schema.additional_properties.type is None
+
+        json_schema = schema.to_json_schema()
+        assert (
+            json_schema["properties"]["metadata"]["additionalProperties"] == {}
+        )
 
     def test_to_json_schema_simple(self):
         """测试转换为 JSON Schema - 简单情况"""
@@ -659,3 +724,38 @@ class TestToolInfo:
         assert "param1" in info.parameters.properties
         assert "param2" in info.parameters.properties
         assert info.parameters.required == ["param1"]
+
+    def test_from_mcp_tool_with_schema_additional_properties(self):
+        """测试 MCP tool schema 中 additionalProperties 为对象时的解析"""
+        mcp_tool = {
+            "name": "get_news_by_date",
+            "description": "A tool with MCP schema-style date_range",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "date_range": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "additionalProperties": {"type": "string"},
+                            },
+                            {"type": "null"},
+                        ]
+                    }
+                },
+            },
+        }
+
+        info = ToolInfo.from_mcp_tool(mcp_tool)
+
+        assert info.name == "get_news_by_date"
+        assert info.parameters is not None
+        assert info.parameters.properties is not None
+        date_range_schema = info.parameters.properties["date_range"]
+        assert date_range_schema.any_of is not None
+        assert date_range_schema.any_of[1].type == "object"
+        assert date_range_schema.any_of[1].additional_properties is not None
+        assert (
+            date_range_schema.any_of[1].additional_properties.type == "string"
+        )
