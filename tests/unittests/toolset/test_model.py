@@ -487,6 +487,30 @@ class TestToolSchema:
             == "integer"
         )
 
+    def test_from_any_openapi_schema_with_empty_additional_properties(self):
+        """测试 additionalProperties 为空 schema 时保留原语义"""
+        openapi_schema = {
+            "type": "object",
+            "properties": {
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {},
+                }
+            },
+        }
+
+        schema = ToolSchema.from_any_openapi_schema(openapi_schema)
+
+        assert schema.properties is not None
+        metadata_schema = schema.properties["metadata"]
+        assert metadata_schema.additional_properties is not None
+        assert metadata_schema.additional_properties.type is None
+
+        json_schema = schema.to_json_schema()
+        assert (
+            json_schema["properties"]["metadata"]["additionalProperties"] == {}
+        )
+
     def test_from_any_openapi_schema_with_items(self):
         """测试从带 items 的数组 schema 创建"""
         openapi_schema = {
