@@ -72,7 +72,9 @@ class Credential(
         Returns:
             Credential: 创建的凭证对象
         """
-        return await cls.__get_client(config=config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(
+            input, config=config
+        )
 
     @classmethod
     def create(
@@ -113,7 +115,9 @@ class Credential(
             credential_name: 凭证名称
             config: 配置
         """
-        return cls.__get_client(config=config).delete(credential_name, config=config)
+        return cls.__get_client(config=config).delete(
+            credential_name, config=config
+        )
 
     @classmethod
     async def update_by_name_async(
@@ -185,7 +189,9 @@ class Credential(
         Returns:
             Credential: 凭证对象
         """
-        return cls.__get_client(config=config).get(credential_name, config=config)
+        return cls.__get_client(config=config).get(
+            credential_name, config=config
+        )
 
     @classmethod
     async def _list_page_async(

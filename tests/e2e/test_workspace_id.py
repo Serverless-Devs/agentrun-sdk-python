@@ -32,18 +32,16 @@ from agentrun.credential import (
     CredentialListInput,
 )
 from agentrun.sandbox import Template
-from agentrun.sandbox.model import (
-    PageableInput,
-    TemplateInput,
-    TemplateType,
-)
+from agentrun.sandbox.model import PageableInput, TemplateInput, TemplateType
 from agentrun.utils.exception import ResourceNotExistError
 
 WORKSPACE_ID = os.getenv("AGENTRUN_TEST_WORKSPACE_ID")
 
 pytestmark = pytest.mark.skipif(
     not WORKSPACE_ID,
-    reason="AGENTRUN_TEST_WORKSPACE_ID not configured; skipping workspace_id E2E",
+    reason=(
+        "AGENTRUN_TEST_WORKSPACE_ID not configured; skipping workspace_id E2E"
+    ),
 )
 
 
@@ -98,7 +96,8 @@ class TestWorkspaceId:
             )
             names = [item.credential_name for item in list_results]
             assert credential_name in names, (
-                f"list(workspace_id={ws!r}) 未返回刚创建的凭证 {credential_name!r}，"
+                f"list(workspace_id={ws!r}) 未返回刚创建的凭证"
+                f" {credential_name!r}，"
                 f"实际返回 {names!r}"
             )
             # 列表项的 workspace_id 也应该是同一个
@@ -112,9 +111,7 @@ class TestWorkspaceId:
                 except ResourceNotExistError:
                     pass
 
-    def test_credential_with_workspace_id(
-        self, credential_name: str
-    ):
+    def test_credential_with_workspace_id(self, credential_name: str):
         """凭证创建时指定 workspace_id，回读与列举均能拿到该 workspace_id"""
         client = CredentialClient()
         ws = WORKSPACE_ID  # type: ignore[assignment]
@@ -139,20 +136,17 @@ class TestWorkspaceId:
             ), f"create 返回的 workspace_id 不匹配: {cred.workspace_id!r}"
 
             # 2. get 接口回读 workspace_id
-            cred_fetched = client.get(
-                credential_name=credential_name
-            )
+            cred_fetched = client.get(credential_name=credential_name)
             assert (
                 cred_fetched.workspace_id == ws
             ), f"get 返回的 workspace_id 不匹配: {cred_fetched.workspace_id!r}"
 
             # 3. list 接口按 workspace_id 过滤，本次创建的资源应在结果中
-            list_results = client.list(
-                CredentialListInput(workspace_id=ws)
-            )
+            list_results = client.list(CredentialListInput(workspace_id=ws))
             names = [item.credential_name for item in list_results]
             assert credential_name in names, (
-                f"list(workspace_id={ws!r}) 未返回刚创建的凭证 {credential_name!r}，"
+                f"list(workspace_id={ws!r}) 未返回刚创建的凭证"
+                f" {credential_name!r}，"
                 f"实际返回 {names!r}"
             )
             # 列表项的 workspace_id 也应该是同一个

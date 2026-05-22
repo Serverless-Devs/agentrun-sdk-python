@@ -118,9 +118,7 @@ class Template(BaseModel):
         )
 
     @classmethod
-    def create(
-        cls, input: TemplateInput, config: Optional[Config] = None
-    ):
+    def create(cls, input: TemplateInput, config: Optional[Config] = None):
         return cls.__get_client(config=config).create_template(
             input, config=config
         )
@@ -172,9 +170,7 @@ class Template(BaseModel):
         )
 
     @classmethod
-    def get_by_name(
-        cls, template_name: str, config: Optional[Config] = None
-    ):
+    def get_by_name(cls, template_name: str, config: Optional[Config] = None):
         return cls.__get_client(config=config).get_template(
             template_name=template_name, config=config
         )
