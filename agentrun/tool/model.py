@@ -293,9 +293,13 @@ class ToolSchema(BaseModel):
 
         additional_properties_raw = pydash_get(schema, "additionalProperties")
         additional_properties = (
-            cls.from_any_openapi_schema(additional_properties_raw)
-            if isinstance(additional_properties_raw, dict)
-            else additional_properties_raw
+            cls()
+            if additional_properties_raw == {}
+            else (
+                cls.from_any_openapi_schema(additional_properties_raw)
+                if isinstance(additional_properties_raw, dict)
+                else additional_properties_raw
+            )
         )
 
         return cls(
