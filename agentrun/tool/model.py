@@ -5,7 +5,7 @@ Defines data models and enumerations related to tools.
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from agentrun.utils.model import BaseModel
 
@@ -194,8 +194,8 @@ class ToolSchema(BaseModel):
     required: Optional[List[str]] = None
     """必填字段 / Required fields"""
 
-    additional_properties: Optional[bool] = None
-    """是否允许额外属性 / Whether additional properties are allowed"""
+    additional_properties: Optional[Union[bool, "ToolSchema"]] = None
+    """额外属性约束 / Additional properties constraint"""
 
     items: Optional["ToolSchema"] = None
     """数组元素类型 / Array item type"""
@@ -291,13 +291,24 @@ class ToolSchema(BaseModel):
             else None
         )
 
+        additional_properties_raw = pydash_get(schema, "additionalProperties")
+        additional_properties = (
+            cls()
+            if additional_properties_raw == {}
+            else (
+                cls.from_any_openapi_schema(additional_properties_raw)
+                if isinstance(additional_properties_raw, dict)
+                else additional_properties_raw
+            )
+        )
+
         return cls(
             type=pydash_get(schema, "type"),
             description=pydash_get(schema, "description"),
             title=pydash_get(schema, "title"),
             properties=properties,
             required=pydash_get(schema, "required"),
-            additional_properties=pydash_get(schema, "additionalProperties"),
+            additional_properties=additional_properties,
             items=items,
             min_items=pydash_get(schema, "minItems"),
             max_items=pydash_get(schema, "maxItems"),
@@ -334,7 +345,11 @@ class ToolSchema(BaseModel):
         if self.required:
             result["required"] = self.required
         if self.additional_properties is not None:
-            result["additionalProperties"] = self.additional_properties
+            result["additionalProperties"] = (
+                self.additional_properties.to_json_schema()
+                if isinstance(self.additional_properties, ToolSchema)
+                else self.additional_properties
+            )
 
         if self.items:
             result["items"] = self.items.to_json_schema()

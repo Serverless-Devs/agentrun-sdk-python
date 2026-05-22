@@ -630,7 +630,9 @@ class TestMemoryCollectionMySQLSupport:
         assert vs_config["port"] == 3307
         assert vs_config["embedding_model_dims"] == 1024
 
-    @patch("agentrun.memory_collection.memory_collection.MemoryCollection._resolve_model_service_config")
+    @patch(
+        "agentrun.memory_collection.memory_collection.MemoryCollection._resolve_model_service_config"
+    )
     @patch("agentrun.credential.Credential.get_by_name")
     def test_build_mem0_config_mysql_embedder_dims_sync(
         self, mock_get_credential, mock_resolve
@@ -660,10 +662,14 @@ class TestMemoryCollectionMySQLSupport:
                 config=EmbedderConfigConfig(model="text-embedding-v3"),
             ),
         )
-        config = MemoryCollection._build_mem0_config(memory_collection, None, None)
+        config = MemoryCollection._build_mem0_config(
+            memory_collection, None, None
+        )
         assert config["embedder"]["config"]["embedding_dims"] == 1024
 
-    @patch("agentrun.memory_collection.memory_collection.MemoryCollection._resolve_model_service_config_async")
+    @patch(
+        "agentrun.memory_collection.memory_collection.MemoryCollection._resolve_model_service_config_async"
+    )
     @patch("agentrun.credential.Credential.get_by_name_async")
     @pytest.mark.asyncio
     async def test_build_mem0_config_mysql_embedder_dims_async(

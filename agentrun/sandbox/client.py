@@ -748,8 +748,7 @@ class SandboxClient:
                 raise ClientError(
                     status_code=0,
                     message=(
-                        "Failed to stop sandbox:"
-                        f" {message or 'Unknown error'}"
+                        f"Failed to stop sandbox: {message or 'Unknown error'}"
                     ),
                 )
 
@@ -805,8 +804,7 @@ class SandboxClient:
                 raise ClientError(
                     status_code=0,
                     message=(
-                        "Failed to stop sandbox:"
-                        f" {message or 'Unknown error'}"
+                        f"Failed to stop sandbox: {message or 'Unknown error'}"
                     ),
                 )
 

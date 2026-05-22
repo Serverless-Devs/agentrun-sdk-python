@@ -5,7 +5,7 @@ Defines data models and enumerations related to toolsets.
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from agentrun.utils.model import BaseModel, Field, PageableInput
 
@@ -103,7 +103,7 @@ class ToolSchema(BaseModel):
     # 对象类型字段
     properties: Optional[Dict[str, "ToolSchema"]] = None
     required: Optional[List[str]] = None
-    additional_properties: Optional[bool] = None
+    additional_properties: Optional[Union[bool, "ToolSchema"]] = None
 
     # 数组类型字段
     items: Optional["ToolSchema"] = None
@@ -179,6 +179,17 @@ class ToolSchema(BaseModel):
             else None
         )
 
+        additional_properties_raw = pg(schema, "additionalProperties")
+        additional_properties = (
+            cls()
+            if additional_properties_raw == {}
+            else (
+                cls.from_any_openapi_schema(additional_properties_raw)
+                if isinstance(additional_properties_raw, dict)
+                else additional_properties_raw
+            )
+        )
+
         return cls(
             # 基本字段
             type=pg(schema, "type"),
@@ -187,7 +198,7 @@ class ToolSchema(BaseModel):
             # 对象类型
             properties=properties,
             required=pg(schema, "required"),
-            additional_properties=pg(schema, "additionalProperties"),
+            additional_properties=additional_properties,
             # 数组类型
             items=items,
             min_items=pg(schema, "minItems"),
@@ -231,7 +242,11 @@ class ToolSchema(BaseModel):
         if self.required:
             result["required"] = self.required
         if self.additional_properties is not None:
-            result["additionalProperties"] = self.additional_properties
+            result["additionalProperties"] = (
+                self.additional_properties.to_json_schema()
+                if isinstance(self.additional_properties, ToolSchema)
+                else self.additional_properties
+            )
 
         # 数组类型
         if self.items:
