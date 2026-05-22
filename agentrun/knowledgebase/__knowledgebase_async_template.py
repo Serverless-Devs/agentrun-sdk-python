@@ -81,7 +81,9 @@ class KnowledgeBase(
         Returns:
             KnowledgeBase: 创建的知识库对象 / Created knowledge base object
         """
-        return await cls.__get_client(config=config).create_async(input, config=config)
+        return await cls.__get_client(config=config).create_async(
+            input, config=config
+        )
 
     @classmethod
     async def delete_by_name_async(
