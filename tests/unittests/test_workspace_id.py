@@ -36,13 +36,8 @@ from agentrun.model.model import (
     ModelServiceCreateInput,
     ModelServiceListInput,
 )
-from agentrun.sandbox.model import (
-    PageableInput as SandboxPageableInput,
-)
-from agentrun.sandbox.model import (
-    TemplateInput,
-    TemplateType,
-)
+from agentrun.sandbox.model import PageableInput as SandboxPageableInput
+from agentrun.sandbox.model import TemplateInput, TemplateType
 from agentrun.utils.model import BaseModel
 
 WORKSPACE_ID = "ws-test-12345"
