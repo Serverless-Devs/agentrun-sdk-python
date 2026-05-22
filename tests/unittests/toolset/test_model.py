@@ -448,6 +448,45 @@ class TestToolSchema:
         assert schema.required == ["name"]
         assert schema.additional_properties is False
 
+    def test_from_any_openapi_schema_with_schema_additional_properties(self):
+        """测试 additionalProperties 为 schema 对象时的解析"""
+        openapi_schema = {
+            "type": "object",
+            "properties": {
+                "filters": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                        ]
+                    },
+                }
+            },
+        }
+
+        schema = ToolSchema.from_any_openapi_schema(openapi_schema)
+
+        assert schema.properties is not None
+        filters_schema = schema.properties["filters"]
+        assert filters_schema.additional_properties is not None
+        assert filters_schema.additional_properties.any_of is not None
+        assert len(filters_schema.additional_properties.any_of) == 2
+
+        json_schema = schema.to_json_schema()
+        assert (
+            json_schema["properties"]["filters"]["additionalProperties"][
+                "anyOf"
+            ][0]["type"]
+            == "string"
+        )
+        assert (
+            json_schema["properties"]["filters"]["additionalProperties"][
+                "anyOf"
+            ][1]["type"]
+            == "integer"
+        )
+
     def test_from_any_openapi_schema_with_items(self):
         """测试从带 items 的数组 schema 创建"""
         openapi_schema = {
