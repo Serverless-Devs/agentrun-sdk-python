@@ -419,10 +419,9 @@ class TestToolSchema:
         assert schema.type == "string"
 
     def test_from_any_openapi_schema_empty_dict(self):
-        """测试从空字典创建"""
+        """测试从空字典创建 — 空 dict 是合法的 JSON Schema，表示 'any'"""
         schema = ToolSchema.from_any_openapi_schema({})
-        # 空字典被视为 falsy，所以返回默认的 string 类型
-        assert schema.type == "string"
+        assert schema.type is None
 
     def test_from_any_openapi_schema_non_dict(self):
         """测试从非字典 schema 创建"""
@@ -447,6 +446,69 @@ class TestToolSchema:
         assert schema.properties["name"].type == "string"
         assert schema.required == ["name"]
         assert schema.additional_properties is False
+
+    def test_from_any_openapi_schema_with_schema_additional_properties(self):
+        """测试 additionalProperties 为 schema 对象时的解析"""
+        openapi_schema = {
+            "type": "object",
+            "properties": {
+                "filters": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                        ]
+                    },
+                }
+            },
+        }
+
+        schema = ToolSchema.from_any_openapi_schema(openapi_schema)
+
+        assert schema.properties is not None
+        filters_schema = schema.properties["filters"]
+        assert filters_schema.additional_properties is not None
+        assert filters_schema.additional_properties.any_of is not None
+        assert len(filters_schema.additional_properties.any_of) == 2
+
+        json_schema = schema.to_json_schema()
+        assert (
+            json_schema["properties"]["filters"]["additionalProperties"][
+                "anyOf"
+            ][0]["type"]
+            == "string"
+        )
+        assert (
+            json_schema["properties"]["filters"]["additionalProperties"][
+                "anyOf"
+            ][1]["type"]
+            == "integer"
+        )
+
+    def test_from_any_openapi_schema_with_empty_additional_properties(self):
+        """测试 additionalProperties 为空 schema 时保留原语义"""
+        openapi_schema = {
+            "type": "object",
+            "properties": {
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {},
+                }
+            },
+        }
+
+        schema = ToolSchema.from_any_openapi_schema(openapi_schema)
+
+        assert schema.properties is not None
+        metadata_schema = schema.properties["metadata"]
+        assert metadata_schema.additional_properties is not None
+        assert metadata_schema.additional_properties.type is None
+
+        json_schema = schema.to_json_schema()
+        assert (
+            json_schema["properties"]["metadata"]["additionalProperties"] == {}
+        )
 
     def test_from_any_openapi_schema_with_items(self):
         """测试从带 items 的数组 schema 创建"""
