@@ -76,6 +76,7 @@ def sandbox_toolset(
     *,
     template_type: TemplateType = TemplateType.CODE_INTERPRETER,
     sandbox_idle_timeout_seconds: int = 600,
+    local_artifact_dir: Optional[str] = None,
     prefix: Optional[str] = None,
     modify_tool_name: Optional[Callable[[Tool], Tool]] = None,
     filter_tools_by_name: Optional[Callable[[str], bool]] = None,
@@ -88,6 +89,7 @@ def sandbox_toolset(
         template_type=template_type,
         config=config,
         sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+        local_artifact_dir=local_artifact_dir,
     ).to_langchain(
         prefix=prefix,
         modify_tool_name=modify_tool_name,

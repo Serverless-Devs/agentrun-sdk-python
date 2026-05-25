@@ -77,6 +77,7 @@ def sandbox_toolset(
     template_type: TemplateType = TemplateType.CODE_INTERPRETER,
     config: Optional[Config] = None,
     sandbox_idle_timeout_seconds: int = 600,
+    local_artifact_dir: Optional[str] = None,
     prefix: Optional[str] = None,
 ) -> List[Any]:
     """将沙箱模板封装为 LangChain ``StructuredTool`` 列表。 / CrewAI Built-in Integration Functions"""
@@ -86,6 +87,7 @@ def sandbox_toolset(
         template_type=template_type,
         config=config,
         sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+        local_artifact_dir=local_artifact_dir,
     ).to_crewai(prefix=prefix)
 
 

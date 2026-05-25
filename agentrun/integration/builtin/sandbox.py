@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import base64
+from pathlib import Path
+import shutil
+import tempfile
 import threading
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
-from agentrun.integration.utils.tool import CommonToolSet, tool
+from agentrun.integration.utils.tool import CommonToolSet, Tool, tool
 from agentrun.sandbox import Sandbox, TemplateType
 from agentrun.sandbox.browser_sandbox import BrowserSandbox
 from agentrun.sandbox.client import SandboxClient
-from agentrun.sandbox.code_interpreter_sandbox import CodeInterpreterSandbox
 from agentrun.utils.config import Config
 from agentrun.utils.log import logger
 
@@ -34,6 +36,68 @@ except ImportError:
         """Fallback greenlet error used when greenlet is not installed."""
 
         pass
+
+
+def _require_attrs(sb: Sandbox, attrs: tuple[str, ...], capability: str) -> Any:
+    missing = [attr for attr in attrs if not hasattr(sb, attr)]
+    if missing:
+        raise TypeError(
+            f"Sandbox {getattr(sb, 'sandbox_id', '<unknown>')} does not "
+            f"provide {capability} capability: missing {', '.join(missing)}"
+        )
+    return sb
+
+
+def _require_code_capable(sb: Sandbox) -> Any:
+    return _require_attrs(
+        sb,
+        ("check_health", "context", "file", "file_system", "process"),
+        "code interpreter",
+    )
+
+
+def _require_browser_capable(sb: Sandbox) -> Any:
+    return _require_attrs(
+        sb,
+        ("check_health", "sync_playwright"),
+        "browser",
+    )
+
+
+def _require_aio_capable(sb: Sandbox) -> Any:
+    return _require_attrs(
+        sb,
+        (
+            "check_health",
+            "context",
+            "file",
+            "file_system",
+            "process",
+            "sync_playwright",
+            "get_cdp_url",
+            "get_vnc_url",
+            "list_recordings",
+            "download_recording",
+            "delete_recording",
+        ),
+        "all-in-one",
+    )
+
+
+def _bind_declared_tools(
+    owner: Any,
+    cls: type,
+    *,
+    skip: Optional[set[str]] = None,
+) -> list[Tool]:
+    skip = skip or set()
+    tools: list[Tool] = []
+    for attr_name, attr_value in cls.__dict__.items():
+        if attr_name.startswith("_") or attr_name in skip:
+            continue
+        if isinstance(attr_value, Tool):
+            tools.append(attr_value.bind(owner))
+    return tools
 
 
 class SandboxToolSet(CommonToolSet):
@@ -231,7 +295,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """检查沙箱健康状态 / Check sandbox health status"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             return sb.check_health()
 
         return self._run_in_sandbox(inner)
@@ -257,7 +321,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """执行代码 / Execute code"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             if context_id:
                 result = sb.context.execute(
                     code=code, context_id=context_id, timeout=timeout
@@ -271,12 +335,12 @@ class CodeInterpreterToolSet(SandboxToolSet):
                             ctx.delete()
                         except Exception:
                             pass
-                    return {
-                        "stdout": result.get("stdout", ""),
-                        "stderr": result.get("stderr", ""),
-                        "exit_code": result.get("exitCode", 0),
-                        "result": result,
-                    }
+            return {
+                "stdout": result.get("stdout", ""),
+                "stderr": result.get("stderr", ""),
+                "exit_code": result.get("exitCode", 0),
+                "result": result,
+            }
 
         return self._run_in_sandbox(inner)
 
@@ -310,7 +374,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """列出所有执行上下文 / List all execution contexts"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             contexts = sb.context.list()
             return {"contexts": contexts}
 
@@ -333,7 +397,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """创建新的执行上下文 / Create a new execution context"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             ctx = sb.context.create(language=language, cwd=cwd)
             return {
                 "context_id": ctx.context_id,
@@ -354,7 +418,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """获取上下文详情 / Get context details"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             ctx = sb.context.get(context_id=context_id)
             return {
                 "context_id": ctx.context_id,
@@ -376,7 +440,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """删除执行上下文 / Delete execution context"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             result = sb.context.delete(context_id=context_id)
             return {"success": True, "result": result}
 
@@ -396,7 +460,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """读取文件内容 / Read file content"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             content = sb.file.read(path=path)
             return {"path": path, "content": content}
 
@@ -421,7 +485,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """写入文件内容 / Write file content"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             result = sb.file.write(
                 path=path, content=content, mode=mode, encoding=encoding
             )
@@ -446,7 +510,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """列出目录内容 / List directory contents"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             entries = sb.file_system.list(path=path, depth=depth)
             return {"path": path, "entries": entries}
 
@@ -474,7 +538,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """获取文件/目录状态 / Get file/directory status"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             stat_info = sb.file_system.stat(path=path)
             return {"path": path, "stat": stat_info}
 
@@ -497,7 +561,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """创建目录 / Create directory"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             result = sb.file_system.mkdir(path=path, parents=parents, mode=mode)
             return {"path": path, "success": True, "result": result}
 
@@ -514,7 +578,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """移动/重命名文件或目录 / Move/rename file or directory"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             result = sb.file_system.move(source=source, destination=destination)
             return {
                 "source": source,
@@ -536,7 +600,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """删除文件或目录 / Delete file or directory"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             result = sb.file_system.remove(path=path)
             return {"path": path, "success": True, "result": result}
 
@@ -562,7 +626,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """执行命令 / Execute command"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             result = sb.process.cmd(command=command, cwd=cwd, timeout=timeout)
             return {
                 "command": command,
@@ -586,7 +650,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """列出所有进程 / List all processes"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             processes = sb.process.list()
             return {"processes": processes}
 
@@ -603,7 +667,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """获取进程状态 / Get process status"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             process_info = sb.process.get(pid=pid)
             return {"pid": pid, "process": process_info}
 
@@ -621,7 +685,7 @@ class CodeInterpreterToolSet(SandboxToolSet):
         """终止进程 / Terminate process"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, CodeInterpreterSandbox)
+            sb = _require_code_capable(sb)
             result = sb.process.kill(pid=pid)
             return {"pid": pid, "success": True, "result": result}
 
@@ -917,7 +981,7 @@ class BrowserToolSet(SandboxToolSet):
         """检查浏览器沙箱健康状态 / Check browser sandbox health status"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             return sb.check_health()
 
         return self._run_in_sandbox(inner)
@@ -943,7 +1007,7 @@ class BrowserToolSet(SandboxToolSet):
         """导航到 URL / Navigate to URL"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             response = p.goto(url, wait_until=wait_until, timeout=timeout)
             return {
@@ -982,7 +1046,7 @@ class BrowserToolSet(SandboxToolSet):
         """返回上一页 / Go back to previous page"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             response = p.go_back(wait_until=wait_until, timeout=timeout)
             return {
@@ -1008,7 +1072,7 @@ class BrowserToolSet(SandboxToolSet):
         """前进到下一页 / Go forward to next page"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             response = p.go_forward(wait_until=wait_until, timeout=timeout)
             return {
@@ -1039,7 +1103,7 @@ class BrowserToolSet(SandboxToolSet):
         """点击元素 / Click element"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             p.click(
                 selector,
@@ -1079,7 +1143,7 @@ class BrowserToolSet(SandboxToolSet):
         """双击元素 / Double-click element"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             p.dblclick(selector, timeout=timeout)
             return {"selector": selector, "success": True}
@@ -1102,7 +1166,7 @@ class BrowserToolSet(SandboxToolSet):
         """拖拽元素 / Drag element"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             p.drag_and_drop(source_selector, target_selector, timeout=timeout)
             return {
@@ -1128,7 +1192,7 @@ class BrowserToolSet(SandboxToolSet):
         """鼠标悬停 / Mouse hover"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             p.hover(selector, timeout=timeout)
             return {"selector": selector, "success": True}
@@ -1157,7 +1221,7 @@ class BrowserToolSet(SandboxToolSet):
         """输入文本 / Type text"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             p.type(selector, text, delay=delay, timeout=timeout)
             return {"selector": selector, "text": text, "success": True}
@@ -1182,7 +1246,7 @@ class BrowserToolSet(SandboxToolSet):
         """填充输入框 / Fill input"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             p.fill(selector, value, timeout=timeout)
             return {"selector": selector, "value": value, "success": True}
@@ -1215,7 +1279,7 @@ class BrowserToolSet(SandboxToolSet):
         """获取页面 HTML 快照 / Get page HTML snapshot"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             html = p.html_content()
             title = p.title()
@@ -1252,7 +1316,7 @@ class BrowserToolSet(SandboxToolSet):
         """截取页面截图 / Take page screenshot"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             screenshot_bytes = p.screenshot(full_page=full_page, type=type)
             screenshot_base64 = base64.b64encode(screenshot_bytes).decode(
@@ -1277,7 +1341,7 @@ class BrowserToolSet(SandboxToolSet):
         """获取页面标题 / Get page title"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             title = p.title()
             return {"title": title}
@@ -1298,7 +1362,7 @@ class BrowserToolSet(SandboxToolSet):
         """列出所有标签页 / List all tabs"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             pages = p.list_pages()
             tabs = []
@@ -1324,7 +1388,7 @@ class BrowserToolSet(SandboxToolSet):
         """创建新标签页 / Create new tab"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             page = p.new_page()
             if url:
@@ -1349,7 +1413,7 @@ class BrowserToolSet(SandboxToolSet):
         """切换标签页 / Switch tab"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             page = p.select_tab(index)
             return {
@@ -1381,7 +1445,7 @@ class BrowserToolSet(SandboxToolSet):
         """执行 JavaScript / Execute JavaScript"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             result = p.evaluate(expression, arg=arg)
             return {"result": result}
@@ -1414,10 +1478,259 @@ class BrowserToolSet(SandboxToolSet):
         """等待指定时间 / Wait for specified time"""
 
         def inner(sb: Sandbox):
-            assert isinstance(sb, BrowserSandbox)
+            sb = _require_browser_capable(sb)
             p = self._get_playwright(sb)
             p.wait(timeout)
             return {"success": True, "waited_ms": timeout}
+
+        return self._run_in_sandbox(inner)
+
+
+class AioToolSet(BrowserToolSet):
+    """All-in-One sandbox toolset.
+
+    Exposes browser, code interpreter, filesystem, process, file transfer,
+    recording, and remote-access URL tools against one shared AIO sandbox.
+    """
+
+    def __init__(
+        self,
+        template_name: str,
+        config: Optional[Config],
+        sandbox_idle_timeout_seconds: int,
+        oss_mount_config: Optional["OSSMountConfig"] = None,
+        nas_config: Optional["NASConfig"] = None,
+        polar_fs_config: Optional["PolarFsConfig"] = None,
+        local_artifact_dir: Optional[str] = None,
+    ) -> None:
+        SandboxToolSet.__init__(
+            self,
+            template_name=template_name,
+            template_type=TemplateType.AIO,
+            sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            config=config,
+            oss_mount_config=oss_mount_config,
+            nas_config=nas_config,
+            polar_fs_config=polar_fs_config,
+        )
+        self._playwright_sync: Optional["BrowserPlaywrightSync"] = None
+        self._playwright_thread: Optional[threading.Thread] = None
+
+        if local_artifact_dir is None:
+            self._local_artifact_dir_owned = True
+            artifact_dir = Path(
+                tempfile.mkdtemp(prefix="agentrun-aio-toolset-")
+            )
+        else:
+            self._local_artifact_dir_owned = False
+            artifact_dir = Path(local_artifact_dir).expanduser()
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        self._local_artifact_dir = artifact_dir.resolve()
+        self.local_artifact_dir = str(self._local_artifact_dir)
+
+        for code_tool in _bind_declared_tools(
+            self, CodeInterpreterToolSet, skip={"check_health"}
+        ):
+            if code_tool.name == "health":
+                continue
+            self._tools.append(code_tool)
+            self.__dict__[code_tool.name] = code_tool
+
+    def _resolve_artifact_path(self, local_artifact_path: str) -> Path:
+        path = Path(local_artifact_path)
+        if path.is_absolute():
+            raise ValueError("local_artifact_path must be relative")
+
+        candidate = (self._local_artifact_dir / path).resolve(strict=False)
+        try:
+            candidate.relative_to(self._local_artifact_dir)
+        except ValueError as exc:
+            raise ValueError("local_artifact_path escapes artifact dir") from exc
+        return candidate
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            if self._local_artifact_dir_owned and self._local_artifact_dir.exists():
+                shutil.rmtree(self._local_artifact_dir, ignore_errors=True)
+
+    @tool(
+        name="health",
+        description=(
+            "Check the health status of the All-in-One sandbox. Returns"
+            " status='ok' if the shared AIO sandbox is running normally."
+        ),
+    )
+    def check_health(self) -> Dict[str, Any]:
+        """检查 AIO 沙箱健康状态 / Check AIO sandbox health status"""
+
+        def inner(sb: Sandbox):
+            sb = _require_aio_capable(sb)
+            return sb.check_health()
+
+        return self._run_in_sandbox(inner)
+
+    @tool(
+        name="upload_file",
+        description=(
+            "Upload a file from the SDK-side artifact directory to the"
+            " sandbox. local_artifact_path must be a relative path under"
+            " local_artifact_dir; sandbox_path is the target path inside the"
+            " sandbox filesystem."
+        ),
+    )
+    def upload_file(
+        self,
+        local_artifact_path: str,
+        sandbox_path: str,
+    ) -> Dict[str, Any]:
+        """上传本地 artifact 文件到沙箱 / Upload local artifact to sandbox"""
+        local_path = self._resolve_artifact_path(local_artifact_path)
+
+        def inner(sb: Sandbox):
+            sb = _require_aio_capable(sb)
+            result = sb.file_system.upload(
+                local_file_path=str(local_path),
+                target_file_path=sandbox_path,
+            )
+            return {
+                "local_artifact_path": local_artifact_path,
+                "sandbox_path": sandbox_path,
+                "success": True,
+                "result": result,
+            }
+
+        return self._run_in_sandbox(inner)
+
+    @tool(
+        name="download_file",
+        description=(
+            "Download a file from the sandbox into the SDK-side artifact"
+            " directory. sandbox_path is the source path inside the sandbox;"
+            " local_artifact_path must be a relative destination path under"
+            " local_artifact_dir."
+        ),
+    )
+    def download_file(
+        self,
+        sandbox_path: str,
+        local_artifact_path: str,
+    ) -> Dict[str, Any]:
+        """下载沙箱文件到本地 artifact 目录 / Download sandbox file to artifact dir"""
+        local_path = self._resolve_artifact_path(local_artifact_path)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+
+        def inner(sb: Sandbox):
+            sb = _require_aio_capable(sb)
+            result = sb.file_system.download(
+                path=sandbox_path,
+                save_path=str(local_path),
+            )
+            return {
+                "sandbox_path": sandbox_path,
+                "local_artifact_path": local_artifact_path,
+                "success": True,
+                "result": result,
+            }
+
+        return self._run_in_sandbox(inner)
+
+    @tool(
+        name="browser_recordings_list",
+        description="List browser recording files available in the AIO sandbox.",
+    )
+    def browser_recordings_list(self) -> Dict[str, Any]:
+        """列出浏览器录制文件 / List browser recordings"""
+
+        def inner(sb: Sandbox):
+            sb = _require_aio_capable(sb)
+            return {"recordings": sb.list_recordings()}
+
+        return self._run_in_sandbox(inner)
+
+    @tool(
+        name="browser_recording_download",
+        description=(
+            "Download a browser recording into local_artifact_dir. filename is"
+            " the recording filename in the sandbox; local_artifact_path must"
+            " be a relative destination path under local_artifact_dir."
+        ),
+    )
+    def browser_recording_download(
+        self,
+        filename: str,
+        local_artifact_path: str,
+    ) -> Dict[str, Any]:
+        """下载浏览器录制文件 / Download browser recording"""
+        local_path = self._resolve_artifact_path(local_artifact_path)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+
+        def inner(sb: Sandbox):
+            sb = _require_aio_capable(sb)
+            result = sb.download_recording(
+                filename=filename,
+                save_path=str(local_path),
+            )
+            return {
+                "filename": filename,
+                "local_artifact_path": local_artifact_path,
+                "success": True,
+                "result": result,
+            }
+
+        return self._run_in_sandbox(inner)
+
+    @tool(
+        name="browser_recording_delete",
+        description="Delete a browser recording file from the AIO sandbox.",
+    )
+    def browser_recording_delete(self, filename: str) -> Dict[str, Any]:
+        """删除浏览器录制文件 / Delete browser recording"""
+
+        def inner(sb: Sandbox):
+            sb = _require_aio_capable(sb)
+            result = sb.delete_recording(filename=filename)
+            return {"filename": filename, "success": True, "result": result}
+
+        return self._run_in_sandbox(inner)
+
+    @tool(
+        name="browser_get_cdp_url",
+        description=(
+            "Get the remote CDP WebSocket URL for the AIO browser. If"
+            " record=True, browser recording may be enabled. Authentication"
+            " headers are intentionally not exposed through this Agent tool."
+        ),
+    )
+    def browser_get_cdp_url(self, record: bool = False) -> Dict[str, Any]:
+        """获取远程 CDP URL / Get remote CDP URL"""
+
+        def inner(sb: Sandbox):
+            sb = _require_aio_capable(sb)
+            result = sb.get_cdp_url(record=record, with_headers=False)
+            url = result[0] if isinstance(result, tuple) else result
+            return {"url": url, "record": record}
+
+        return self._run_in_sandbox(inner)
+
+    @tool(
+        name="browser_get_vnc_url",
+        description=(
+            "Get the remote VNC WebSocket URL for live AIO browser access. If"
+            " record=True, browser recording may be enabled. Authentication"
+            " headers are intentionally not exposed through this Agent tool."
+        ),
+    )
+    def browser_get_vnc_url(self, record: bool = False) -> Dict[str, Any]:
+        """获取远程 VNC URL / Get remote VNC URL"""
+
+        def inner(sb: Sandbox):
+            sb = _require_aio_capable(sb)
+            result = sb.get_vnc_url(record=record, with_headers=False)
+            url = result[0] if isinstance(result, tuple) else result
+            return {"url": url, "record": record}
 
         return self._run_in_sandbox(inner)
 
@@ -1431,19 +1744,11 @@ def sandbox_toolset(
     oss_mount_config: Optional["OSSMountConfig"] = None,
     nas_config: Optional["NASConfig"] = None,
     polar_fs_config: Optional["PolarFsConfig"] = None,
+    local_artifact_dir: Optional[str] = None,
 ) -> CommonToolSet:
     """将沙箱模板封装为 LangChain ``StructuredTool`` 列表。"""
 
-    if template_type != TemplateType.CODE_INTERPRETER:
-        return BrowserToolSet(
-            template_name=template_name,
-            config=config,
-            sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
-            oss_mount_config=oss_mount_config,
-            nas_config=nas_config,
-            polar_fs_config=polar_fs_config,
-        )
-    else:
+    if template_type == TemplateType.CODE_INTERPRETER:
         return CodeInterpreterToolSet(
             template_name=template_name,
             config=config,
@@ -1452,3 +1757,26 @@ def sandbox_toolset(
             nas_config=nas_config,
             polar_fs_config=polar_fs_config,
         )
+    if template_type == TemplateType.BROWSER:
+        return BrowserToolSet(
+            template_name=template_name,
+            config=config,
+            sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            oss_mount_config=oss_mount_config,
+            nas_config=nas_config,
+            polar_fs_config=polar_fs_config,
+        )
+    if template_type == TemplateType.AIO:
+        return AioToolSet(
+            template_name=template_name,
+            config=config,
+            sandbox_idle_timeout_seconds=sandbox_idle_timeout_seconds,
+            oss_mount_config=oss_mount_config,
+            nas_config=nas_config,
+            polar_fs_config=polar_fs_config,
+            local_artifact_dir=local_artifact_dir,
+        )
+    if template_type == TemplateType.CUSTOM:
+        raise ValueError("TemplateType.CUSTOM is not supported by sandbox_toolset")
+
+    raise ValueError(f"Unsupported sandbox template_type: {template_type!r}")
