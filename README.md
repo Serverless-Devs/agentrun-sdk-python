@@ -223,3 +223,25 @@ SDK 会自动读取以下环境变量：
 | `AGENTRUN_DATA_ENDPOINT` | 数据端点 | - |
 | `AGENTRUN_SDK_DEBUG` | 开启 DEBUG 日志 | - |
 
+## 开发质量门禁
+
+PR 中修改 `agentrun/**/*.py` 时，必须在同一个变更里提供匹配的单元测试
+证据和 E2E 测试证据。这个门禁独立于 coverage 统计，即使文件位于
+coverage omit 目录（例如 `agentrun/integration/*` 或
+`agentrun/server/*`），也会被检查。
+
+本地运行：
+
+```bash
+make quality-gate
+```
+
+匹配规则示例：
+
+- `agentrun/integration/...` 变更需要 `tests/unittests/integration/`
+  或匹配的单测文件变更，同时需要 `tests/e2e/test_integration.py` 等 E2E
+  文件变更。
+- `agentrun/server/...` 变更需要 `tests/unittests/server/`、
+  `tests/unittests/**/test_server.py` 等单测变更，同时需要
+  `tests/e2e/test_server.py` 等 E2E 变更。
+- 非 SDK 源码路径（如 `examples/`、`docs/`、`codegen/`）不触发此门禁。
