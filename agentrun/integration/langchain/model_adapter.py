@@ -9,15 +9,7 @@ from agentrun.integration.langchain.message_adapter import (
 )
 from agentrun.integration.utils.adapter import ModelAdapter
 
-# 支持 reasoning_content 的供应商列表
-_REASONING_PROVIDERS = frozenset({
-    "tongyi",
-    "custom",
-    "deepseek",
-    "zhipuai",
-    "moonshot",
-    "minimax",
-})
+_DEEPSEEK_PROVIDER = "deepseek"
 
 
 class LangChainModelAdapter(ModelAdapter):
@@ -34,15 +26,23 @@ class LangChainModelAdapter(ModelAdapter):
         info = common_model.get_model_info()  # 确保模型可用
         provider = (info.provider or "").lower()
 
-        if provider in _REASONING_PROVIDERS:
+        if provider == _DEEPSEEK_PROVIDER:
             return self._create_reasoning_model(info)
         return self._create_openai_model(info)
 
     def _create_reasoning_model(self, info: Any) -> Any:
         """创建支持 reasoning_content 的模型（使用 ChatDeepSeek）"""
-        from langchain_deepseek import ChatDeepSeek
+        try:
+            from langchain_deepseek import ChatDeepSeek
+        except ImportError as e:
+            raise ImportError(
+                "import langchain_deepseek failed. "
+                "Install it with: pip install 'agentrun-sdk[langchain]' "
+                "or pip install 'agentrun-sdk[langgraph]'"
+            ) from e
 
         return ChatDeepSeek(
+            name=info.model,
             model=info.model,
             api_key=info.api_key,
             api_base=info.base_url,
@@ -53,7 +53,14 @@ class LangChainModelAdapter(ModelAdapter):
 
     def _create_openai_model(self, info: Any) -> Any:
         """创建标准 OpenAI 兼容模型"""
-        from langchain_openai import ChatOpenAI
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError as e:
+            raise ImportError(
+                "import langchain_openai failed. "
+                "Install it with: pip install 'agentrun-sdk[langchain]' "
+                "or pip install 'agentrun-sdk[langgraph]'"
+            ) from e
 
         return ChatOpenAI(
             name=info.model,

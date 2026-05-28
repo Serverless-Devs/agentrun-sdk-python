@@ -15,7 +15,9 @@ import pytest
 
 from agentrun.integration.builtin.model import CommonModel
 from agentrun.integration.utils.tool import CommonToolSet, tool
+from agentrun.model import ModelService, ProviderSettings
 from agentrun.model.model_proxy import ModelProxy
+from agentrun.utils.config import Config
 
 from .base import IntegrationTestBase, IntegrationTestResult, ToolCallInfo
 from .mock_llm_server import MockLLMServer
@@ -173,6 +175,20 @@ class LangChainTestMixin(IntegrationTestBase):
 class TestLangChainIntegration(LangChainTestMixin):
     """LangChain Integration 测试类"""
 
+    def _model_service_model(self, provider: Optional[str]) -> CommonModel:
+        return CommonModel(
+            ModelService(
+                model_service_name=f"{provider or 'default'}-service",
+                provider=provider,
+                provider_settings=ProviderSettings(
+                    api_key="sk-test",
+                    base_url="https://model.example/v1",
+                    model_names=["test-model"],
+                ),
+            ),
+            config=Config(headers={"x-test-header": "yes"}),
+        )
+
     @pytest.fixture
     def mock_server(self, monkeypatch: Any, respx_mock: Any) -> MockLLMServer:
         """创建并安装 Mock LLM Server
@@ -317,6 +333,49 @@ class TestLangChainIntegration(LangChainTestMixin):
 
         # LangChain 使用 stream_usage 而不是 stream_options
         assert isinstance(llm, ChatOpenAI)
+        assert llm.stream_usage is True
+        assert llm.streaming is True
+
+    def test_model_service_model_info_exposes_provider(self):
+        model = self._model_service_model("deepseek")
+
+        assert model.get_model_info().provider == "deepseek"
+
+    def test_deepseek_provider_uses_chat_deepseek(self):
+        from langchain_deepseek import ChatDeepSeek
+
+        model = self._model_service_model("deepseek")
+
+        llm = model.to_langchain()
+
+        assert isinstance(llm, ChatDeepSeek)
+        assert llm.name == "test-model"
+        assert llm.model_name == "test-model"
+        assert llm.api_base == "https://model.example/v1"
+        assert llm.default_headers == {"x-test-header": "yes"}
+        assert llm.openai_api_key.get_secret_value() == "sk-test"
+        assert llm.stream_usage is True
+        assert llm.streaming is True
+
+    @pytest.mark.parametrize(
+        "provider",
+        [None, "custom", "tongyi", "zhipuai", "moonshot", "minimax", "unknown"],
+    )
+    def test_non_deepseek_providers_use_chat_openai(
+        self, provider: Optional[str]
+    ):
+        from langchain_openai import ChatOpenAI
+
+        model = self._model_service_model(provider)
+
+        llm = model.to_langchain()
+
+        assert isinstance(llm, ChatOpenAI)
+        assert llm.name == "test-model"
+        assert llm.model_name == "test-model"
+        assert llm.openai_api_base == "https://model.example/v1"
+        assert llm.default_headers == {"x-test-header": "yes"}
+        assert llm.openai_api_key.get_secret_value() == "sk-test"
         assert llm.stream_usage is True
         assert llm.streaming is True
 

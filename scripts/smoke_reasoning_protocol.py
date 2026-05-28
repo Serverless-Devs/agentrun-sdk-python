@@ -6,17 +6,12 @@ import json
 import os
 from typing import Any, Dict, Iterable, List, Optional
 
-import httpx
 from dotenv import load_dotenv
+import httpx
 
 from agentrun.model import BackendType, ModelClient
 from agentrun.model.api.data import ModelDataAPI
-from agentrun.server import (
-    AgentEvent,
-    AgentRequest,
-    AgentRunServer,
-    EventType,
-)
+from agentrun.server import AgentEvent, AgentRequest, AgentRunServer, EventType
 from agentrun.server.agui_protocol import AGUIProtocolHandler
 from agentrun.server.openai_protocol import OpenAIProtocolHandler
 from agentrun.utils.reasoning import (
@@ -236,8 +231,7 @@ async def call_real_model(
 
     if response.is_error:
         raise RuntimeError(
-            f"real model request failed: {response.status_code} "
-            f"{response.text}"
+            f"real model request failed: {response.status_code} {response.text}"
         )
 
     if not stream:
@@ -257,13 +251,16 @@ def resolve_model_endpoint(
             raise RuntimeError(
                 f"model service {model_resource} has no provider settings"
             )
+        default_model = (
+            settings.model_names[0] if settings.model_names else None
+        )
         return (
             settings.base_url,
             {
                 "authorization": f"Bearer {settings.api_key}",
                 "content-type": "application/json",
             },
-            (settings.model_names or [None])[0],
+            default_model,
         )
 
     data_api = ModelDataAPI(model_resource)
@@ -398,12 +395,18 @@ async def main() -> None:
             validate_result("agui", content, reasoning, args)
             results["agui"] = summarize(content, reasoning, raw)
 
-    print(json.dumps({
-        "thinkingEnabled": is_thinking_enabled_from_env(),
-        "protocol": args.protocol,
-        "responseMode": args.response_mode,
-        "results": results,
-    }, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "thinkingEnabled": is_thinking_enabled_from_env(),
+                "protocol": args.protocol,
+                "responseMode": args.response_mode,
+                "results": results,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def summarize(content: str, reasoning: str, raw: Any) -> Dict[str, Any]:

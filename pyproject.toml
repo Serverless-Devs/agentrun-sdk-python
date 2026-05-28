@@ -73,6 +73,8 @@ tablestore = [
 langgraph = [
     "langgraph>=0.2.0; python_version >= '3.10'",
     "langchain-core>=0.3.0; python_version >= '3.10'",
+    "langchain-openai>=1.0.0; python_version >= '3.10'",
+    "langchain-deepseek>=1.0.1; python_version >= '3.10'",
 ]
 
 [dependency-groups]
