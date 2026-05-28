@@ -14,7 +14,6 @@ from typing import (
     Iterator,
     List,
     Optional,
-    TYPE_CHECKING,
     Union,
 )
 
@@ -91,6 +90,7 @@ class Message(BaseModel):
     id: Optional[str] = None
     role: MessageRole
     content: Optional[Union[str, List[Dict[str, Any]]]] = None
+    reasoning_content: Optional[str] = None
     name: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
     tool_call_id: Optional[str] = None
@@ -125,6 +125,7 @@ class EventType(str, Enum):
     # 核心事件（用户主要使用）
     # =========================================================================
     TEXT = "TEXT"  # 文本内容块
+    REASONING = "REASONING"  # 模型思考内容块
     TOOL_CALL = "TOOL_CALL"  # 完整工具调用（含 id, name, args）
     TOOL_CALL_CHUNK = "TOOL_CALL_CHUNK"  # 工具调用参数片段（流式场景）
     TOOL_RESULT = "TOOL_RESULT"  # 工具执行结果（最终结果，标识流式输出结束）

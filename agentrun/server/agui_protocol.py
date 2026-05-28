@@ -8,6 +8,7 @@ AG-UI 是一种开源、轻量级、基于事件的协议，用于标准化 AI A
 """
 
 from dataclasses import dataclass, field
+import json
 from typing import (
     Any,
     AsyncIterator,
@@ -30,6 +31,10 @@ from fastapi.responses import StreamingResponse
 import pydash
 
 from ..utils.helper import merge, MergeOptions
+from ..utils.reasoning import (
+    get_reasoning_content,
+    is_thinking_enabled_from_env,
+)
 from .model import (
     AgentEvent,
     AgentRequest,
@@ -61,6 +66,14 @@ class TextState:
 
 
 @dataclass
+class ReasoningState:
+    started: bool = False
+    message_started: bool = False
+    phase_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+
+@dataclass
 class ToolCallState:
     name: str = ""
     started: bool = False
@@ -72,6 +85,7 @@ class ToolCallState:
 @dataclass
 class StreamStateMachine:
     text: TextState = field(default_factory=TextState)
+    reasoning: ReasoningState = field(default_factory=ReasoningState)
     tool_call_states: Dict[str, ToolCallState] = field(default_factory=dict)
     tool_result_chunks: Dict[str, List[str]] = field(default_factory=dict)
     run_errored: bool = False
@@ -120,6 +134,43 @@ class StreamStateMachine:
 
     def pop_tool_result_chunks(self, tool_id: str) -> str:
         return "".join(self.tool_result_chunks.pop(tool_id, []))
+
+    def ensure_reasoning_started(self) -> Iterator[str]:
+        if not self.reasoning.started:
+            yield _encode_reasoning_event(
+                "REASONING_START",
+                messageId=self.reasoning.phase_id,
+            )
+            self.reasoning.started = True
+        if not self.reasoning.message_started:
+            yield _encode_reasoning_event(
+                "REASONING_MESSAGE_START",
+                messageId=self.reasoning.message_id,
+                role="reasoning",
+            )
+            self.reasoning.message_started = True
+
+    def end_reasoning_if_open(self) -> Iterator[str]:
+        if self.reasoning.message_started:
+            yield _encode_reasoning_event(
+                "REASONING_MESSAGE_END",
+                messageId=self.reasoning.message_id,
+            )
+            self.reasoning.message_started = False
+        if self.reasoning.started:
+            yield _encode_reasoning_event(
+                "REASONING_END",
+                messageId=self.reasoning.phase_id,
+            )
+            self.reasoning = ReasoningState()
+
+
+def _encode_reasoning_event(event_type: str, **payload: Any) -> str:
+    return (
+        "data: "
+        + json.dumps({"type": event_type, **payload}, ensure_ascii=False)
+        + "\n\n"
+    )
 
 
 class AGUIProtocolHandler(BaseProtocolHandler):
@@ -376,6 +427,10 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         if state.run_errored:
             return
 
+        # 结束未结束的 reasoning 消息
+        for sse_data in state.end_reasoning_if_open():
+            yield sse_data
+
         # 结束所有未结束的工具调用
         for sse_data in state.end_all_tools(self._encoder):
             yield sse_data
@@ -399,8 +454,6 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         state: StreamStateMachine,
     ) -> Iterator[str]:
         """处理事件并注入边界事件"""
-        import json
-
         from ag_ui.core import CustomEvent as AguiCustomEvent
         from ag_ui.core import (
             RunErrorEvent,
@@ -413,6 +466,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             ToolCallStartEvent,
         )
 
+        thinking_enabled = is_thinking_enabled_from_env()
+
         # RAW 事件直接透传
         if event.event == EventType.RAW:
             raw_data = event.data.get("raw", "")
@@ -422,9 +477,46 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 yield raw_data
             return
 
+        if event.event == EventType.REASONING:
+            if thinking_enabled:
+                reasoning_content = (
+                    event.data.get("delta")
+                    or get_reasoning_content(event.data)
+                    or ""
+                )
+                if reasoning_content:
+                    for sse_data in state.end_text_if_open(self._encoder):
+                        yield sse_data
+                    for sse_data in state.end_all_tools(self._encoder):
+                        yield sse_data
+                    for sse_data in state.ensure_reasoning_started():
+                        yield sse_data
+                    yield _encode_reasoning_event(
+                        "REASONING_MESSAGE_CONTENT",
+                        messageId=state.reasoning.message_id,
+                        delta=reasoning_content,
+                    )
+            return
+
         # TEXT 事件：在首个 TEXT 前注入 TEXT_MESSAGE_START
         # AG-UI 协议要求：发送 TEXT_MESSAGE_START 前必须先结束所有未结束的 TOOL_CALL
         if event.event == EventType.TEXT:
+            addition = self._strip_reasoning_from_addition(
+                event.addition, thinking_enabled
+            )
+            addition_reasoning = get_reasoning_content(event.addition or {})
+            if thinking_enabled and addition_reasoning:
+                for sse_data in state.ensure_reasoning_started():
+                    yield sse_data
+                yield _encode_reasoning_event(
+                    "REASONING_MESSAGE_CONTENT",
+                    messageId=state.reasoning.message_id,
+                    delta=addition_reasoning,
+                )
+
+            for sse_data in state.end_reasoning_if_open():
+                yield sse_data
+
             for sse_data in state.end_all_tools(self._encoder):
                 yield sse_data
 
@@ -435,13 +527,13 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 message_id=state.text.message_id,
                 delta=event.data.get("delta", ""),
             )
-            if event.addition:
+            if addition:
                 event_dict = agui_event.model_dump(
                     by_alias=True, exclude_none=True
                 )
                 event_dict = self._apply_addition(
                     event_dict,
-                    event.addition,
+                    addition,
                     event.addition_merge_options,
                 )
                 json_str = json.dumps(event_dict, ensure_ascii=False)
@@ -454,6 +546,9 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         if event.event == EventType.TOOL_CALL_CHUNK:
             tool_id = event.data.get("id", "")
             tool_name = event.data.get("name", "")
+
+            for sse_data in state.end_reasoning_if_open():
+                yield sse_data
 
             for sse_data in state.end_text_if_open(self._encoder):
                 yield sse_data
@@ -490,6 +585,9 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             tool_id = event.data.get("id", "")
             tool_name = event.data.get("name", "")
             tool_args = event.data.get("args", "")
+
+            for sse_data in state.end_reasoning_if_open():
+                yield sse_data
 
             for sse_data in state.end_text_if_open(self._encoder):
                 yield sse_data
@@ -540,6 +638,9 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             default = event.data.get("default")
             timeout = event.data.get("timeout")
             schema = event.data.get("schema")
+
+            for sse_data in state.end_reasoning_if_open():
+                yield sse_data
 
             for sse_data in state.end_text_if_open(self._encoder):
                 yield sse_data
@@ -600,6 +701,9 @@ class AGUIProtocolHandler(BaseProtocolHandler):
         if event.event == EventType.TOOL_RESULT:
             tool_id = event.data.get("id", "")
             tool_name = event.data.get("name", "")
+
+            for sse_data in state.end_reasoning_if_open():
+                yield sse_data
 
             for sse_data in state.end_text_if_open(self._encoder):
                 yield sse_data
@@ -766,6 +870,29 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             return event_data
 
         return merge(event_data, addition, **(merge_options or {}))
+
+    def _strip_reasoning_from_addition(
+        self,
+        addition: Optional[Dict[str, Any]],
+        thinking_enabled: bool,
+    ) -> Optional[Dict[str, Any]]:
+        if not addition:
+            return addition
+
+        stripped = dict(addition)
+        stripped.pop("reasoning_content", None)
+        additional_kwargs = stripped.get("additional_kwargs")
+        if isinstance(additional_kwargs, dict):
+            additional_kwargs = dict(additional_kwargs)
+            additional_kwargs.pop("reasoning_content", None)
+            if additional_kwargs:
+                stripped["additional_kwargs"] = additional_kwargs
+            else:
+                stripped.pop("additional_kwargs", None)
+
+        if not thinking_enabled:
+            return stripped
+        return stripped or None
 
     async def _error_stream(self, message: str) -> AsyncIterator[str]:
         """生成错误事件流

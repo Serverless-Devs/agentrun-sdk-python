@@ -4,7 +4,7 @@
 """
 
 import json
-from typing import cast
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import pytest
@@ -34,6 +34,14 @@ class TestAGUIProtocolHandler:
         config = ServerConfig(agui=AGUIProtocolConfig(prefix="/custom/agui"))
         handler = AGUIProtocolHandler(config)
         assert handler.get_prefix() == "/custom/agui"
+
+
+def _agui_sse_events(response):
+    return [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: {")
+    ]
 
 
 class TestAGUIProtocolEndpoints:
@@ -1185,3 +1193,91 @@ class TestAGUIProtocolToolCallBranches:
         assert "TOOL_CALL_START" in types
         assert "TOOL_CALL_END" in types
         assert "TOOL_CALL_RESULT" in types
+
+
+class TestAGUIReasoningContent:
+    """测试 AG-UI reasoning 事件输出开关"""
+
+    def get_client(self, invoke_agent):
+        server = AgentRunServer(invoke_agent=invoke_agent)
+        return TestClient(server.as_fastapi_app())
+
+    def test_stream_includes_reasoning_when_thinking_enabled(self, monkeypatch):
+        monkeypatch.setenv("MODEL_PARAMETER_RULES", '{"thinking": true}')
+
+        async def invoke_agent(request: AgentRequest):
+            yield AgentEvent(
+                event=EventType.REASONING,
+                data={"delta": "thinking"},
+            )
+            yield AgentEvent(event=EventType.TEXT, data={"delta": "answer"})
+
+        response = self.get_client(invoke_agent).post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "Hi"}]},
+        )
+
+        events = _agui_sse_events(response)
+        types = [event["type"] for event in events]
+        reasoning_event = next(
+            event
+            for event in events
+            if event["type"] == "REASONING_MESSAGE_CONTENT"
+        )
+        assert "REASONING_START" in types
+        assert reasoning_event["delta"] == "thinking"
+        assert "TEXT_MESSAGE_CONTENT" in types
+
+    def test_stream_suppresses_reasoning_when_thinking_disabled(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("MODEL_PARAMETER_RULES", '{"thinking": false}')
+
+        async def invoke_agent(request: AgentRequest):
+            yield AgentEvent(
+                event=EventType.REASONING,
+                data={"delta": "thinking"},
+            )
+            yield AgentEvent(event=EventType.TEXT, data={"delta": "answer"})
+
+        response = self.get_client(invoke_agent).post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "Hi"}]},
+        )
+
+        events = _agui_sse_events(response)
+        assert "REASONING_MESSAGE_CONTENT" not in [
+            event["type"] for event in events
+        ]
+        text_event = next(
+            event for event in events if event["type"] == "TEXT_MESSAGE_CONTENT"
+        )
+        assert text_event["delta"] == "answer"
+
+    def test_stream_promotes_chunk_additional_kwargs_reasoning(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("MODEL_PARAMETER_RULES", '{"thinking": true}')
+
+        async def invoke_agent(request: AgentRequest):
+            yield SimpleNamespace(
+                content="answer",
+                additional_kwargs={"reasoning_content": "thinking"},
+            )
+
+        response = self.get_client(invoke_agent).post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "Hi"}]},
+        )
+
+        events = _agui_sse_events(response)
+        reasoning_event = next(
+            event
+            for event in events
+            if event["type"] == "REASONING_MESSAGE_CONTENT"
+        )
+        text_event = next(
+            event for event in events if event["type"] == "TEXT_MESSAGE_CONTENT"
+        )
+        assert reasoning_event["delta"] == "thinking"
+        assert text_event["delta"] == "answer"

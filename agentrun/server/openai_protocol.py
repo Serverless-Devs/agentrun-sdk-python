@@ -15,6 +15,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import pydash
 
+from ..utils.reasoning import (
+    get_reasoning_content,
+    is_thinking_enabled_from_env,
+)
 from ..utils.helper import merge, MergeOptions
 from .model import (
     AgentEvent,
@@ -22,7 +26,6 @@ from .model import (
     EventType,
     Message,
     MessageRole,
-    OpenAIProtocolConfig,
     ServerConfig,
     Tool,
     ToolCall,
@@ -242,6 +245,7 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
                 Message(
                     role=role,
                     content=msg_data.get("content"),
+                    reasoning_content=msg_data.get("reasoning_content"),
                     name=msg_data.get("name"),
                     tool_calls=tool_calls,
                     tool_call_id=msg_data.get("tool_call_id"),
@@ -300,6 +304,7 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
         # 状态追踪
         sent_role = False
         has_text = False
+        thinking_enabled = is_thinking_enabled_from_env()
         tool_call_index = -1  # 从 -1 开始，第一个工具调用时变为 0
         # 工具调用状态：{tool_id: {"started": bool, "index": int}}
         tool_call_states: Dict[str, Dict[str, Any]] = {}
@@ -336,7 +341,19 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
                             event.addition_merge_options,
                         )
 
+                    self._apply_reasoning_gate(delta, thinking_enabled)
                     yield self._build_chunk(context, delta)
+                continue
+
+            if event.event == EventType.REASONING:
+                if thinking_enabled:
+                    reasoning_content = event.data.get("delta", "")
+                    if reasoning_content:
+                        has_text = True
+                        yield self._build_chunk(
+                            context,
+                            {"reasoning_content": reasoning_content},
+                        )
                 continue
 
             # TOOL_CALL_CHUNK 事件
@@ -384,6 +401,7 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
                             event.addition_merge_options,
                         )
 
+                    self._apply_reasoning_gate(delta, thinking_enabled)
                     yield self._build_chunk(context, delta)
                 continue
 
@@ -458,6 +476,8 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
             OpenAI 格式的响应字典
         """
         content_parts: List[str] = []
+        reasoning_parts: List[str] = []
+        thinking_enabled = is_thinking_enabled_from_env()
         # 工具调用状态：{tool_id: {id, name, arguments}}
         tool_call_map: Dict[str, Dict[str, Any]] = {}
         has_tool_calls = False
@@ -465,6 +485,14 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
         for event in events:
             if event.event == EventType.TEXT:
                 content_parts.append(event.data.get("delta", ""))
+                reasoning_content = get_reasoning_content(event.addition or {})
+                if thinking_enabled and reasoning_content:
+                    reasoning_parts.append(reasoning_content)
+
+            elif event.event == EventType.REASONING:
+                reasoning_content = event.data.get("delta", "")
+                if thinking_enabled and reasoning_content:
+                    reasoning_parts.append(reasoning_content)
 
             elif event.event == EventType.TOOL_CALL_CHUNK:
                 tool_id = event.data.get("id", "")
@@ -493,6 +521,8 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
             "role": "assistant",
             "content": content,
         }
+        if reasoning_parts:
+            message["reasoning_content"] = "".join(reasoning_parts)
 
         if tool_call_map:
             message["tool_calls"] = list(tool_call_map.values())
@@ -533,3 +563,19 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
             return delta
 
         return merge(delta, addition, **(merge_options or {}))
+
+    def _apply_reasoning_gate(
+        self,
+        payload: Dict[str, Any],
+        thinking_enabled: bool,
+    ) -> None:
+        if thinking_enabled:
+            reasoning_content = get_reasoning_content(payload)
+            if reasoning_content is not None:
+                payload["reasoning_content"] = reasoning_content
+            return
+
+        payload.pop("reasoning_content", None)
+        additional_kwargs = payload.get("additional_kwargs")
+        if isinstance(additional_kwargs, dict):
+            additional_kwargs.pop("reasoning_content", None)

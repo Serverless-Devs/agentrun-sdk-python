@@ -29,6 +29,7 @@ from .protocol import (
     InvokeAgentHandler,
     SyncInvokeAgentHandler,
 )
+from agentrun.utils.reasoning import get_reasoning_content
 
 
 class AgentInvoker:
@@ -123,6 +124,9 @@ class AgentInvoker:
                     elif isinstance(item, AgentEvent):
                         # 处理用户返回的事件
                         for processed_event in self._process_user_event(item):
+                            yield processed_event
+                    else:
+                        for processed_event in self._wrap_model_chunk(item):
                             yield processed_event
             else:
                 # 非流式结果
@@ -238,6 +242,11 @@ class AgentInvoker:
                             data={"delta": item},
                         )
                     )
+                else:
+                    results.extend(self._wrap_model_chunk(item))
+
+        else:
+            results.extend(self._wrap_model_chunk(result))
 
         return results
 
@@ -266,6 +275,9 @@ class AgentInvoker:
 
             elif isinstance(item, AgentEvent):
                 for processed_event in self._process_user_event(item):
+                    yield processed_event
+            else:
+                for processed_event in self._wrap_model_chunk(item):
                     yield processed_event
 
     async def _iterate_async(
@@ -307,3 +319,31 @@ class AgentInvoker:
         if isinstance(obj, (str, bytes, dict, list, AgentEvent)):
             return False
         return hasattr(obj, "__iter__") or hasattr(obj, "__aiter__")
+
+    def _wrap_model_chunk(self, item: Any) -> List[AgentEvent]:
+        """Convert common model chunks into AgentEvent objects."""
+        events: List[AgentEvent] = []
+        reasoning_content = get_reasoning_content(item)
+        if reasoning_content:
+            events.append(
+                AgentEvent(
+                    event=EventType.REASONING,
+                    data={"delta": reasoning_content},
+                )
+            )
+
+        content = self._read_attr_or_key(item, "content")
+        if isinstance(content, str) and content:
+            events.append(
+                AgentEvent(
+                    event=EventType.TEXT,
+                    data={"delta": content},
+                )
+            )
+
+        return events
+
+    def _read_attr_or_key(self, obj: Any, key: str) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key, None)
