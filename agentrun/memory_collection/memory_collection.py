@@ -521,20 +521,27 @@ class MemoryCollection(
 
     @staticmethod
     def _convert_vpc_endpoint_to_public(endpoint: str) -> str:
-        """将 VPC 内网地址转换为公网地址
+        """根据运行环境决定是否将 VPC 内网地址转换为公网地址
+
+        在云上（FC_REGION 环境变量存在）保持 VPC 地址不变，
+        在本地（FC_REGION 不存在）将 VPC 地址转换为公网地址。
 
         Args:
             endpoint: 原始 endpoint，可能是 VPC 内网地址
 
         Returns:
-            str: 公网地址
+            str: 根据环境返回 VPC 地址或公网地址
 
         Example:
             >>> _convert_vpc_endpoint_to_public("https://jiuqing.cn-hangzhou.vpc.tablestore.aliyuncs.com")
-            "https://jiuqing.cn-hangzhou.ots.aliyuncs.com"
+            "https://jiuqing.cn-hangzhou.ots.aliyuncs.com"  # 本地环境
         """
+        import os
+
+        is_running_on_fc = os.getenv("FC_REGION") is not None
+        if is_running_on_fc:
+            return endpoint
         if ".vpc.tablestore.aliyuncs.com" in endpoint:
-            # 将 .vpc.tablestore.aliyuncs.com 替换为 .ots.aliyuncs.com
             return endpoint.replace(
                 ".vpc.tablestore.aliyuncs.com", ".ots.aliyuncs.com"
             )
