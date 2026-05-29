@@ -730,9 +730,19 @@ class AgentRunConverter:
             and not self.has_on_chat_model_stream
         ):
             chunk_data = data.get("chunk", {})
+            messages = []
             if isinstance(chunk_data, dict):
                 messages = chunk_data.get("messages", [])
+            elif isinstance(chunk_data, list):
+                for item in chunk_data:
+                    update = getattr(item, "update", None)
+                    if not isinstance(update, dict):
+                        continue
+                    item_messages = update.get("messages", [])
+                    if isinstance(item_messages, list):
+                        messages.extend(item_messages)
 
+            if isinstance(messages, list):
                 for msg in messages:
                     content = AgentRunConverter._get_message_content(msg)
                     if content:

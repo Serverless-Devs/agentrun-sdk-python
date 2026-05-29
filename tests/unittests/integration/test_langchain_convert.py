@@ -105,6 +105,24 @@ class TestEventFormatDetection:
 class TestConvertAstreamEventsFormat:
     """测试 astream_events 格式的事件转换"""
 
+    def test_on_chain_stream_model_command_update_text(self):
+        """测试 Command(update={messages: ...}) 形式的模型输出"""
+
+        class CommandLike:
+
+            def __init__(self):
+                self.update = {"messages": [create_mock_ai_message("你好")]}
+
+        event = {
+            "event": "on_chain_stream",
+            "name": "model",
+            "data": {"chunk": [CommandLike()]},
+        }
+
+        results = list(AgentRunConverter().to_agui_events(event))
+
+        assert results == ["你好"]
+
     def test_on_chat_model_stream_text_content(self):
         """测试 on_chat_model_stream 事件的文本内容提取"""
         chunk = create_mock_ai_message_chunk("你好")
