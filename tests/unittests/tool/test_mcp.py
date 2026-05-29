@@ -4,13 +4,15 @@
 Tests MCP protocol interaction functionality of ToolMCPSession.
 """
 
+import asyncio
 import sys
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from agentrun.tool.api.mcp import ToolMCPSession
 from agentrun.tool.model import ToolInfo
+from agentrun.utils.config import Config
 
 
 class TestToolMCPSessionInit:
@@ -186,6 +188,36 @@ class TestToolMCPSessionListToolsAsync:
         sys.modules.update(saved_modules)
         assert tools == []
 
+    @pytest.mark.asyncio
+    async def test_list_tools_async_initialize_timeout(self):
+        """测试 initialize 无响应时不会无限等待"""
+
+        async def never_return():
+            await asyncio.Event().wait()
+
+        mock_session = AsyncMock()
+        mock_session.initialize = never_return
+        mock_session.list_tools = AsyncMock()
+
+        mock_modules = _setup_mock_mcp_modules(mock_session)
+
+        with patch.dict(sys.modules, mock_modules):
+            with patch(
+                "agentrun.tool.api.mcp._MCP_METADATA_TIMEOUT_SECONDS",
+                0.01,
+            ):
+                session = ToolMCPSession(
+                    endpoint="http://example.com/mcp",
+                    session_affinity="MCP_STREAMABLE",
+                )
+
+                with pytest.raises(
+                    TimeoutError, match="MCP initialize timed out"
+                ):
+                    await session.list_tools_async()
+
+        mock_session.list_tools.assert_not_called()
+
 
 class TestToolMCPSessionListTools:
     """测试 list_tools 同步方法"""
@@ -257,6 +289,31 @@ class TestToolMCPSessionCallToolAsync:
             result = await session.call_tool_async("test_tool", {"key": "val"})
 
         assert result == mock_call_result
+
+    @pytest.mark.asyncio
+    async def test_call_tool_async_timeout(self):
+        """测试工具调用无响应时会按 Config.timeout 退出"""
+
+        async def never_return(*args, **kwargs):
+            await asyncio.Event().wait()
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = never_return
+
+        mock_modules = _setup_mock_mcp_modules(mock_session)
+
+        with patch.dict(sys.modules, mock_modules):
+            session = ToolMCPSession(
+                endpoint="http://example.com/mcp",
+                session_affinity="MCP_STREAMABLE",
+                config=Config(timeout=0.01),
+            )
+
+            with pytest.raises(
+                TimeoutError, match="MCP call_tool test_tool timed out"
+            ):
+                await session.call_tool_async("test_tool", {"key": "val"})
 
     @pytest.mark.asyncio
     async def test_call_tool_async_import_error(self):
