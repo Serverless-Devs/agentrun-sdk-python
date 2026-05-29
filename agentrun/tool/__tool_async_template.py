@@ -261,6 +261,40 @@ class Tool(BaseModel):
 
         return url, session_affinity, spec_headers
 
+    def _infer_protocol_spec_mcp_session_affinity(self) -> Optional[str]:
+        """从 protocol_spec 推断 MCP session_affinity / Infer MCP session_affinity from protocol_spec
+
+        用于 MCP_REMOTE + proxy_enabled=true 且 mcp_config.session_affinity
+        为空的场景。proxy 模式仍使用数据面 URL，不使用 protocol_spec 中的
+        上游 URL 和 headers。
+        Used when MCP_REMOTE proxy is enabled but mcp_config.session_affinity
+        is empty. Proxy mode still uses data endpoint URL, not upstream URL
+        or headers from protocol_spec.
+
+        Returns:
+            Optional[str]: MCP_STREAMABLE、MCP_SSE 或 None
+        """
+        if not self.protocol_spec:
+            return None
+
+        try:
+            spec = json.loads(self.protocol_spec)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+        mcp_servers = spec.get("mcpServers")
+        if not mcp_servers or not isinstance(mcp_servers, dict):
+            return None
+
+        first_server = next(iter(mcp_servers.values()), None)
+        if not first_server or not isinstance(first_server, dict):
+            return None
+
+        transport_type = first_server.get("transportType", "sse")
+        if transport_type == "streamable-http":
+            return "MCP_STREAMABLE"
+        return "MCP_SSE"
+
     def _get_mcp_endpoint(
         self, config: Optional[Config] = None
     ) -> Optional[Tuple[str, str, Dict[str, str]]]:
@@ -290,9 +324,18 @@ class Tool(BaseModel):
         if not data_endpoint or not effective_name:
             return None
 
-        session_affinity = pydash.get(
-            self, "mcp_config.session_affinity", "MCP_SSE"
-        )
+        session_affinity = pydash.get(self, "mcp_config.session_affinity")
+        if not session_affinity:
+            is_mcp_remote_with_proxy = (
+                self.create_method == "MCP_REMOTE"
+                and pydash.get(self, "mcp_config.proxy_enabled", False)
+            )
+            if is_mcp_remote_with_proxy:
+                session_affinity = (
+                    self._infer_protocol_spec_mcp_session_affinity()
+                )
+            if not session_affinity:
+                session_affinity = "MCP_SSE"
 
         if session_affinity == "MCP_STREAMABLE":
             return (

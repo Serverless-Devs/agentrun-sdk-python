@@ -1161,6 +1161,42 @@ class TestTool:
             {},
         )
 
+    def test_get_mcp_endpoint_mcp_remote_with_proxy_infers_streamable(self):
+        """测试 MCP_REMOTE proxy 模式按 protocol_spec 推断 streamable。"""
+        tool = Tool(
+            tool_name="my-tool",
+            tool_type="MCP",
+            create_method="MCP_REMOTE",
+            data_endpoint="https://example.com",
+            mcp_config=McpConfig(proxy_enabled=True),
+            protocol_spec='{"mcpServers":{"s1":{"transportType":"streamable-http","url":"https://external-mcp.com/mcp"}}}',
+        )
+        result = tool._get_mcp_endpoint()
+        assert result == (
+            "https://example.com/tools/my-tool/mcp",
+            "MCP_STREAMABLE",
+            {},
+        )
+
+    def test_get_mcp_endpoint_mcp_remote_with_proxy_empty_affinity_infers_streamable(
+        self,
+    ):
+        """测试空 session_affinity 也按 protocol_spec 推断 streamable。"""
+        tool = Tool(
+            tool_name="my-tool",
+            tool_type="MCP",
+            create_method="MCP_REMOTE",
+            data_endpoint="https://example.com",
+            mcp_config=McpConfig(session_affinity="", proxy_enabled=True),
+            protocol_spec='{"mcpServers":{"s1":{"transportType":"streamable-http","url":"https://external-mcp.com/mcp"}}}',
+        )
+        result = tool._get_mcp_endpoint()
+        assert result == (
+            "https://example.com/tools/my-tool/mcp",
+            "MCP_STREAMABLE",
+            {},
+        )
+
     def test_get_mcp_endpoint_mcp_bundle_uses_data_endpoint(self):
         """测试 MCP_BUNDLE 类型使用 data_endpoint 拼接"""
         tool = Tool(
