@@ -150,6 +150,9 @@ class ADBRetrieveSettings(BaseModel):
     hybrid_search_args: Optional[Dict[str, Any]] = None
     """混合检索算法参数，如 {"RRF": {"k": 60}} 或 {"Weight": {"alpha": 0.5}}
     Hybrid search algorithm parameters"""
+    filter: Optional[str] = None
+    """过滤条件，SQL WHERE 格式，如 "category = 'tech' AND score > 0.5"
+    Filter condition in SQL WHERE format"""
 
 
 # =============================================================================

@@ -1026,6 +1026,7 @@ class TestADBDataAPIBuildQueryContentRequest:
                 recall_window=[-5, 5],
                 hybrid_search="RRF",
                 hybrid_search_args={"RRF": {"k": 60}},
+                filter="category = 'tech' AND score > 0.5",
             ),
         )
 
@@ -1036,6 +1037,7 @@ class TestADBDataAPIBuildQueryContentRequest:
         assert request.use_full_text_retrieval is True
         assert request.rerank_factor == 1.5
         assert request.rerank_model is not None
+        assert request.filter == "category = 'tech' AND score > 0.5"
 
     @patch.dict(
         os.environ,

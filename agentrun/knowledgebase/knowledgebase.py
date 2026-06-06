@@ -109,7 +109,9 @@ class KnowledgeBase(
         Returns:
             KnowledgeBase: 创建的知识库对象 / Created knowledge base object
         """
-        return cls.__get_client(config=config).create(input, config=config)
+        return cls.__get_client(config=config).create(
+            input, config=config
+        )
 
     @classmethod
     async def delete_by_name_async(
@@ -357,7 +359,9 @@ class KnowledgeBase(
                 "knowledge_base_name is required to delete a KnowledgeBase"
             )
 
-        return self.delete_by_name(self.knowledge_base_name, config=config)
+        return self.delete_by_name(
+            self.knowledge_base_name, config=config
+        )
 
     async def get_async(self, config: Optional[Config] = None):
         """刷新知识库信息（异步）/ Refresh knowledge base info asynchronously
@@ -394,7 +398,9 @@ class KnowledgeBase(
                 "knowledge_base_name is required to refresh a KnowledgeBase"
             )
 
-        result = self.get_by_name(self.knowledge_base_name, config=config)
+        result = self.get_by_name(
+            self.knowledge_base_name, config=config
+        )
         self.update_self(result)
 
         return self
@@ -457,6 +463,18 @@ class KnowledgeBase(
         # Convert provider_settings and retrieve_settings to correct types
         converted_provider_settings = None
         converted_retrieve_settings = None
+
+        # 当 retrieve_settings 被 pydantic Union 匹配到错误的类型时（由于 extra="allow"），
+        # 从 __pydantic_extra__ 提取原始数据作为 dict 使用
+        # When retrieve_settings is matched to wrong Union type by pydantic (due to extra="allow"),
+        # extract raw data from __pydantic_extra__ as dict
+        if (
+            self.retrieve_settings is not None
+            and not isinstance(self.retrieve_settings, dict)
+            and hasattr(self.retrieve_settings, "__pydantic_extra__")
+            and self.retrieve_settings.__pydantic_extra__
+        ):
+            self.retrieve_settings = self.retrieve_settings.__pydantic_extra__
 
         if provider == KnowledgeBaseProvider.BAILIAN:
             # 百炼设置 / Bailian settings
@@ -543,6 +561,9 @@ class KnowledgeBase(
                         ),
                         hybrid_search_args=self.retrieve_settings.get(
                             "HybridSearchArgs"
+                        ),
+                        filter=self.retrieve_settings.get(
+                            "Filter"
                         ),
                     )
 
@@ -905,19 +926,21 @@ class KnowledgeBase(
         """
         # 1. 根据 knowledge_base_names 并发获取各知识库配置（安全方式）
         #    Fetch all knowledge bases concurrently by name (safely)
-        knowledge_base_results = [
+        knowledge_base_results = ([
             cls._safe_get_kb(name, config=config)
             for name in knowledge_base_names
-        ]
+        ])
 
         # 2. 并发执行各知识库的检索（安全方式）
         #    Execute retrieval for each knowledge base concurrently (safely)
-        retrieve_results = [
-            cls._safe_retrieve_kb(kb_name, kb_or_error, query, config=config)
+        retrieve_results = ([
+            cls._safe_retrieve_kb(
+                kb_name, kb_or_error, query, config=config
+            )
             for kb_name, kb_or_error in zip(
                 knowledge_base_names, knowledge_base_results
             )
-        ]
+        ])
 
         # 3. 合并返回结果，按知识库名称分组
         #    Merge results, grouped by knowledge base name

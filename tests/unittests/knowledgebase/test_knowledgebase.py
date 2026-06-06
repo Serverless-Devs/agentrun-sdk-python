@@ -706,6 +706,7 @@ class TestKnowledgeBaseGetDataAPI:
                 "RecallWindow": [-5, 5],
                 "HybridSearch": "RRF",
                 "HybridSearchArgs": {"RRF": {"k": 60}},
+                "Filter": "category = 'tech'",
             },
         )
 
@@ -713,6 +714,7 @@ class TestKnowledgeBaseGetDataAPI:
 
         data_api = kb._get_data_api()
         assert isinstance(data_api, ADBDataAPI)
+        assert data_api.retrieve_settings.filter == "category = 'tech'"
 
     def test_get_data_api_without_provider(self):
         """测试获取数据链路 API（无提供商）"""

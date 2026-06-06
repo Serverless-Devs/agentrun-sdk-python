@@ -426,14 +426,12 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                     self.retrieve_settings.rerank_factor
                 )
             if self.retrieve_settings.rerank_model is not None:
-                rerank_model_params: Dict[str, Any] = {
-                    "Name": self.retrieve_settings.rerank_model.name,
-                }
-                if self.retrieve_settings.rerank_model.instruct is not None:
-                    rerank_model_params["Instruct"] = (
-                        self.retrieve_settings.rerank_model.instruct
+                request_params["rerank_model"] = (
+                    gpdb_models.QueryContentRequestRerankModel(
+                        name=self.retrieve_settings.rerank_model.name,
+                        instruct=self.retrieve_settings.rerank_model.instruct,
                     )
-                request_params["rerank_model"] = rerank_model_params
+                )
             if self.retrieve_settings.recall_window is not None:
                 request_params["recall_window"] = (
                     self.retrieve_settings.recall_window
@@ -446,6 +444,8 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                 request_params["hybrid_search_args"] = (
                     self.retrieve_settings.hybrid_search_args
                 )
+            if self.retrieve_settings.filter is not None:
+                request_params["filter"] = self.retrieve_settings.filter
 
         return gpdb_models.QueryContentRequest(**request_params)
 

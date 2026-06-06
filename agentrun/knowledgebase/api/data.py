@@ -81,6 +81,7 @@ class KnowledgeBaseDataAPI(ABC):
         """
         raise NotImplementedError("Subclasses must implement retrieve_async")
 
+
     @abstractmethod
     def retrieve(
         self,
@@ -175,7 +176,9 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
 
         from agentrun.credential import Credential
 
-        credential = Credential.get_by_name(self.credential_name, config=config)
+        credential = Credential.get_by_name(
+            self.credential_name, config=config
+        )
         if not credential.credential_secret:
             raise ValueError(
                 f"Credential '{self.credential_name}' has no secret configured"
@@ -282,6 +285,7 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
                 "error": True,
             }
 
+
     def retrieve(
         self,
         query: str,
@@ -315,7 +319,9 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
             body = self._build_request_body(query)
 
             # 发送请求 / Send request
-            with httpx.Client(timeout=self.config.get_timeout()) as client:
+            with httpx.Client(
+                timeout=self.config.get_timeout()
+            ) as client:
                 response = client.post(url, json=body, headers=headers)
                 response.raise_for_status()
                 result = response.json()
@@ -466,6 +472,7 @@ class BailianDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                 "knowledge_base_name": self.knowledge_base_name,
                 "error": True,
             }
+
 
     def retrieve(
         self,
@@ -636,14 +643,10 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                     self.retrieve_settings.rerank_factor
                 )
             if self.retrieve_settings.rerank_model is not None:
-                rerank_model_params: Dict[str, Any] = {
-                    "Name": self.retrieve_settings.rerank_model.name,
-                }
-                if self.retrieve_settings.rerank_model.instruct is not None:
-                    rerank_model_params["Instruct"] = (
-                        self.retrieve_settings.rerank_model.instruct
-                    )
-                request_params["rerank_model"] = rerank_model_params
+                request_params["rerank_model"] = gpdb_models.QueryContentRequestRerankModel(
+                    name=self.retrieve_settings.rerank_model.name,
+                    instruct=self.retrieve_settings.rerank_model.instruct,
+                )
             if self.retrieve_settings.recall_window is not None:
                 request_params["recall_window"] = (
                     self.retrieve_settings.recall_window
@@ -656,6 +659,8 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                 request_params["hybrid_search_args"] = (
                     self.retrieve_settings.hybrid_search_args
                 )
+            if self.retrieve_settings.filter is not None:
+                request_params["filter"] = self.retrieve_settings.filter
 
         return gpdb_models.QueryContentRequest(**request_params)
 
@@ -767,6 +772,7 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                 "knowledge_base_name": self.knowledge_base_name,
                 "error": True,
             }
+
 
     def retrieve(
         self,
@@ -1038,6 +1044,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
                 "knowledge_base_name": self.knowledge_base_name,
                 "error": True,
             }
+
 
     def retrieve(
         self,

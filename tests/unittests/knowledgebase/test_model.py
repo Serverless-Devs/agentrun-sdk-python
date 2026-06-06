@@ -215,6 +215,7 @@ class TestADBRetrieveSettings:
             recall_window=[-5, 5],
             hybrid_search="RRF",
             hybrid_search_args={"RRF": {"k": 60}},
+            filter="category = 'tech'",
         )
         assert settings.top_k == 10
         assert settings.use_full_text_retrieval is True
@@ -225,6 +226,7 @@ class TestADBRetrieveSettings:
         assert settings.recall_window == [-5, 5]
         assert settings.hybrid_search == "RRF"
         assert settings.hybrid_search_args == {"RRF": {"k": 60}}
+        assert settings.filter == "category = 'tech'"
 
     def test_adb_retrieve_settings_optional(self):
         """测试 ADB 检索设置可选字段"""
@@ -236,6 +238,7 @@ class TestADBRetrieveSettings:
         assert settings.recall_window is None
         assert settings.hybrid_search is None
         assert settings.hybrid_search_args is None
+        assert settings.filter is None
 
     def test_adb_retrieve_settings_weight_hybrid(self):
         """测试 ADB 检索设置加权混合检索"""
