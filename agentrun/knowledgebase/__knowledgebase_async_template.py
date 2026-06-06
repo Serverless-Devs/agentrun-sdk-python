@@ -276,6 +276,18 @@ class KnowledgeBase(
         converted_provider_settings = None
         converted_retrieve_settings = None
 
+        # 当 retrieve_settings 被 pydantic Union 匹配到错误的类型时（由于 extra="allow"），
+        # 从 __pydantic_extra__ 提取原始数据作为 dict 使用
+        # When retrieve_settings is matched to wrong Union type by pydantic (due to extra="allow"),
+        # extract raw data from __pydantic_extra__ as dict
+        if (
+            self.retrieve_settings is not None
+            and not isinstance(self.retrieve_settings, dict)
+            and hasattr(self.retrieve_settings, "__pydantic_extra__")
+            and self.retrieve_settings.__pydantic_extra__
+        ):
+            self.retrieve_settings = self.retrieve_settings.__pydantic_extra__
+
         if provider == KnowledgeBaseProvider.BAILIAN:
             # 百炼设置 / Bailian settings
             if self.provider_settings:
