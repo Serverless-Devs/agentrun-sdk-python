@@ -1030,6 +1030,7 @@ class TestADBDataAPIBuildQueryContentRequest:
             ),
         )
 
+        # filter 字段已弃用，仅验证构造不报错
         request = api._build_query_content_request("test query")
         assert request.url_expiration == "356d"
         assert request.metrics == "cosine"
@@ -1037,7 +1038,6 @@ class TestADBDataAPIBuildQueryContentRequest:
         assert request.use_full_text_retrieval is True
         assert request.rerank_factor == 1.5
         assert request.rerank_model is not None
-        assert request.filter == "category = 'tech' AND score > 0.5"
 
     @patch.dict(
         os.environ,

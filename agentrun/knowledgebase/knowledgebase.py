@@ -562,9 +562,6 @@ class KnowledgeBase(
                         hybrid_search_args=self.retrieve_settings.get(
                             "HybridSearchArgs"
                         ),
-                        filter=self.retrieve_settings.get(
-                            "Filter"
-                        ),
                     )
 
         elif provider == KnowledgeBaseProvider.OTS:
@@ -689,6 +686,7 @@ class KnowledgeBase(
         self,
         query: str,
         config: Optional[Config] = None,
+        metadata_filters: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """检索知识库（异步）/ Retrieve from knowledge base asynchronously
 
@@ -698,17 +696,41 @@ class KnowledgeBase(
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            metadata_filters: 元数据过滤条件 / Metadata filter conditions
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
         """
         data_api = self._get_data_api(config)
-        return await data_api.retrieve_async(query, config=config)
+        provider = (
+            self.provider
+            if isinstance(self.provider, KnowledgeBaseProvider)
+            else KnowledgeBaseProvider(self.provider)
+        )
+        if provider == KnowledgeBaseProvider.BAILIAN:
+            return await data_api.retrieve_async(
+                query, config=config, search_filters=metadata_filters
+            )
+        elif provider == KnowledgeBaseProvider.RAGFLOW:
+            return await data_api.retrieve_async(
+                query, config=config, metadata_condition=metadata_filters
+            )
+        elif provider == KnowledgeBaseProvider.ADB:
+            return await data_api.retrieve_async(
+                query, config=config, filter=metadata_filters
+            )
+        elif provider == KnowledgeBaseProvider.OTS:
+            return await data_api.retrieve_async(
+                query, config=config, filter=metadata_filters
+            )
+        else:
+            return await data_api.retrieve_async(query, config=config)
 
     def retrieve(
         self,
         query: str,
         config: Optional[Config] = None,
+        metadata_filters: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """检索知识库（同步）/ Retrieve from knowledge base synchronously
 
@@ -718,12 +740,35 @@ class KnowledgeBase(
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            metadata_filters: 元数据过滤条件 / Metadata filter conditions
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
         """
         data_api = self._get_data_api(config)
-        return data_api.retrieve(query, config=config)
+        provider = (
+            self.provider
+            if isinstance(self.provider, KnowledgeBaseProvider)
+            else KnowledgeBaseProvider(self.provider)
+        )
+        if provider == KnowledgeBaseProvider.BAILIAN:
+            return data_api.retrieve(
+                query, config=config, search_filters=metadata_filters
+            )
+        elif provider == KnowledgeBaseProvider.RAGFLOW:
+            return data_api.retrieve(
+                query, config=config, metadata_condition=metadata_filters
+            )
+        elif provider == KnowledgeBaseProvider.ADB:
+            return data_api.retrieve(
+                query, config=config, filter=metadata_filters
+            )
+        elif provider == KnowledgeBaseProvider.OTS:
+            return data_api.retrieve(
+                query, config=config, filter=metadata_filters
+            )
+        else:
+            return data_api.retrieve(query, config=config)
 
     @classmethod
     async def _safe_get_kb_async(
@@ -772,6 +817,7 @@ class KnowledgeBase(
         kb_or_error: Any,
         query: str,
         config: Optional[Config] = None,
+        metadata_filters: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """安全执行知识库检索（异步）/ Safely retrieve from knowledge base asynchronously
 
@@ -780,6 +826,7 @@ class KnowledgeBase(
             kb_or_error: 知识库对象或异常 / Knowledge base object or exception
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            metadata_filters: 元数据过滤条件 / Metadata filter conditions
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -795,7 +842,9 @@ class KnowledgeBase(
                 "error": True,
             }
         try:
-            return await kb_or_error.retrieve_async(query, config=config)
+            return await kb_or_error.retrieve_async(
+                query, config=config, metadata_filters=metadata_filters
+            )
         except Exception as e:
             logger.warning(
                 f"Failed to retrieve from knowledge base '{kb_name}': {e}"
@@ -814,6 +863,7 @@ class KnowledgeBase(
         kb_or_error: Any,
         query: str,
         config: Optional[Config] = None,
+        metadata_filters: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """安全执行知识库检索（同步）/ Safely retrieve from knowledge base synchronously
 
@@ -822,6 +872,7 @@ class KnowledgeBase(
             kb_or_error: 知识库对象或异常 / Knowledge base object or exception
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            metadata_filters: 元数据过滤条件 / Metadata filter conditions
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -837,7 +888,9 @@ class KnowledgeBase(
                 "error": True,
             }
         try:
-            return kb_or_error.retrieve(query, config=config)
+            return kb_or_error.retrieve(
+                query, config=config, metadata_filters=metadata_filters
+            )
         except Exception as e:
             logger.warning(
                 f"Failed to retrieve from knowledge base '{kb_name}': {e}"
@@ -855,6 +908,7 @@ class KnowledgeBase(
         query: str,
         knowledge_base_names: List[str],
         config: Optional[Config] = None,
+        metadata_filters: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """多知识库检索（异步）/ Multi knowledge base retrieval asynchronously
 
@@ -883,7 +937,8 @@ class KnowledgeBase(
         #    Execute retrieval for each knowledge base concurrently (safely)
         retrieve_results = await asyncio.gather(*[
             cls._safe_retrieve_kb_async(
-                kb_name, kb_or_error, query, config=config
+                kb_name, kb_or_error, query, config=config,
+                metadata_filters=metadata_filters,
             )
             for kb_name, kb_or_error in zip(
                 knowledge_base_names, knowledge_base_results
@@ -907,6 +962,7 @@ class KnowledgeBase(
         query: str,
         knowledge_base_names: List[str],
         config: Optional[Config] = None,
+        metadata_filters: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """多知识库检索（同步）/ Multi knowledge base retrieval synchronously
 
@@ -935,7 +991,8 @@ class KnowledgeBase(
         #    Execute retrieval for each knowledge base concurrently (safely)
         retrieve_results = ([
             cls._safe_retrieve_kb(
-                kb_name, kb_or_error, query, config=config
+                kb_name, kb_or_error, query, config=config,
+                metadata_filters=metadata_filters,
             )
             for kb_name, kb_or_error in zip(
                 knowledge_base_names, knowledge_base_results

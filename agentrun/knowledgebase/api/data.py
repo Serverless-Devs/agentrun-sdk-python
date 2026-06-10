@@ -69,12 +69,14 @@ class KnowledgeBaseDataAPI(ABC):
         self,
         query: str,
         config: Optional[Config] = None,
+        metadata_filters: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """检索知识库（异步）/ Retrieve from knowledge base (async)
 
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            metadata_filters: 运行时元数据过滤条件 / Runtime metadata filters
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -87,12 +89,14 @@ class KnowledgeBaseDataAPI(ABC):
         self,
         query: str,
         config: Optional[Config] = None,
+        metadata_filters: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """检索知识库（同步）/ Retrieve from knowledge base (async)
 
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            metadata_filters: 运行时元数据过滤条件 / Runtime metadata filters
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -185,11 +189,14 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
             )
         return credential.credential_secret
 
-    def _build_request_body(self, query: str) -> Dict[str, Any]:
+    def _build_request_body(
+        self, query: str, metadata_condition: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """构建请求体 / Build request body
 
         Args:
             query: 查询文本 / Query text
+            metadata_condition: 元数据过滤条件 / Metadata condition filter
 
         Returns:
             Dict[str, Any]: 请求体 / Request body
@@ -219,18 +226,24 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
             if self.retrieve_settings.cross_languages is not None:
                 body["cross_languages"] = self.retrieve_settings.cross_languages
 
+        # 添加运行时元数据过滤条件 / Add runtime metadata condition filter
+        if metadata_condition is not None:
+            body["metadata_condition"] = metadata_condition
+
         return body
 
     async def retrieve_async(
         self,
         query: str,
         config: Optional[Config] = None,
+        metadata_condition: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """RagFlow 检索（异步）/ RagFlow retrieval (async)
 
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            metadata_condition: 运行时元数据过滤条件 / Runtime metadata condition filter
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -251,7 +264,7 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}",
             }
-            body = self._build_request_body(query)
+            body = self._build_request_body(query, metadata_condition=metadata_condition)
 
             # 发送请求 / Send request
             async with httpx.AsyncClient(
@@ -290,12 +303,14 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
         self,
         query: str,
         config: Optional[Config] = None,
+        metadata_condition: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """RagFlow 检索（同步）/ RagFlow retrieval (async)
 
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            metadata_condition: 运行时元数据过滤条件 / Runtime metadata condition filter
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -316,7 +331,7 @@ class RagFlowDataAPI(KnowledgeBaseDataAPI):
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}",
             }
-            body = self._build_request_body(query)
+            body = self._build_request_body(query, metadata_condition=metadata_condition)
 
             # 发送请求 / Send request
             with httpx.Client(
@@ -382,12 +397,14 @@ class BailianDataAPI(KnowledgeBaseDataAPI, ControlAPI):
         self,
         query: str,
         config: Optional[Config] = None,
+        search_filters: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """百炼检索（异步）/ Bailian retrieval (async)
 
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            search_filters: 运行时元数据过滤条件 / Runtime metadata search filters
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -424,6 +441,11 @@ class BailianDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                     request_params["rerank_top_n"] = (
                         self.retrieve_settings.rerank_top_n
                     )
+
+            # 添加运行时元数据过滤条件 / Add runtime metadata search filters
+            if search_filters is not None:
+                request_params["search_filters"] = search_filters
+                request_params["is_displayed_chunk_content"] = True
 
             # 获取百炼客户端 / Get Bailian client
             client = self._get_bailian_client(config)
@@ -478,12 +500,14 @@ class BailianDataAPI(KnowledgeBaseDataAPI, ControlAPI):
         self,
         query: str,
         config: Optional[Config] = None,
+        search_filters: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """百炼检索（同步）/ Bailian retrieval (async)
 
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            search_filters: 运行时元数据过滤条件 / Runtime metadata search filters
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -520,6 +544,11 @@ class BailianDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                     request_params["rerank_top_n"] = (
                         self.retrieve_settings.rerank_top_n
                     )
+
+            # 添加运行时元数据过滤条件 / Add runtime metadata search filters
+            if search_filters is not None:
+                request_params["search_filters"] = search_filters
+                request_params["is_displayed_chunk_content"] = True
 
             # 获取百炼客户端 / Get Bailian client
             client = self._get_bailian_client(config)
@@ -598,13 +627,17 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
         self.retrieve_settings = retrieve_settings
 
     def _build_query_content_request(
-        self, query: str, config: Optional[Config] = None
+        self,
+        query: str,
+        config: Optional[Config] = None,
+        filter: Optional[str] = None,
     ) -> gpdb_models.QueryContentRequest:
         """构建 QueryContent 请求 / Build QueryContent request
 
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            filter: 运行时 SQL WHERE 过滤条件 / Runtime SQL WHERE filter
 
         Returns:
             QueryContentRequest: GPDB QueryContent 请求对象
@@ -659,8 +692,9 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
                 request_params["hybrid_search_args"] = (
                     self.retrieve_settings.hybrid_search_args
                 )
-            if self.retrieve_settings.filter is not None:
-                request_params["filter"] = self.retrieve_settings.filter
+
+        if filter is not None:
+            request_params["filter"] = filter
 
         return gpdb_models.QueryContentRequest(**request_params)
 
@@ -728,6 +762,7 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
         self,
         query: str,
         config: Optional[Config] = None,
+        filter: Optional[str] = None,
     ) -> Dict[str, Any]:
         """ADB 检索（异步）/ ADB retrieval asynchronously
 
@@ -737,6 +772,7 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            filter: 运行时 SQL WHERE 过滤条件 / Runtime SQL WHERE filter
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -751,7 +787,7 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
             client = self._get_gpdb_client(config)
 
             # 构建请求 / Build request
-            request = self._build_query_content_request(query, config)
+            request = self._build_query_content_request(query, config, filter=filter)
             logger.debug(f"ADB QueryContent request: {request}")
 
             # 调用 QueryContent API / Call QueryContent API
@@ -778,6 +814,7 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
         self,
         query: str,
         config: Optional[Config] = None,
+        filter: Optional[str] = None,
     ) -> Dict[str, Any]:
         """ADB 检索（同步）/ ADB retrieval synchronously
 
@@ -787,6 +824,7 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            filter: 运行时 SQL WHERE 过滤条件 / Runtime SQL WHERE filter
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -801,7 +839,7 @@ class ADBDataAPI(KnowledgeBaseDataAPI, ControlAPI):
             client = self._get_gpdb_client(config)
 
             # 构建请求 / Build request
-            request = self._build_query_content_request(query, config)
+            request = self._build_query_content_request(query, config, filter=filter)
             logger.debug(f"ADB QueryContent request: {request}")
 
             # 调用 QueryContent API / Call QueryContent API
@@ -876,85 +914,96 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
             ots_instance_name=self.provider_settings.ots_instance_name,
         )
 
-    def _build_retrieval_configuration(self) -> Optional[Dict[str, Any]]:
+    def _build_retrieval_configuration(
+        self, filter: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
         """将 OTSRetrieveSettings 转换为 tablestore-agent-storage 的 dict 格式
         Convert OTSRetrieveSettings to tablestore-agent-storage dict format
+
+        Args:
+            filter: 运行时过滤条件 / Runtime filter
 
         Returns:
             Optional[Dict[str, Any]]: 检索配置字典 / Retrieval configuration dict
         """
-        if self.retrieve_settings is None:
+        if self.retrieve_settings is None and filter is None:
             return None
 
         config: Dict[str, Any] = {}
 
-        if self.retrieve_settings.search_type is not None:
-            config["searchType"] = self.retrieve_settings.search_type
+        if self.retrieve_settings is not None:
+            if self.retrieve_settings.search_type is not None:
+                config["searchType"] = self.retrieve_settings.search_type
 
-        if self.retrieve_settings.dense_vector_search_configuration is not None:
-            dvsc = self.retrieve_settings.dense_vector_search_configuration
-            dv_config: Dict[str, Any] = {}
-            if dvsc.number_of_results is not None:
-                dv_config["numberOfResults"] = dvsc.number_of_results
-            config["denseVectorSearchConfiguration"] = dv_config
+            if self.retrieve_settings.dense_vector_search_configuration is not None:
+                dvsc = self.retrieve_settings.dense_vector_search_configuration
+                dv_config: Dict[str, Any] = {}
+                if dvsc.number_of_results is not None:
+                    dv_config["numberOfResults"] = dvsc.number_of_results
+                config["denseVectorSearchConfiguration"] = dv_config
 
-        if self.retrieve_settings.full_text_search_configuration is not None:
-            ftsc = self.retrieve_settings.full_text_search_configuration
-            ft_config: Dict[str, Any] = {}
-            if ftsc.number_of_results is not None:
-                ft_config["numberOfResults"] = ftsc.number_of_results
-            config["fullTextSearchConfiguration"] = ft_config
+            if self.retrieve_settings.full_text_search_configuration is not None:
+                ftsc = self.retrieve_settings.full_text_search_configuration
+                ft_config: Dict[str, Any] = {}
+                if ftsc.number_of_results is not None:
+                    ft_config["numberOfResults"] = ftsc.number_of_results
+                config["fullTextSearchConfiguration"] = ft_config
 
-        if self.retrieve_settings.reranking_configuration is not None:
-            rc = self.retrieve_settings.reranking_configuration
-            rr_config: Dict[str, Any] = {}
+            if self.retrieve_settings.reranking_configuration is not None:
+                rc = self.retrieve_settings.reranking_configuration
+                rr_config: Dict[str, Any] = {}
 
-            if rc.type is not None:
-                rr_config["type"] = rc.type
-            if rc.number_of_results is not None:
-                rr_config["numberOfResults"] = rc.number_of_results
+                if rc.type is not None:
+                    rr_config["type"] = rc.type
+                if rc.number_of_results is not None:
+                    rr_config["numberOfResults"] = rc.number_of_results
 
-            if rc.rrf_configuration is not None:
-                rrf: Dict[str, Any] = {}
-                if rc.rrf_configuration.dense_vector_search_weight is not None:
-                    rrf["denseVectorSearchWeight"] = (
-                        rc.rrf_configuration.dense_vector_search_weight
-                    )
-                if rc.rrf_configuration.full_text_search_weight is not None:
-                    rrf["fullTextSearchWeight"] = (
-                        rc.rrf_configuration.full_text_search_weight
-                    )
-                if rc.rrf_configuration.k is not None:
-                    rrf["k"] = rc.rrf_configuration.k
-                rr_config["rrfConfiguration"] = rrf
+                if rc.rrf_configuration is not None:
+                    rrf: Dict[str, Any] = {}
+                    if rc.rrf_configuration.dense_vector_search_weight is not None:
+                        rrf["denseVectorSearchWeight"] = (
+                            rc.rrf_configuration.dense_vector_search_weight
+                        )
+                    if rc.rrf_configuration.full_text_search_weight is not None:
+                        rrf["fullTextSearchWeight"] = (
+                            rc.rrf_configuration.full_text_search_weight
+                        )
+                    if rc.rrf_configuration.k is not None:
+                        rrf["k"] = rc.rrf_configuration.k
+                    rr_config["rrfConfiguration"] = rrf
 
-            if rc.weight_configuration is not None:
-                wc: Dict[str, Any] = {}
-                if (
-                    rc.weight_configuration.dense_vector_search_weight
-                    is not None
-                ):
-                    wc["denseVectorSearchWeight"] = (
+                if rc.weight_configuration is not None:
+                    wc: Dict[str, Any] = {}
+                    if (
                         rc.weight_configuration.dense_vector_search_weight
-                    )
-                if rc.weight_configuration.full_text_search_weight is not None:
-                    wc["fullTextSearchWeight"] = (
-                        rc.weight_configuration.full_text_search_weight
-                    )
-                rr_config["weightConfiguration"] = wc
+                        is not None
+                    ):
+                        wc["denseVectorSearchWeight"] = (
+                            rc.weight_configuration.dense_vector_search_weight
+                        )
+                    if rc.weight_configuration.full_text_search_weight is not None:
+                        wc["fullTextSearchWeight"] = (
+                            rc.weight_configuration.full_text_search_weight
+                        )
+                    rr_config["weightConfiguration"] = wc
 
-            if rc.model_configuration is not None:
-                mc: Dict[str, Any] = {}
-                if rc.model_configuration.provider is not None:
-                    mc["provider"] = rc.model_configuration.provider
-                if rc.model_configuration.model is not None:
-                    mc["model"] = rc.model_configuration.model
-                rr_config["modelConfiguration"] = mc
+                if rc.model_configuration is not None:
+                    mc: Dict[str, Any] = {}
+                    if rc.model_configuration.provider is not None:
+                        mc["provider"] = rc.model_configuration.provider
+                    if rc.model_configuration.model is not None:
+                        mc["model"] = rc.model_configuration.model
+                    rr_config["modelConfiguration"] = mc
 
-            config["rerankingConfiguration"] = rr_config
+                config["rerankingConfiguration"] = rr_config
 
-        if self.retrieve_settings.filter is not None:
-            config["filter"] = self.retrieve_settings.filter
+            if self.retrieve_settings.filter is not None:
+                config["filter"] = self.retrieve_settings.filter
+
+        # 运行时 filter 优先级高于 retrieve_settings.filter
+        # Runtime filter takes precedence over retrieve_settings.filter
+        if filter is not None:
+            config["filter"] = filter
 
         return config if config else None
 
@@ -996,6 +1045,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
         self,
         query: str,
         config: Optional[Config] = None,
+        filter: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """OTS 检索（异步）/ OTS retrieval asynchronously
 
@@ -1005,6 +1055,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            filter: 运行时过滤条件 / Runtime filter
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -1017,7 +1068,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
 
             client = self._build_agent_storage_client(config)
 
-            retrieval_config = self._build_retrieval_configuration()
+            retrieval_config = self._build_retrieval_configuration(filter=filter)
 
             request: Dict[str, Any] = {
                 "knowledgeBaseName": self.knowledge_base_name,
@@ -1050,6 +1101,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
         self,
         query: str,
         config: Optional[Config] = None,
+        filter: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """OTS 检索（同步）/ OTS retrieval synchronously
 
@@ -1059,6 +1111,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
         Args:
             query: 查询文本 / Query text
             config: 配置 / Configuration
+            filter: 运行时过滤条件 / Runtime filter
 
         Returns:
             Dict[str, Any]: 检索结果 / Retrieval results
@@ -1071,7 +1124,7 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
 
             client = self._build_agent_storage_client(config)
 
-            retrieval_config = self._build_retrieval_configuration()
+            retrieval_config = self._build_retrieval_configuration(filter=filter)
 
             request: Dict[str, Any] = {
                 "knowledgeBaseName": self.knowledge_base_name,

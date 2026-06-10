@@ -79,7 +79,11 @@ class KnowledgeBaseToolSet(CommonToolSet):
             " grouped by knowledge base name."
         ),
     )
-    def search_document(self, query: str) -> Dict[str, Any]:
+    def search_document(
+        self,
+        query: str,
+        metadata_filters: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         """检索文档 / Search documents
 
         根据查询文本从配置的知识库中检索相关文档。
@@ -87,6 +91,7 @@ class KnowledgeBaseToolSet(CommonToolSet):
 
         Args:
             query: 查询文本 / Query text
+            metadata_filters: 元数据过滤条件 / Metadata filter conditions
 
         Returns:
             Dict[str, Any]: 检索结果，包含各知识库的检索结果 /
@@ -96,6 +101,7 @@ class KnowledgeBaseToolSet(CommonToolSet):
             query=query,
             knowledge_base_names=self.knowledge_base_names,
             config=self.config,
+            metadata_filters=metadata_filters,
         )
 
 

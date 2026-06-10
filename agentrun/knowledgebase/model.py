@@ -151,8 +151,8 @@ class ADBRetrieveSettings(BaseModel):
     """混合检索算法参数，如 {"RRF": {"k": 60}} 或 {"Weight": {"alpha": 0.5}}
     Hybrid search algorithm parameters"""
     filter: Optional[str] = None
-    """过滤条件，SQL WHERE 格式，如 "category = 'tech' AND score > 0.5"
-    Filter condition in SQL WHERE format"""
+    """过滤条件（已弃用，请通过 retrieve 方法的 metadata_filters 参数传入）
+    Filter condition (deprecated, use metadata_filters parameter in retrieve method instead)"""
 
 
 # =============================================================================

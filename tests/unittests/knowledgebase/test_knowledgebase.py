@@ -13,6 +13,8 @@ from agentrun.knowledgebase.model import (
     KnowledgeBaseCreateInput,
     KnowledgeBaseProvider,
     KnowledgeBaseUpdateInput,
+    OTSProviderSettings,
+    OTSRetrieveSettings,
     RagFlowProviderSettings,
     RagFlowRetrieveSettings,
 )
@@ -706,7 +708,6 @@ class TestKnowledgeBaseGetDataAPI:
                 "RecallWindow": [-5, 5],
                 "HybridSearch": "RRF",
                 "HybridSearchArgs": {"RRF": {"k": 60}},
-                "Filter": "category = 'tech'",
             },
         )
 
@@ -714,7 +715,7 @@ class TestKnowledgeBaseGetDataAPI:
 
         data_api = kb._get_data_api()
         assert isinstance(data_api, ADBDataAPI)
-        assert data_api.retrieve_settings.filter == "category = 'tech'"
+        assert data_api.retrieve_settings.top_k == 10
 
     def test_get_data_api_without_provider(self):
         """测试获取数据链路 API（无提供商）"""
@@ -1307,3 +1308,162 @@ class TestKnowledgeBaseMultiRetrieve:
             )
 
             assert "results" in result
+
+class TestKnowledgeBaseMetadataFilters:
+    """测试 metadata_filters 运行时参数 / Test metadata_filters runtime parameter"""
+
+    @patch("agentrun.knowledgebase.api.data.BailianDataAPI.retrieve")
+    def test_retrieve_sync_bailian_with_metadata_filters(self, mock_retrieve):
+        """测试百炼同步检索传递 metadata_filters -> search_filters"""
+        mock_retrieve.return_value = {
+            "data": [{"content": "test"}],
+            "query": "test query",
+        }
+
+        kb = KnowledgeBase(
+            knowledge_base_name="test-bailian-kb",
+            provider=KnowledgeBaseProvider.BAILIAN,
+            provider_settings=BailianProviderSettings(
+                workspace_id="ws-123",
+                index_ids=["idx-1"],
+            ),
+            credential_name="test-credential",
+        )
+
+        filters = [{"key": "vehicle_type", "value": "sedan"}]
+        kb.retrieve("test query", metadata_filters=filters)
+
+        mock_retrieve.assert_called_once()
+        _, kwargs = mock_retrieve.call_args
+        assert kwargs.get("search_filters") == filters
+
+    @patch("agentrun.knowledgebase.api.data.RagFlowDataAPI.retrieve")
+    def test_retrieve_sync_ragflow_with_metadata_filters(self, mock_retrieve):
+        """测试 RagFlow 同步检索传递 metadata_filters -> metadata_condition"""
+        mock_retrieve.return_value = {
+            "data": [{"content": "test"}],
+            "query": "test query",
+        }
+
+        kb = KnowledgeBase(
+            knowledge_base_name="test-ragflow-kb",
+            provider=KnowledgeBaseProvider.RAGFLOW,
+            provider_settings=RagFlowProviderSettings(
+                base_url="https://ragflow.example.com",
+                dataset_ids=["ds-1"],
+            ),
+            credential_name="test-credential",
+        )
+
+        filters = {"logic": "and", "conditions": []}
+        kb.retrieve("test query", metadata_filters=filters)
+
+        mock_retrieve.assert_called_once()
+        _, kwargs = mock_retrieve.call_args
+        assert kwargs.get("metadata_condition") == filters
+
+    @patch("agentrun.knowledgebase.api.data.ADBDataAPI.retrieve")
+    def test_retrieve_sync_adb_with_metadata_filters(self, mock_retrieve):
+        """测试 ADB 同步检索传递 metadata_filters -> filter"""
+        mock_retrieve.return_value = {
+            "data": [{"content": "test"}],
+            "query": "test query",
+        }
+
+        kb = KnowledgeBase(
+            knowledge_base_name="test-adb-kb",
+            provider=KnowledgeBaseProvider.ADB,
+            provider_settings=ADBProviderSettings(
+                db_instance_id="adb-123",
+                namespace="public",
+                namespace_password="test-pwd",
+            ),
+            credential_name="test-credential",
+        )
+
+        filters = "vehicle_type = 'sedan'"
+        kb.retrieve("test query", metadata_filters=filters)
+
+        mock_retrieve.assert_called_once()
+        _, kwargs = mock_retrieve.call_args
+        assert kwargs.get("filter") == filters
+
+    @patch("agentrun.knowledgebase.api.data.OTSDataAPI.retrieve")
+    def test_retrieve_sync_ots_with_metadata_filters(self, mock_retrieve):
+        """测试 OTS 同步检索传递 metadata_filters -> filter"""
+        mock_retrieve.return_value = {
+            "data": [{"content": "test"}],
+            "query": "test query",
+        }
+
+        kb = KnowledgeBase(
+            knowledge_base_name="test-ots-kb",
+            provider=KnowledgeBaseProvider.OTS,
+            provider_settings=OTSProviderSettings(
+                ots_instance_name="ots-123",
+            ),
+            credential_name="test-credential",
+        )
+
+        filters = {"vehicle_type": "sedan"}
+        kb.retrieve("test query", metadata_filters=filters)
+
+        mock_retrieve.assert_called_once()
+        _, kwargs = mock_retrieve.call_args
+        assert kwargs.get("filter") == filters
+
+    @patch("agentrun.knowledgebase.api.data.BailianDataAPI.retrieve")
+    def test_safe_retrieve_kb_with_metadata_filters(self, mock_retrieve):
+        """测试 _safe_retrieve_kb 透传 metadata_filters"""
+        mock_retrieve.return_value = {
+            "data": [{"content": "test"}],
+            "query": "test query",
+        }
+
+        kb = KnowledgeBase(
+            knowledge_base_name="test-bailian-kb",
+            provider=KnowledgeBaseProvider.BAILIAN,
+            provider_settings=BailianProviderSettings(
+                workspace_id="ws-123",
+                index_ids=["idx-1"],
+            ),
+            credential_name="test-credential",
+        )
+
+        filters = [{"key": "vehicle_type", "value": "sedan"}]
+        result = KnowledgeBase._safe_retrieve_kb(
+            "test-bailian-kb", kb, "test query", metadata_filters=filters
+        )
+
+        assert "data" in result
+        mock_retrieve.assert_called_once()
+        _, kwargs = mock_retrieve.call_args
+        assert kwargs.get("search_filters") == filters
+
+    @patch("agentrun.knowledgebase.client.KnowledgeBaseControlAPI")
+    @patch("agentrun.knowledgebase.api.data.BailianDataAPI.retrieve")
+    def test_multi_retrieve_with_metadata_filters(
+        self, mock_retrieve, mock_control_api_class
+    ):
+        """测试 multi_retrieve 透传 metadata_filters"""
+        mock_control_api = MagicMock()
+        mock_control_api.get_knowledge_base.return_value = MockBailianKnowledgeBaseData()
+        mock_control_api_class.return_value = mock_control_api
+
+        mock_retrieve.return_value = {
+            "data": [{"content": "test"}],
+            "query": "test query",
+        }
+
+        filters = [{"key": "vehicle_type", "value": "sedan"}]
+        result = KnowledgeBase.multi_retrieve(
+            query="test query",
+            knowledge_base_names=["kb-1"],
+            metadata_filters=filters,
+        )
+
+        assert "results" in result
+        mock_retrieve.assert_called_once()
+        _, kwargs = mock_retrieve.call_args
+        assert kwargs.get("search_filters") == filters
+
