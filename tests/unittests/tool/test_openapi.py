@@ -686,6 +686,331 @@ class TestToolOpenAPIClient:
         assert "id" in op["input_schema"]["properties"]
         assert "id" in op["input_schema"]["required"]
 
+    def test_parse_operations_fixed_header_const_not_exposed(self):
+        """测试 header schema.const 会转为固定 header 且不暴露给工具参数"""
+        spec = json.dumps({
+            "openapi": "3.1.0",
+            "info": {"title": "Test API"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/reset": {
+                    "post": {
+                        "operationId": "resetWorkspaceData",
+                        "parameters": [
+                            {
+                                "name": "X-Custom-Auth",
+                                "in": "header",
+                                "schema": {
+                                    "type": "string",
+                                    "const": "fixed-token",
+                                },
+                            },
+                            {
+                                "name": "traceId",
+                                "in": "query",
+                                "schema": {"type": "string"},
+                            },
+                        ],
+                    }
+                }
+            },
+        })
+        client = ToolOpenAPIClient(protocol_spec=spec)
+        operations = client._parse_operations()
+
+        assert len(operations) == 1
+        op = operations[0]
+        assert op["fixed_headers"] == {"X-Custom-Auth": "fixed-token"}
+        assert "traceId" in op["input_schema"]["properties"]
+        assert "X-Custom-Auth" not in op["input_schema"]["properties"]
+
+    def test_parse_operations_fixed_header_single_enum_not_exposed(self):
+        """测试单值 enum 会转为固定 header，不依赖 required 字段"""
+        spec = json.dumps({
+            "openapi": "3.0.0",
+            "info": {"title": "Test API"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/reset": {
+                    "parameters": [{
+                        "name": "X-Path-Auth",
+                        "in": "header",
+                        "schema": {"type": "string", "enum": ["path-token"]},
+                    }],
+                    "post": {
+                        "operationId": "resetWorkspaceData",
+                        "parameters": [{
+                            "name": "X-Operation-Auth",
+                            "in": "header",
+                            "required": False,
+                            "schema": {"enum": ["operation-token"]},
+                        }],
+                    },
+                }
+            },
+        })
+        client = ToolOpenAPIClient(protocol_spec=spec)
+        operations = client._parse_operations()
+
+        assert operations[0]["fixed_headers"] == {
+            "X-Path-Auth": "path-token",
+            "X-Operation-Auth": "operation-token",
+        }
+        assert operations[0]["input_schema"] is None
+
+    def test_parse_operations_multi_enum_header_remains_parameter(self):
+        """测试多值 enum header 不是固定值，仍作为工具参数暴露"""
+        spec = json.dumps({
+            "openapi": "3.0.0",
+            "info": {"title": "Test API"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/reset": {
+                    "post": {
+                        "operationId": "resetWorkspaceData",
+                        "parameters": [{
+                            "name": "X-Custom-Auth",
+                            "in": "header",
+                            "schema": {
+                                "type": "string",
+                                "enum": ["a", "b"],
+                            },
+                        }],
+                    }
+                }
+            },
+        })
+        client = ToolOpenAPIClient(protocol_spec=spec)
+        operations = client._parse_operations()
+
+        op = operations[0]
+        assert op["fixed_headers"] == {}
+        assert "X-Custom-Auth" in op["input_schema"]["properties"]
+
+    def test_parse_operations_non_string_fixed_header_remains_parameter(self):
+        """测试非字符串 const/单值 enum 不会转为固定 header"""
+        spec = json.dumps({
+            "openapi": "3.1.0",
+            "info": {"title": "Test API"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/reset": {
+                    "post": {
+                        "operationId": "resetWorkspaceData",
+                        "parameters": [
+                            {
+                                "name": "X-Number-Auth",
+                                "in": "header",
+                                "schema": {"const": 123},
+                            },
+                            {
+                                "name": "X-Bool-Auth",
+                                "in": "header",
+                                "schema": {"enum": [True]},
+                            },
+                        ],
+                    }
+                }
+            },
+        })
+        client = ToolOpenAPIClient(protocol_spec=spec)
+        operations = client._parse_operations()
+
+        op = operations[0]
+        assert op["fixed_headers"] == {}
+        assert "X-Number-Auth" in op["input_schema"]["properties"]
+        assert "X-Bool-Auth" in op["input_schema"]["properties"]
+
+    def test_parse_operations_fixed_header_with_request_body(self):
+        """测试 requestBody 存在时仍会解析固定 header"""
+        spec = json.dumps({
+            "openapi": "3.1.0",
+            "info": {"title": "Test API"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/reset": {
+                    "post": {
+                        "operationId": "resetWorkspaceData",
+                        "parameters": [{
+                            "name": "X-Custom-Auth",
+                            "in": "header",
+                            "schema": {"const": "fixed-token"},
+                        }],
+                        "requestBody": {
+                            "required": True,
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "code": {"type": "string"}
+                                        },
+                                        "required": ["code"],
+                                    }
+                                }
+                            },
+                        },
+                    }
+                }
+            },
+        })
+        client = ToolOpenAPIClient(protocol_spec=spec)
+        operations = client._parse_operations()
+
+        op = operations[0]
+        assert op["fixed_headers"] == {"X-Custom-Auth": "fixed-token"}
+        assert op["input_schema"]["properties"] == {"code": {"type": "string"}}
+
+    def test_parse_operations_parameter_ref_is_not_fixed_header(self):
+        """测试 parameter $ref 不作为固定 header 解析"""
+        spec = json.dumps({
+            "openapi": "3.1.0",
+            "info": {"title": "Test API"},
+            "servers": [{"url": "https://api.example.com"}],
+            "components": {
+                "parameters": {
+                    "CustomAuth": {
+                        "name": "X-Custom-Auth",
+                        "in": "header",
+                        "schema": {"const": "fixed-token"},
+                    }
+                }
+            },
+            "paths": {
+                "/reset": {
+                    "post": {
+                        "operationId": "resetWorkspaceData",
+                        "parameters": [
+                            {"$ref": "#/components/parameters/CustomAuth"}
+                        ],
+                    }
+                }
+            },
+        })
+        client = ToolOpenAPIClient(protocol_spec=spec)
+        operations = client._parse_operations()
+
+        assert operations[0]["fixed_headers"] == {}
+        assert operations[0]["input_schema"] is None
+
+    @patch("agentrun.tool.api.openapi.httpx.Client")
+    def test_call_tool_uses_fixed_headers_and_filters_arguments(
+        self, mock_client_class
+    ):
+        """测试调用时固定 header 覆盖默认 header，且不会进入 query"""
+        mock_response = Mock()
+        mock_response.json.return_value = {"ok": True}
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.raise_for_status = Mock()
+
+        mock_client_instance = Mock()
+        mock_client_instance.request.return_value = mock_response
+        mock_client_instance.__enter__ = Mock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = Mock(return_value=False)
+        mock_client_class.return_value = mock_client_instance
+
+        spec = json.dumps({
+            "openapi": "3.1.0",
+            "info": {"title": "Test API"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/reset": {
+                    "get": {
+                        "operationId": "resetWorkspaceData",
+                        "parameters": [
+                            {
+                                "name": "X-Custom-Auth",
+                                "in": "header",
+                                "schema": {"const": "fixed-token"},
+                            },
+                            {
+                                "name": "traceId",
+                                "in": "query",
+                                "schema": {"type": "string"},
+                            },
+                        ],
+                    }
+                }
+            },
+        })
+
+        client = ToolOpenAPIClient(
+            protocol_spec=spec,
+            headers={"x-custom-auth": "caller-token", "X-Trace": "base"},
+        )
+        result = client.call_tool(
+            "resetWorkspaceData",
+            {"X-Custom-Auth": "wrong-token", "traceId": "trace-1"},
+        )
+
+        assert result == {"ok": True}
+        assert mock_client_class.call_args[1]["headers"] == {
+            "X-Trace": "base",
+            "X-Custom-Auth": "fixed-token",
+        }
+        request_kwargs = mock_client_instance.request.call_args[1]
+        assert request_kwargs["params"] == {"traceId": "trace-1"}
+
+    @patch("agentrun.tool.api.openapi.httpx.AsyncClient")
+    async def test_call_tool_async_uses_fixed_headers_and_filters_arguments(
+        self, mock_async_client_class
+    ):
+        """测试异步调用时固定 header 覆盖默认 header，且不会进入 query"""
+        mock_response = Mock()
+        mock_response.json.return_value = {"ok": True}
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.raise_for_status = Mock()
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.request = AsyncMock(return_value=mock_response)
+        mock_client_instance.__aenter__ = AsyncMock(
+            return_value=mock_client_instance
+        )
+        mock_client_instance.__aexit__ = AsyncMock()
+        mock_async_client_class.return_value = mock_client_instance
+
+        spec = json.dumps({
+            "openapi": "3.1.0",
+            "info": {"title": "Test API"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/reset": {
+                    "get": {
+                        "operationId": "resetWorkspaceData",
+                        "parameters": [
+                            {
+                                "name": "X-Custom-Auth",
+                                "in": "header",
+                                "schema": {"enum": ["fixed-token"]},
+                            },
+                            {
+                                "name": "traceId",
+                                "in": "query",
+                                "schema": {"type": "string"},
+                            },
+                        ],
+                    }
+                }
+            },
+        })
+
+        client = ToolOpenAPIClient(
+            protocol_spec=spec,
+            headers={"x-custom-auth": "caller-token", "X-Trace": "base"},
+        )
+        result = await client.call_tool_async(
+            "resetWorkspaceData",
+            {"X-Custom-Auth": "wrong-token", "traceId": "trace-1"},
+        )
+
+        assert result == {"ok": True}
+        assert mock_async_client_class.call_args[1]["headers"] == {
+            "X-Trace": "base",
+            "X-Custom-Auth": "fixed-token",
+        }
+        request_kwargs = mock_client_instance.request.call_args[1]
+        assert request_kwargs["params"] == {"traceId": "trace-1"}
+
 
 class AsyncMock(Mock):
     """Async mock helper"""
