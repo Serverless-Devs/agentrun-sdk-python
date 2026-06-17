@@ -16,8 +16,12 @@ class TestConfig:
             },
         ):
             config = Config()
-            assert config._access_key_id == "mock-access-key-id"
-            assert config._access_key_secret == "mock-access-key-secret"
+            # 凭证改为懒解析：未显式传入时私有字段保持 None（ambient），
+            # 实际值经 getter（overlay 优先 -> 环境变量）解析。
+            assert config._access_key_id is None
+            assert config._access_key_secret is None
+            assert config.get_access_key_id() == "mock-access-key-id"
+            assert config.get_access_key_secret() == "mock-access-key-secret"
             assert config._account_id == "mock-account-id"
             assert config._use_vpc_endpoint is False
 

@@ -785,9 +785,15 @@ class TestFromMemoryCollection:
         ):
             store = SessionStore.from_memory_collection("test-mc")
 
-        assert isinstance(store, SessionStore)
-        ots_kwargs = mock_ots_cls.call_args.kwargs
-        assert ots_kwargs.get("sts_token") == "sts_token"
+            # OTS 现通过 credentials_provider 动态注入凭证（不再传静态
+            # sts_token）；在 env 仍生效的上下文内解析 provider 校验 STS。
+            assert isinstance(store, SessionStore)
+            ots_kwargs = mock_ots_cls.call_args.kwargs
+            provider = ots_kwargs.get("credentials_provider")
+            assert provider is not None
+            creds = provider.get_credentials()
+            assert creds.get_access_key_id() == "ak_id"
+            assert creds.get_security_token() == "sts_token"
 
     @patch("tablestore.WriteRetryPolicy")
     @patch("tablestore.AsyncOTSClient")
