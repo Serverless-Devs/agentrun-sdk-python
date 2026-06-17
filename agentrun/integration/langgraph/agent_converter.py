@@ -915,17 +915,16 @@ class AgentRunConverter:
                 else:
                     error_message = str(error)
 
-            # 发送 ERROR 事件
+            # 发送 TOOL_RESULT 事件，避免把工具失败升级成 run error
             yield AgentResult(
-                event=EventType.ERROR,
+                event=EventType.TOOL_RESULT,
                 data={
-                    "message": (
+                    "id": tool_call_id,
+                    "result": (
                         f"Tool '{tool_name}' error: {error_message}"
                         if tool_name
                         else error_message
                     ),
-                    "code": "TOOL_ERROR",
-                    "tool_call_id": tool_call_id,
                 },
             )
 

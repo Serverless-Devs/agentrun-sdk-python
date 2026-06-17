@@ -744,7 +744,7 @@ class TestErrorEvents:
         """测试 on_tool_error 事件
 
         输入: on_tool_error with error
-        输出: ERROR 事件
+        输出: TOOL_RESULT 事件
         """
         event = {
             "event": "on_tool_error",
@@ -759,11 +759,10 @@ class TestErrorEvents:
         results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
-        assert results[0].event == EventType.ERROR
-        assert "weather_tool" in results[0].data["message"]
-        assert "ValueError" in results[0].data["message"]
-        assert results[0].data["code"] == "TOOL_ERROR"
-        assert results[0].data["tool_call_id"] == "run_123"
+        assert results[0].event == EventType.TOOL_RESULT
+        assert "weather_tool" in results[0].data["result"]
+        assert "ValueError" in results[0].data["result"]
+        assert results[0].data["id"] == "run_123"
 
     def test_on_tool_error_with_runtime_tool_call_id(self):
         """测试 on_tool_error 使用 runtime 中的 tool_call_id"""
@@ -784,7 +783,8 @@ class TestErrorEvents:
         results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
-        assert results[0].data["tool_call_id"] == "call_original_id"
+        assert results[0].event == EventType.TOOL_RESULT
+        assert results[0].data["id"] == "call_original_id"
 
     def test_on_tool_error_with_string_error(self):
         """测试 on_tool_error 使用字符串错误"""
@@ -801,7 +801,8 @@ class TestErrorEvents:
         results = list(AgentRunConverter().to_agui_events(event))
 
         assert len(results) == 1
-        assert "Division by zero" in results[0].data["message"]
+        assert results[0].event == EventType.TOOL_RESULT
+        assert "Division by zero" in results[0].data["result"]
 
     def test_on_llm_error(self):
         """测试 on_llm_error 事件
@@ -876,7 +877,7 @@ class TestErrorEvents:
 
         流程:
         1. on_tool_start (TOOL_CALL_CHUNK)
-        2. on_tool_error (ERROR)
+        2. on_tool_error (TOOL_RESULT)
         """
         events = [
             {
@@ -901,9 +902,9 @@ class TestErrorEvents:
         chunk_events = filter_agent_events(
             all_results, EventType.TOOL_CALL_CHUNK
         )
-        error_events = filter_agent_events(all_results, EventType.ERROR)
+        error_events = filter_agent_events(all_results, EventType.TOOL_RESULT)
 
         assert len(chunk_events) == 1
         assert len(error_events) == 1
         assert chunk_events[0].data["id"] == "run_risky"
-        assert error_events[0].data["tool_call_id"] == "run_risky"
+        assert error_events[0].data["id"] == "run_risky"
