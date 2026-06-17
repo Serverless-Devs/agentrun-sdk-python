@@ -46,8 +46,10 @@ class TestControlAPIGetClient:
         assert mock_client_class.called
         call_args = mock_client_class.call_args
         config_arg = call_args[0][0]
-        assert config_arg.access_key_id == "ak"
-        assert config_arg.access_key_secret == "sk"
+        # 凭证经 credential provider 注入（不再传静态 ak/sk/sts）。
+        creds = config_arg.credential.get_credential()
+        assert creds.access_key_id == "ak"
+        assert creds.access_key_secret == "sk"
         assert config_arg.region_id == "cn-hangzhou"
 
     @patch("agentrun.utils.control_api.AgentRunClient")
@@ -109,7 +111,8 @@ class TestControlAPIGetClient:
 
         call_args = mock_client_class.call_args
         config_arg = call_args[0][0]
-        assert config_arg.access_key_id == "override-ak"
+        creds = config_arg.credential.get_credential()
+        assert creds.access_key_id == "override-ak"
         assert config_arg.region_id == "cn-shanghai"
 
     @patch("agentrun.utils.control_api.AgentRunClient")
@@ -149,7 +152,8 @@ class TestControlAPIGetClient:
 
         call_args = mock_client_class.call_args
         config_arg = call_args[0][0]
-        assert config_arg.security_token == "sts-token"
+        creds = config_arg.credential.get_credential()
+        assert creds.security_token == "sts-token"
 
 
 class TestControlAPIGetDevsClient:
@@ -174,8 +178,10 @@ class TestControlAPIGetDevsClient:
         assert mock_client_class.called
         call_args = mock_client_class.call_args
         config_arg = call_args[0][0]
-        assert config_arg.access_key_id == "ak"
-        assert config_arg.access_key_secret == "sk"
+        # 凭证经 credential provider 注入（不再传静态 ak/sk/sts）。
+        creds = config_arg.credential.get_credential()
+        assert creds.access_key_id == "ak"
+        assert creds.access_key_secret == "sk"
         assert config_arg.region_id == "cn-hangzhou"
 
     @patch("agentrun.utils.control_api.DevsClient")
@@ -235,7 +241,8 @@ class TestControlAPIGetDevsClient:
 
         call_args = mock_client_class.call_args
         config_arg = call_args[0][0]
-        assert config_arg.access_key_id == "override-ak"
+        creds = config_arg.credential.get_credential()
+        assert creds.access_key_id == "override-ak"
 
     @patch("agentrun.utils.control_api.DevsClient")
     def test_get_devs_client_without_protocol_prefix(self, mock_client_class):
@@ -300,8 +307,10 @@ class TestControlAPIGetBailianClient:
         assert mock_client_class.called
         call_args = mock_client_class.call_args
         config_arg = call_args[0][0]
-        assert config_arg.access_key_id == "ak"
-        assert config_arg.access_key_secret == "sk"
+        # 凭证经 credential provider 注入（不再传静态 ak/sk/sts）。
+        creds = config_arg.credential.get_credential()
+        assert creds.access_key_id == "ak"
+        assert creds.access_key_secret == "sk"
         assert config_arg.region_id == "cn-hangzhou"
 
     @patch("alibabacloud_bailian20231229.client.Client")

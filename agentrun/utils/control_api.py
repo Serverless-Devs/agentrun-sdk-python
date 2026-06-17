@@ -11,6 +11,7 @@ from alibabacloud_devs20230714.client import Client as DevsClient
 from alibabacloud_tea_openapi import utils_models as open_api_util_models
 
 from agentrun.utils.config import Config
+from agentrun.utils.credential_providers import build_openapi_credential
 
 # 延迟导入：BailianClient 和 GPDBClient 仅在 knowledgebase 模块使用，
 # 不在顶层导入以减少非 knowledgebase 场景的依赖加载。
@@ -52,9 +53,7 @@ class ControlAPI:
             endpoint = endpoint.split("://", 1)[1]
         return AgentRunClient(
             open_api_util_models.Config(
-                access_key_id=cfg.get_access_key_id(),
-                access_key_secret=cfg.get_access_key_secret(),
-                security_token=cfg.get_security_token(),
+                credential=build_openapi_credential(cfg),
                 region_id=cfg.get_region_id(),
                 endpoint=endpoint,
                 connect_timeout=cfg.get_timeout(),  # type: ignore
@@ -75,9 +74,7 @@ class ControlAPI:
             endpoint = endpoint.split("://", 1)[1]
         return DevsClient(
             open_api_util_models.Config(
-                access_key_id=cfg.get_access_key_id(),
-                access_key_secret=cfg.get_access_key_secret(),
-                security_token=cfg.get_security_token(),
+                credential=build_openapi_credential(cfg),
                 region_id=cfg.get_region_id(),
                 endpoint=endpoint,
                 connect_timeout=cfg.get_timeout(),  # type: ignore
@@ -102,9 +99,7 @@ class ControlAPI:
             endpoint = endpoint.split("://", 1)[1]
         return BailianClient(
             open_api_util_models.Config(
-                access_key_id=cfg.get_access_key_id(),
-                access_key_secret=cfg.get_access_key_secret(),
-                security_token=cfg.get_security_token(),
+                credential=build_openapi_credential(cfg),
                 region_id=cfg.get_region_id(),
                 endpoint=endpoint,
                 connect_timeout=cfg.get_timeout(),  # type: ignore
@@ -142,9 +137,7 @@ class ControlAPI:
 
         return GPDBClient(
             open_api_util_models.Config(
-                access_key_id=cfg.get_access_key_id(),
-                access_key_secret=cfg.get_access_key_secret(),
-                security_token=cfg.get_security_token(),
+                credential=build_openapi_credential(cfg),
                 region_id=cfg.get_region_id(),
                 endpoint=endpoint,
                 connect_timeout=cfg.get_timeout(),  # type: ignore
