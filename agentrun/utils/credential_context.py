@@ -22,9 +22,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
+import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterator, Mapping, Optional
+
+# FC 注入 STS 的默认头名（可经构造参数或环境变量覆盖）。
+DEFAULT_ACCESS_KEY_ID_HEADER = "x-fc-access-key-id"
+DEFAULT_ACCESS_KEY_SECRET_HEADER = "x-fc-access-key-secret"
+DEFAULT_SECURITY_TOKEN_HEADER = "x-fc-security-token"
 
 
 @dataclass(frozen=True)
@@ -78,3 +85,109 @@ def reset_request_sts(token: contextvars.Token) -> None:
 def get_request_sts() -> Optional[StsCredential]:
     """获取当前请求的 STS 覆盖层；未设置时返回 ``None``。"""
     return _current_sts.get()
+
+
+def _resolve_header_name(
+    explicit: Optional[str], env_key: str, default: str
+) -> str:
+    """解析头名：构造参数 > 环境变量 > 默认值；统一转小写。"""
+    return (explicit or os.getenv(env_key) or default).lower()
+
+
+def sts_from_headers(
+    headers: Mapping[str, str],
+    *,
+    access_key_id_header: Optional[str] = None,
+    access_key_secret_header: Optional[str] = None,
+    security_token_header: Optional[str] = None,
+) -> Optional[StsCredential]:
+    """从请求头映射解析 STS 三元组；不齐全则返回 ``None``。
+
+    仅当 ak/sk/sts 三者齐全才视为有效刷新（避免把新 sts 与陈旧/环境变量里的
+    ak/sk 混用）。``headers`` 可为任意 Mapping（如 ``dict`` 或 Starlette
+    ``Headers``），按头名**大小写不敏感**查找。头名优先级：参数 > 环境变量
+    （``AGENTRUN_STS_HEADER_*``）> 默认（``x-fc-*``）。
+    """
+    ak_name = _resolve_header_name(
+        access_key_id_header,
+        "AGENTRUN_STS_HEADER_ACCESS_KEY_ID",
+        DEFAULT_ACCESS_KEY_ID_HEADER,
+    )
+    sk_name = _resolve_header_name(
+        access_key_secret_header,
+        "AGENTRUN_STS_HEADER_ACCESS_KEY_SECRET",
+        DEFAULT_ACCESS_KEY_SECRET_HEADER,
+    )
+    sts_name = _resolve_header_name(
+        security_token_header,
+        "AGENTRUN_STS_HEADER_SECURITY_TOKEN",
+        DEFAULT_SECURITY_TOKEN_HEADER,
+    )
+
+    lower = {str(k).lower(): v for k, v in headers.items()}
+    cred = StsCredential(
+        access_key_id=lower.get(ak_name),
+        access_key_secret=lower.get(sk_name),
+        security_token=lower.get(sts_name),
+    )
+    return cred if cred.is_complete() else None
+
+
+@contextlib.contextmanager
+def use_sts_credentials(
+    access_key_id: Optional[str] = None,
+    access_key_secret: Optional[str] = None,
+    security_token: Optional[str] = None,
+) -> Iterator[StsCredential]:
+    """在 ``with`` 块内临时使用给定 STS 临时凭证（请求级 overlay），退出自动复位。
+
+    适用于**不经过 agentrun server** 的场景：自有 FastAPI / Flask / Django，或
+    非 HTTP 的任务里，从上游 / 请求头拿到最新 STS 后注入——块内所有 SDK 调用
+    （以及其内创建的 asyncio 任务）即使用这组凭证。
+
+    Examples:
+        >>> with use_sts_credentials(ak, sk, sts):
+        ...     knowledgebase.retrieve(...)  # 使用最新 STS
+
+    Note:
+        基于 ``contextvars``，按当前任务/线程隔离；用户自行 ``threading.Thread``
+        起的裸线程不会继承（``asyncio.create_task`` 会）。
+    """
+    cred = StsCredential(access_key_id, access_key_secret, security_token)
+    token = set_request_sts(cred)
+    try:
+        yield cred
+    finally:
+        reset_request_sts(token)
+
+
+@contextlib.contextmanager
+def use_sts_from_headers(
+    headers: Mapping[str, str],
+    *,
+    access_key_id_header: Optional[str] = None,
+    access_key_secret_header: Optional[str] = None,
+    security_token_header: Optional[str] = None,
+) -> Iterator[Optional[StsCredential]]:
+    """从请求头映射解析 STS 并在 ``with`` 块内生效；三元组不齐全则不覆盖（透传）。
+
+    与 :class:`agentrun.server.sts_middleware.StsRefreshMiddleware` 共用同一套
+    解析逻辑。适用于在自有 Web 框架里手动接入：
+
+        >>> with use_sts_from_headers(request.headers):
+        ...     await invoke_agent(request)
+    """
+    cred = sts_from_headers(
+        headers,
+        access_key_id_header=access_key_id_header,
+        access_key_secret_header=access_key_secret_header,
+        security_token_header=security_token_header,
+    )
+    if cred is None:
+        yield None
+        return
+    token = set_request_sts(cred)
+    try:
+        yield cred
+    finally:
+        reset_request_sts(token)

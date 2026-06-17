@@ -33,16 +33,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
-from agentrun.utils.credential_context import (
-    StsCredential,
-    reset_request_sts,
-    set_request_sts,
-)
-from agentrun.utils.log import logger
-
-DEFAULT_ACCESS_KEY_ID_HEADER = "x-fc-access-key-id"
-DEFAULT_ACCESS_KEY_SECRET_HEADER = "x-fc-access-key-secret"
-DEFAULT_SECURITY_TOKEN_HEADER = "x-fc-security-token"
+from agentrun.utils.credential_context import use_sts_from_headers
 
 
 def _detect_enabled() -> bool:
@@ -69,61 +60,21 @@ class StsRefreshMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         # enabled=None 时自动探测（FC 环境或显式环境变量开关）。
         self._enabled = _detect_enabled() if enabled is None else enabled
-        self._ak_header = (
-            access_key_id_header
-            or os.getenv("AGENTRUN_STS_HEADER_ACCESS_KEY_ID")
-            or DEFAULT_ACCESS_KEY_ID_HEADER
-        )
-        self._sk_header = (
-            access_key_secret_header
-            or os.getenv("AGENTRUN_STS_HEADER_ACCESS_KEY_SECRET")
-            or DEFAULT_ACCESS_KEY_SECRET_HEADER
-        )
-        self._sts_header = (
-            security_token_header
-            or os.getenv("AGENTRUN_STS_HEADER_SECURITY_TOKEN")
-            or DEFAULT_SECURITY_TOKEN_HEADER
-        )
+        # 头名解析（参数 > 环境变量 > 默认）交由 sts_from_headers 处理，这里只存原值。
+        self._ak_header = access_key_id_header
+        self._sk_header = access_key_secret_header
+        self._sts_header = security_token_header
 
     async def dispatch(self, request: Request, call_next) -> Response:
         if not self._enabled:
             return await call_next(request)
 
-        cred = self._extract(request)
-        if cred is None:
+        # 直接复用公开上下文管理器：解析请求头 -> 注入 overlay -> 退出复位。
+        # 三元组不齐全时 use_sts_from_headers 不覆盖（透传），与手动注入完全一致。
+        with use_sts_from_headers(
+            request.headers,
+            access_key_id_header=self._ak_header,
+            access_key_secret_header=self._sk_header,
+            security_token_header=self._sts_header,
+        ):
             return await call_next(request)
-
-        token = set_request_sts(cred)
-        try:
-            return await call_next(request)
-        finally:
-            reset_request_sts(token)
-
-    def _extract(self, request: Request) -> Optional[StsCredential]:
-        # starlette Headers 大小写不敏感。
-        headers = request.headers
-        cred = StsCredential(
-            access_key_id=headers.get(self._ak_header),
-            access_key_secret=headers.get(self._sk_header),
-            security_token=headers.get(self._sts_header),
-        )
-
-        # 只有三元组齐全才视为有效 STS 刷新，避免把新 sts 与陈旧 ak/sk 混用。
-        if not cred.is_complete():
-            if not (
-                cred.access_key_id
-                or cred.access_key_secret
-                or cred.security_token
-            ):
-                return None  # 无任何凭证头：常规非 FC 请求，静默跳过。
-            logger.warning(
-                "STS headers incomplete (ak=%s, sk=%s, sts=%s); ignoring"
-                " partial credential set and falling back to env.",
-                "set" if cred.access_key_id else "unset",
-                "set" if cred.access_key_secret else "unset",
-                "set" if cred.security_token else "unset",
-            )
-            return None
-
-        logger.debug("STS overlay applied from request headers")
-        return cred

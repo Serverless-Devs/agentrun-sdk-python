@@ -135,6 +135,11 @@ from agentrun.tool import ToolControlAPI as ToolResourceControlAPI
 # ToolSet
 from agentrun.toolset import ToolSet, ToolSetClient
 from agentrun.utils.config import Config
+from agentrun.utils.credential_context import (
+    StsCredential,
+    use_sts_credentials,
+    use_sts_from_headers,
+)
 from agentrun.utils.exception import (
     ResourceAlreadyExistError,
     ResourceNotExistError,
@@ -335,6 +340,10 @@ __all__ = [
     "ResourceNotExistError",
     "ResourceAlreadyExistError",
     "Config",
+    ######## STS 凭证刷新（非 server 场景手动注入） ########
+    "StsCredential",
+    "use_sts_credentials",
+    "use_sts_from_headers",
 ]
 
 # Memory Collection 模块的所有导出（延迟加载）
