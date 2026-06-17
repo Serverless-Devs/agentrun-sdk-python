@@ -532,6 +532,45 @@ class TestBailianDataAPIInit:
         assert api.provider_settings is None
 
 
+class TestBailianDataAPINormalizeSearchFilters:
+    """测试 BailianDataAPI._normalize_search_filters（SearchFilters 规范化）"""
+
+    def test_none_returns_none(self):
+        """None 直接返回 None。"""
+        assert BailianDataAPI._normalize_search_filters(None) is None
+
+    def test_empty_list_returns_empty(self):
+        """空列表返回空列表。"""
+        assert BailianDataAPI._normalize_search_filters([]) == []
+
+    def test_list_and_dict_values_json_serialized(self):
+        """list / dict 值被 JSON 序列化为字符串，标量值转 str。"""
+        result = BailianDataAPI._normalize_search_filters([
+            {
+                "tags": ["0216", "0217"],
+                "meta": {"k": "v"},
+                "name": "kb",
+                "count": 5,
+            }
+        ])
+        assert result == [
+            {
+                "tags": '["0216", "0217"]',
+                "meta": '{"k": "v"}',
+                "name": "kb",
+                "count": "5",
+            }
+        ]
+
+    def test_multiple_filter_items(self):
+        """多个 filter item 各自独立规范化。"""
+        result = BailianDataAPI._normalize_search_filters([
+            {"a": ["x"]},
+            {"b": "y"},
+        ])
+        assert result == [{"a": '["x"]'}, {"b": "y"}]
+
+
 class TestBailianDataAPIRetrieve:
     """测试 BailianDataAPI.retrieve 方法"""
 
