@@ -12,6 +12,9 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from tablestore import AsyncOTSClient  # type: ignore[import-untyped]
     from tablestore import OTSClient
+    from tablestore.credentials import CredentialsProvider
+
+    from agentrun.utils.config import Config
 
 # OTS 单个属性列值上限为 2MB，留 0.5MB 余量（按字符数计）
 MAX_COLUMN_SIZE: int = 1_500_000  # 1.5M 字符
@@ -103,17 +106,54 @@ def from_chunks(chunks: list[str]) -> str:
     return "".join(chunks)
 
 
+def build_ots_credentials_provider(config: "Config") -> "CredentialsProvider":
+    """构建 TableStore CredentialsProvider，每次请求从 Config 实时取最新 STS。
+
+    TableStore client 在**每个请求**调用 ``credentials_provider.get_credentials()``
+    （见 tablestore client 的 ``_request_helper``），因此长生命周期的 OTSClient
+    也能在每次操作时拿到请求级 overlay 注入的最新 STS（再回退环境变量）。
+
+    Args:
+        config: agentrun Config 对象，凭证经其 getter 解析（overlay 优先）。
+
+    Returns:
+        TableStore ``CredentialsProvider`` 实例。
+    """
+    from tablestore.credentials import Credentials, CredentialsProvider
+
+    class _AgentrunOtsCredentialsProvider(CredentialsProvider):
+        def __init__(self, cfg: "Config") -> None:
+            self._cfg = cfg
+
+        def get_credentials(self) -> Credentials:
+            cfg = self._cfg
+            return Credentials(
+                access_key_id=cfg.get_access_key_id(),
+                access_key_secret=cfg.get_access_key_secret(),
+                security_token=cfg.get_security_token() or None,
+            )
+
+    return _AgentrunOtsCredentialsProvider(config)
+
+
 def build_ots_clients(
     endpoint: str,
-    access_key_id: str,
-    access_key_secret: str,
     instance_name: str,
     *,
-    sts_token: str | None = None,
+    config: "Config",
 ) -> tuple[OTSClient, AsyncOTSClient]:
     """构建 OTSClient 和 AsyncOTSClient 实例。
 
     独立于 codegen 模板，避免 AsyncOTSClient 被替换为 OTSClient。
+
+    凭证统一通过 :func:`build_ots_credentials_provider` 注入：client 每次请求
+    动态从 ``config`` 取最新 STS（请求级 overlay 优先），STS 过期可静默刷新。
+    遵循 AGENTS.md 约定——不接受静态 ak/sk/sts。
+
+    Args:
+        endpoint: OTS endpoint。
+        instance_name: OTS 实例名。
+        config: agentrun Config 对象，凭证经其 getter 动态解析。
 
     Returns:
         (ots_client, async_ots_client) 二元组。
@@ -121,20 +161,18 @@ def build_ots_clients(
     from tablestore import AsyncOTSClient  # type: ignore[import-untyped]
     from tablestore import OTSClient, WriteRetryPolicy
 
+    # 同一个 provider 可被 sync / async client 共享：无状态，按请求读 overlay。
+    provider = build_ots_credentials_provider(config)
     ots_client = OTSClient(
         endpoint,
-        access_key_id,
-        access_key_secret,
-        instance_name,
-        sts_token=sts_token,
+        instance_name=instance_name,
+        credentials_provider=provider,
         retry_policy=WriteRetryPolicy(),
     )
     async_ots_client = AsyncOTSClient(
         endpoint,
-        access_key_id,
-        access_key_secret,
-        instance_name,
-        sts_token=sts_token,
+        instance_name=instance_name,
+        credentials_provider=provider,
         retry_policy=WriteRetryPolicy(),
     )
     return ots_client, async_ots_client

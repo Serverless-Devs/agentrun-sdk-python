@@ -9,6 +9,8 @@ from typing import Dict, Optional
 
 from dotenv import load_dotenv
 
+from agentrun.utils.credential_context import get_request_sts
+
 load_dotenv()
 
 
@@ -130,20 +132,11 @@ class Config:
             headers: 自定义请求头,可选 / Custom request headers, optional
         """
 
-        if access_key_id is None:
-            access_key_id = get_env_with_default(
-                "", "AGENTRUN_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_ID"
-            )
-        if access_key_secret is None:
-            access_key_secret = get_env_with_default(
-                "",
-                "AGENTRUN_ACCESS_KEY_SECRET",
-                "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
-            )
-        if security_token is None:
-            security_token = get_env_with_default(
-                "", "AGENTRUN_SECURITY_TOKEN", "ALIBABA_CLOUD_SECURITY_TOKEN"
-            )
+        # 凭证（ak/sk/sts）不在此处快照环境变量，改为在 getter 中**懒解析**：
+        # 显式传入 -> 请求级 overlay（仅当三者均未显式传入时）-> 环境变量。
+        # 这样在 server 场景下，每次取值都能拿到 FC 头注入的最新 STS；非 server
+        # 场景（overlay 为空）行为与历史一致（getter 实时回退环境变量）。
+        # 显式传入的字段保留为非 None，作为"用户显式凭证"的标记，overlay 不覆盖。
         if account_id is None:
             account_id = get_env_with_default(
                 "", "AGENTRUN_ACCOUNT_ID", "FC_ACCOUNT_ID"
@@ -222,17 +215,55 @@ class Config:
             ])
         )
 
+    def _credentials_ambient(self) -> bool:
+        """三个凭证字段是否均未被显式传入。
+
+        仅当全部为 ambient（None）时，才允许请求级 overlay 接管，避免把
+        overlay 的新 sts 与用户显式传入的 ak/sk 混用。
+        """
+        return (
+            self._access_key_id is None
+            and self._access_key_secret is None
+            and self._security_token is None
+        )
+
     def get_access_key_id(self) -> str:
-        """获取 Access Key ID"""
-        return self._access_key_id
+        """获取 Access Key ID（显式 -> 请求级 overlay -> 环境变量）"""
+        if self._access_key_id is not None:
+            return self._access_key_id
+        if self._credentials_ambient():
+            overlay = get_request_sts()
+            if overlay is not None and overlay.access_key_id:
+                return overlay.access_key_id
+        return get_env_with_default(
+            "", "AGENTRUN_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_ID"
+        )
 
     def get_access_key_secret(self) -> str:
-        """获取 Access Key Secret"""
-        return self._access_key_secret
+        """获取 Access Key Secret（显式 -> 请求级 overlay -> 环境变量）"""
+        if self._access_key_secret is not None:
+            return self._access_key_secret
+        if self._credentials_ambient():
+            overlay = get_request_sts()
+            if overlay is not None and overlay.access_key_secret:
+                return overlay.access_key_secret
+        return get_env_with_default(
+            "",
+            "AGENTRUN_ACCESS_KEY_SECRET",
+            "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+        )
 
     def get_security_token(self) -> str:
-        """获取安全令牌"""
-        return self._security_token
+        """获取安全令牌（显式 -> 请求级 overlay -> 环境变量）"""
+        if self._security_token is not None:
+            return self._security_token
+        if self._credentials_ambient():
+            overlay = get_request_sts()
+            if overlay is not None and overlay.security_token:
+                return overlay.security_token
+        return get_env_with_default(
+            "", "AGENTRUN_SECURITY_TOKEN", "ALIBABA_CLOUD_SECURITY_TOKEN"
+        )
 
     def get_account_id(self) -> str:
         """获取账号 ID"""
