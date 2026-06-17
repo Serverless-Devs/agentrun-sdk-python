@@ -446,7 +446,8 @@ class ToolOpenAPIClient:
         url, auth = self._build_ram_auth(url)
 
         logger.debug(
-            f"Calling FunctionCall tool: {method} {url} with args={arguments}"
+            "Calling FunctionCall tool:"
+            f" {method} {url} with args={request_arguments}"
         )
 
         with httpx.Client(
@@ -510,7 +511,7 @@ class ToolOpenAPIClient:
 
         logger.debug(
             f"Calling FunctionCall tool async: {method} {url} with"
-            f" args={arguments}"
+            f" args={request_arguments}"
         )
 
         async with httpx.AsyncClient(

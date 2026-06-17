@@ -966,7 +966,7 @@ class TestToolOpenAPIClient:
         mock_client_instance.__aenter__ = AsyncMock(
             return_value=mock_client_instance
         )
-        mock_client_instance.__aexit__ = AsyncMock()
+        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
         mock_async_client_class.return_value = mock_client_instance
 
         spec = json.dumps({
