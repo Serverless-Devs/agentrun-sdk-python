@@ -54,8 +54,25 @@ jobs:
       id: changes
       run: |
         echo "Checking if agentrun directory has changes..."
-        # 获取最近两次提交之间的差异；如果没有父提交，则将所有跟踪文件视为已更改
-        if git rev-parse HEAD^ >/dev/null 2>&1; then
+        # 与默认分支（main）的分叉点比较，取整个分支引入的全部改动，
+        # 而非仅最近一次提交（避免多 commit 分支漏检早先提交的改动）。
+        # CI 以 fetch-depth: 0 检出，origin/main 可用；优先用它，退回本地 main。
+        BASE_REF=""
+        for ref in origin/main main; do
+          if git rev-parse --verify "$ref" >/dev/null 2>&1; then
+            BASE_REF="$ref"; break
+          fi
+        done
+        MERGE_BASE=""
+        if [ -n "$BASE_REF" ]; then
+          MERGE_BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || echo "")
+        fi
+        if [ -n "$MERGE_BASE" ] && [ "$MERGE_BASE" != "$(git rev-parse HEAD)" ]; then
+          echo "Diffing against base ($BASE_REF, merge-base ${MERGE_BASE})"
+          git diff --name-only "$MERGE_BASE" HEAD > changed_files.txt
+        elif git rev-parse HEAD^ >/dev/null 2>&1; then
+          # 回退（如直接 push 到 main，与 base 无分叉）：比较最近一次提交
+          echo "No divergence from base; falling back to HEAD^..HEAD"
           git diff --name-only HEAD^ HEAD > changed_files.txt
         else
           echo "No parent commit; treating all tracked files as changed."
