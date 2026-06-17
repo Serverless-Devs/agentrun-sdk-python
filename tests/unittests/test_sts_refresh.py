@@ -173,7 +173,7 @@ def _build_app():
     from agentrun.server.sts_middleware import StsRefreshMiddleware
 
     app = FastAPI()
-    # 测试环境无 FC_REGION，需显式启用（非 FC 默认关闭以防头注入）。
+    # 显式启用，避免受 dev 环境 AGENTRUN_STS_REFRESH_ENABLED 影响。
     app.add_middleware(StsRefreshMiddleware, enabled=True)
 
     @app.get("/async")
@@ -334,8 +334,8 @@ def test_middleware_partial_headers_ignored(monkeypatch):
     assert resp == {"ak": "ENV_AK", "sts": ""}
 
 
-def test_middleware_disabled_off_fc(monkeypatch):
-    """H2：非 FC（无 FC_REGION、未显式 enable）时不应应用 overlay。"""
+def test_middleware_enabled_by_default(monkeypatch):
+    """默认启用（不看 FC 环境，无需任何开关）。"""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -343,40 +343,59 @@ def test_middleware_disabled_off_fc(monkeypatch):
 
     monkeypatch.delenv("FC_REGION", raising=False)
     monkeypatch.delenv("AGENTRUN_STS_REFRESH_ENABLED", raising=False)
-    monkeypatch.setenv("AGENTRUN_ACCESS_KEY_ID", "ENV_AK")
 
     app = FastAPI()
-    app.add_middleware(StsRefreshMiddleware)  # enabled=None → auto-detect
+    app.add_middleware(StsRefreshMiddleware)  # enabled=None → 默认启用
 
     @app.get("/x")
     async def _x():
         return {"ak": Config().get_access_key_id()}
 
     client = TestClient(app)
-    # 即便携带完整 x-fc-* 头，非 FC 环境也不应覆盖 env 凭证（防注入）。
-    resp = client.get("/x", headers=_HEADERS).json()
-    assert resp == {"ak": "ENV_AK"}
+    # 默认开：携带完整 x-fc-* 头即生效。
+    assert client.get("/x", headers=_HEADERS).json() == {"ak": "H_AK"}
 
 
-def test_middleware_enabled_on_fc(monkeypatch):
-    """H2：检测到 FC_REGION 时自动启用。"""
+def test_middleware_disabled_via_env(monkeypatch):
+    """仅在 AGENTRUN_STS_REFRESH_ENABLED 设为假值时关闭。"""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     from agentrun.server.sts_middleware import StsRefreshMiddleware
 
-    monkeypatch.setenv("FC_REGION", "cn-hangzhou")
-    monkeypatch.delenv("AGENTRUN_STS_REFRESH_ENABLED", raising=False)
+    monkeypatch.setenv("AGENTRUN_STS_REFRESH_ENABLED", "false")
+    monkeypatch.setenv("AGENTRUN_ACCESS_KEY_ID", "ENV_AK")
 
     app = FastAPI()
-    app.add_middleware(StsRefreshMiddleware)  # enabled=None → auto-detect FC
+    app.add_middleware(StsRefreshMiddleware)  # enabled=None → 读环境变量 -> 关闭
 
     @app.get("/x")
     async def _x():
         return {"ak": Config().get_access_key_id()}
 
     client = TestClient(app)
-    assert client.get("/x", headers=_HEADERS).json() == {"ak": "H_AK"}
+    # 已关闭：即便携带完整 x-fc-* 头也不覆盖 env 凭证。
+    assert client.get("/x", headers=_HEADERS).json() == {"ak": "ENV_AK"}
+
+
+def test_middleware_disabled_via_constructor(monkeypatch):
+    """构造参数 enabled=False 显式关闭。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from agentrun.server.sts_middleware import StsRefreshMiddleware
+
+    monkeypatch.setenv("AGENTRUN_ACCESS_KEY_ID", "ENV_AK")
+
+    app = FastAPI()
+    app.add_middleware(StsRefreshMiddleware, enabled=False)
+
+    @app.get("/x")
+    async def _x():
+        return {"ak": Config().get_access_key_id()}
+
+    client = TestClient(app)
+    assert client.get("/x", headers=_HEADERS).json() == {"ak": "ENV_AK"}
 
 
 def test_invoker_sync_path_sees_overlay():

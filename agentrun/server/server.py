@@ -124,9 +124,10 @@ class AgentRunServer:
         """
         self.app = FastAPI(title="AgentRun Server")
 
-        # 注入 STS 刷新中间件：从每次请求的 FC 头解析最新 STS 临时凭证，写入
+        # 注入 STS 刷新中间件：从每次请求的 x-fc-* 头解析最新 STS 临时凭证，写入
         # 请求级 overlay，使本次请求内所有 Config/client 静默使用最新凭证。
-        # 无条件启用：未携带相关头时（本地/非 FC）中间件不产生任何副作用。
+        # 默认启用；未携带相关头时不产生任何副作用。如需关闭设环境变量
+        # AGENTRUN_STS_REFRESH_ENABLED=false。
         self.app.add_middleware(StsRefreshMiddleware)
 
         # 如果启用了 memory，包装 invoke_agent

@@ -14,13 +14,17 @@ client 的取证都拿到最新 STS；请求结束时复位。
 头名可配置 / Configurable header names:
     构造参数 > 环境变量 > 默认值(``x-fc-*``)。头名大小写不敏感。
 
+启用开关 / Enable switch:
+    中间件**默认启用**。仅在特定情况下关闭：构造参数 ``enabled=False``，或
+    环境变量 ``AGENTRUN_STS_REFRESH_ENABLED`` 设为假值（``0`` / ``false`` /
+    ``no`` / ``off``）。
+
 信任边界 / Trust boundary:
-    overlay 会覆盖运维方在环境变量里配置的凭证，因此只在**可信来源**提供
-    ``x-fc-*`` 头时才能启用。函数计算（FC）拥有该头命名空间并会剥离客户端伪造的
-    同名头，故默认仅在检测到 FC 环境（``FC_REGION`` 存在）时生效；非 FC 环境
-    （如裸 uvicorn / 自有网关）默认关闭，避免不可信客户端注入 ``x-fc-*`` 头冒用
-    身份。可用构造参数 ``enabled`` 或环境变量 ``AGENTRUN_STS_REFRESH_ENABLED``
-    显式开关（开启前请确保已有前置鉴权或网关剥离这些头）。
+    overlay 仅在 ``x-fc-*`` 头**齐全**时注入（覆盖运维方 env 凭证），否则透传。
+    函数计算（FC）拥有该头命名空间并会剥离客户端伪造的同名头，FC 内安全。
+    **注意**：若部署在非 FC 环境（裸 uvicorn / 自有网关）且服务可被不可信客户端
+    直达，攻击者可注入 ``x-fc-*`` 头冒用身份——此类场景请前置鉴权 / 由网关剥离
+    这些头，或按上面的开关关闭本中间件。
 """
 
 from __future__ import annotations
@@ -37,12 +41,15 @@ from agentrun.utils.credential_context import use_sts_from_headers
 
 
 def _detect_enabled() -> bool:
-    """决定是否启用 overlay：显式环境变量优先，否则按是否在 FC 环境自动判断。"""
+    """是否启用 overlay：**默认启用**，仅环境变量显式设为假值时关闭。
+
+    ``AGENTRUN_STS_REFRESH_ENABLED`` 未设置 -> 启用；设为
+    ``0`` / ``false`` / ``no`` / ``off`` -> 关闭；其余真值 -> 启用。
+    """
     flag = os.getenv("AGENTRUN_STS_REFRESH_ENABLED")
-    if flag is not None:
-        return flag.strip().lower() in ("1", "true", "yes", "on")
-    # FC 环境下 FC_REGION 必然存在；非 FC 默认关闭以防 x-fc-* 头注入。
-    return os.getenv("FC_REGION") is not None
+    if flag is None:
+        return True
+    return flag.strip().lower() in ("1", "true", "yes", "on")
 
 
 class StsRefreshMiddleware(BaseHTTPMiddleware):
@@ -58,7 +65,8 @@ class StsRefreshMiddleware(BaseHTTPMiddleware):
         security_token_header: Optional[str] = None,
     ) -> None:
         super().__init__(app)
-        # enabled=None 时自动探测（FC 环境或显式环境变量开关）。
+        # enabled=None 时按环境变量决定（默认启用，
+        # AGENTRUN_STS_REFRESH_ENABLED 设为假值时关闭）。
         self._enabled = _detect_enabled() if enabled is None else enabled
         # 头名解析（参数 > 环境变量 > 默认）交由 sts_from_headers 处理，这里只存原值。
         self._ak_header = access_key_id_header
