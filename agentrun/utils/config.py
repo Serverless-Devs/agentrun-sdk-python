@@ -12,6 +12,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+_GPDB_PUBLIC_SHARED_REGIONS = (
+    "cn-beijing",
+    "cn-hangzhou",
+    "cn-shanghai",
+    "cn-shenzhen",
+    "cn-hongkong",
+    "ap-southeast-1",
+)
+
+
 def get_env_with_default(default: str, *key: str) -> str:
     """从环境变量获取值,支持多个候选键 / Get value from environment variables with multiple fallback keys
 
@@ -27,6 +37,15 @@ def get_env_with_default(default: str, *key: str) -> str:
         if v is not None:
             return v
     return default
+
+
+def get_env_flag(*key: str) -> bool:
+    """从环境变量读取布尔开关 / Read boolean flag from environment variables"""
+    for k in key:
+        v = os.getenv(k)
+        if v is not None:
+            return v.strip().lower() in ("1", "true", "yes", "on")
+    return False
 
 
 class Config:
@@ -62,6 +81,7 @@ class Config:
         "_data_endpoint",
         "_devs_endpoint",
         "_bailian_endpoint",
+        "_use_vpc_endpoint",
         "_headers",
         "__weakref__",
     )
@@ -80,6 +100,7 @@ class Config:
         data_endpoint: Optional[str] = None,
         devs_endpoint: Optional[str] = None,
         bailian_endpoint: Optional[str] = None,
+        use_vpc_endpoint: Optional[bool] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> None:
         """初始化配置 / Initialize configuration
@@ -103,7 +124,9 @@ class Config:
             read_timeout: 读取超时时间(秒),默认 100000 / Read timeout in seconds, defaults to 100000
             control_endpoint: 自定义控制链路端点,可选 / Custom control endpoint, optional
             data_endpoint: 自定义数据链路端点,可选 / Custom data endpoint, optional
-            devs_endpoint: 自定义 DevS 端点,可选 / Custom DevS endpoint, optional
+            devs_endpoint: 自定义 Devs 端点,可选 / Custom DevS endpoint, optional
+            use_vpc_endpoint: 知识库检索是否使用 VPC 内网 endpoint,默认 false
+                未提供时从环境变量读取: AGENTRUN_KB_USE_VPC
             headers: 自定义请求头,可选 / Custom request headers, optional
         """
 
@@ -139,6 +162,8 @@ class Config:
             devs_endpoint = get_env_with_default("", "DEVS_ENDPOINT")
         if bailian_endpoint is None:
             bailian_endpoint = get_env_with_default("", "BAILIAN_ENDPOINT")
+        if use_vpc_endpoint is None:
+            use_vpc_endpoint = get_env_flag("AGENTRUN_KB_USE_VPC")
 
         self._access_key_id = access_key_id
         self._access_key_secret = access_key_secret
@@ -152,6 +177,7 @@ class Config:
         self._data_endpoint = data_endpoint
         self._devs_endpoint = devs_endpoint
         self._bailian_endpoint = bailian_endpoint
+        self._use_vpc_endpoint = use_vpc_endpoint
         self._headers = headers or {}
 
     @classmethod
@@ -263,7 +289,32 @@ class Config:
         if self._bailian_endpoint:
             return self._bailian_endpoint
 
+        if self._use_vpc_endpoint:
+            return f"bailian-vpc.{self.get_region_id()}.aliyuncs.com"
+
         return "https://bailian.cn-beijing.aliyuncs.com"
+
+    def get_gpdb_endpoint(self) -> str:
+        """获取 GPDB (ADB) OpenAPI 端点 / Get GPDB (ADB) OpenAPI endpoint"""
+        region_id = self.get_region_id()
+        if self._use_vpc_endpoint:
+            return f"gpdb-vpc.{region_id}.aliyuncs.com"
+        if region_id in _GPDB_PUBLIC_SHARED_REGIONS:
+            return "gpdb.aliyuncs.com"
+        return f"gpdb.{region_id}.aliyuncs.com"
+
+    def get_ots_endpoint(self, instance_name: str) -> str:
+        """获取 OTS endpoint / Get OTS endpoint"""
+        region_id = self.get_region_id()
+        if self._use_vpc_endpoint:
+            return (
+                f"https://{instance_name}.{region_id}.vpc.tablestore.aliyuncs.com"
+            )
+        return f"http://ots-{region_id}.aliyuncs.com"
+
+    def get_use_vpc_endpoint(self) -> bool:
+        """知识库检索是否使用 VPC 内网 endpoint"""
+        return self._use_vpc_endpoint
 
     def get_headers(self) -> Dict[str, str]:
         """获取自定义请求头"""

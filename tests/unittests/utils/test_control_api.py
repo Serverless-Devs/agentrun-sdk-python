@@ -342,6 +342,26 @@ class TestControlAPIGetBailianClient:
         config_arg = call_args[0][0]
         assert config_arg.endpoint == "bailian.custom.com"
 
+    @patch("alibabacloud_bailian20231229.client.Client")
+    def test_get_bailian_client_vpc_mode(self, mock_client_class):
+        """测试 VPC 模式使用 bailian-vpc endpoint"""
+        config = Config(
+            access_key_id="ak",
+            access_key_secret="sk",
+            region_id="cn-beijing",
+            use_vpc_endpoint=True,
+        )
+        api = ControlAPI(config=config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        api._get_bailian_client()
+
+        call_args = mock_client_class.call_args
+        config_arg = call_args[0][0]
+        assert config_arg.endpoint == "bailian-vpc.cn-beijing.aliyuncs.com"
+
 
 class TestControlAPIGetGPDBClient:
     """测试 ControlAPI._get_gpdb_client"""
@@ -413,3 +433,23 @@ class TestControlAPIGetGPDBClient:
             assert (
                 config_arg.endpoint == "gpdb.aliyuncs.com"
             ), f"Region {region} should use gpdb.aliyuncs.com"
+
+    @patch("alibabacloud_gpdb20160503.client.Client")
+    def test_get_gpdb_client_vpc_mode(self, mock_client_class):
+        """测试 VPC 模式使用 gpdb-vpc endpoint"""
+        config = Config(
+            access_key_id="ak",
+            access_key_secret="sk",
+            region_id="cn-hangzhou",
+            use_vpc_endpoint=True,
+        )
+        api = ControlAPI(config=config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        api._get_gpdb_client()
+
+        call_args = mock_client_class.call_args
+        config_arg = call_args[0][0]
+        assert config_arg.endpoint == "gpdb-vpc.cn-hangzhou.aliyuncs.com"

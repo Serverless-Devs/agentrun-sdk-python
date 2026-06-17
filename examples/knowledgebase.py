@@ -16,6 +16,7 @@ Before using, please set the following environment variables:
 - AGENTRUN_ACCESS_KEY_ID: 阿里云 AccessKey ID
 - AGENTRUN_ACCESS_KEY_SECRET: 阿里云 AccessKey Secret
 - AGENTRUN_REGION: 区域（默认 cn-hangzhou）
+- AGENTRUN_KB_USE_VPC: 设为 true 时，百炼/ADB/OTS 知识库检索走 VPC 内网 endpoint（默认 false，RagFlow 不受影响）
 
 百炼知识库额外配置 / Additional config for Bailian:
 - BAILIAN_WORKSPACE_ID: 百炼工作空间 ID

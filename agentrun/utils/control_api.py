@@ -126,19 +126,7 @@ class ControlAPI:
         from alibabacloud_gpdb20160503.client import Client as GPDBClient
 
         cfg = Config.with_configs(self.config, config)
-        # GPDB 使用区域级别的 endpoint / GPDB uses region-level endpoint
-        region_id = cfg.get_region_id()
-        if region_id in (
-            "cn-beijing",
-            "cn-hangzhou",
-            "cn-shanghai",
-            "cn-shenzhen",
-            "cn-hongkong",
-            "ap-southeast-1",
-        ):
-            endpoint = "gpdb.aliyuncs.com"
-        else:
-            endpoint = f"gpdb.{region_id}.aliyuncs.com"
+        endpoint = cfg.get_gpdb_endpoint()
 
         return GPDBClient(
             open_api_util_models.Config(

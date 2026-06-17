@@ -597,7 +597,9 @@ class TestOTSDataAPIBuildClient:
     def test_build_client(self, mock_client_class):
         """测试构建客户端"""
         mock_config = MagicMock(spec=Config)
-        mock_config.get_region_id.return_value = "cn-hangzhou"
+        mock_config.get_ots_endpoint.return_value = (
+            "http://ots-cn-hangzhou.aliyuncs.com"
+        )
         mock_config.get_access_key_id.return_value = "test-ak"
         mock_config.get_access_key_secret.return_value = "test-sk"
         mock_config.get_security_token.return_value = "test-sts"
@@ -616,6 +618,36 @@ class TestOTSDataAPIBuildClient:
             access_key_secret="test-sk",
             sts_token="test-sts",
             ots_endpoint="http://ots-cn-hangzhou.aliyuncs.com",
+            ots_instance_name="test-instance",
+        )
+
+    @patch("agentrun.knowledgebase.api.data.AgentStorageClient")
+    def test_build_client_vpc_mode(self, mock_client_class):
+        """测试 VPC 模式构建 OTS 客户端"""
+        mock_config = MagicMock(spec=Config)
+        mock_config.get_ots_endpoint.return_value = (
+            "https://test-instance.cn-hangzhou.vpc.tablestore.aliyuncs.com"
+        )
+        mock_config.get_access_key_id.return_value = "test-ak"
+        mock_config.get_access_key_secret.return_value = "test-sk"
+        mock_config.get_security_token.return_value = "test-sts"
+
+        with patch.object(Config, "with_configs", return_value=mock_config):
+            api = OTSDataAPI(
+                "test-kb",
+                provider_settings=OTSProviderSettings(
+                    ots_instance_name="test-instance"
+                ),
+            )
+            api._build_agent_storage_client()
+
+        mock_client_class.assert_called_once_with(
+            access_key_id="test-ak",
+            access_key_secret="test-sk",
+            sts_token="test-sts",
+            ots_endpoint=(
+                "https://test-instance.cn-hangzhou.vpc.tablestore.aliyuncs.com"
+            ),
             ots_instance_name="test-instance",
         )
 

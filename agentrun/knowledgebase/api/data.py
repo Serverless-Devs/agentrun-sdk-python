@@ -941,8 +941,9 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
             raise ValueError("provider_settings is required for OTS retrieval")
 
         cfg = Config.with_configs(self.config, config)
-        region_id = cfg.get_region_id()
-        ots_endpoint = f"http://ots-{region_id}.aliyuncs.com"
+        ots_endpoint = cfg.get_ots_endpoint(
+            self.provider_settings.ots_instance_name
+        )
 
         return AgentStorageClient(
             access_key_id=cfg.get_access_key_id(),
