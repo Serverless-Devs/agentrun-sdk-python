@@ -18,6 +18,8 @@ from agentrun.utils.credential_context import (
     get_request_sts,
     reset_request_sts,
     set_request_sts,
+    use_sts_credentials,
+    use_sts_from_headers,
 )
 
 
@@ -418,3 +420,73 @@ def test_invoker_sync_path_sees_overlay():
         if e.event == EventType.TEXT
     )
     assert text == "ak=OV_AK;sts=OV_STS", text
+
+
+# --------------------------------------------------------------------------- #
+# 公开 API：非 server 场景手动注入
+# --------------------------------------------------------------------------- #
+def test_use_sts_credentials_context_manager(monkeypatch):
+    monkeypatch.setenv("AGENTRUN_ACCESS_KEY_ID", "ENV_AK")
+    cfg = Config()
+    assert cfg.get_access_key_id() == "ENV_AK"
+    with use_sts_credentials("OV_AK", "OV_SK", "OV_STS"):
+        assert cfg.get_access_key_id() == "OV_AK"
+        assert cfg.get_access_key_secret() == "OV_SK"
+        assert cfg.get_security_token() == "OV_STS"
+    # 退出自动复位
+    assert cfg.get_access_key_id() == "ENV_AK"
+    assert get_request_sts() is None
+
+
+def test_use_sts_from_headers_complete_case_insensitive():
+    cfg = Config()
+    headers = {
+        "X-Fc-Access-Key-Id": "H_AK",  # 大小写不敏感
+        "x-fc-access-key-secret": "H_SK",
+        "X-FC-SECURITY-TOKEN": "H_STS",
+    }
+    with use_sts_from_headers(headers) as cred:
+        assert cred is not None
+        assert cfg.get_access_key_id() == "H_AK"
+        assert cfg.get_security_token() == "H_STS"
+    assert get_request_sts() is None
+
+
+def test_use_sts_from_headers_partial_no_override(monkeypatch):
+    monkeypatch.setenv("AGENTRUN_ACCESS_KEY_ID", "ENV_AK")
+    cfg = Config()
+    # 只有 sts、缺 ak/sk -> 不构成完整三元组 -> 不覆盖
+    with use_sts_from_headers({"x-fc-security-token": "H_STS"}) as cred:
+        assert cred is None
+        assert cfg.get_access_key_id() == "ENV_AK"
+        assert cfg.get_security_token() == ""
+    assert get_request_sts() is None
+
+
+def test_sts_from_headers_helper():
+    from agentrun.utils.credential_context import sts_from_headers
+
+    assert sts_from_headers({"x-fc-access-key-id": "a"}) is None  # 不齐全
+    cred = sts_from_headers({
+        "x-fc-access-key-id": "a",
+        "x-fc-access-key-secret": "b",
+        "x-fc-security-token": "c",
+    })
+    assert cred is not None
+    assert (
+        cred.access_key_id,
+        cred.access_key_secret,
+        cred.security_token,
+    ) == ("a", "b", "c")
+
+
+def test_public_exports_available():
+    import agentrun
+
+    for name in (
+        "StsCredential",
+        "use_sts_credentials",
+        "use_sts_from_headers",
+    ):
+        assert hasattr(agentrun, name), f"{name} not exported"
+        assert name in agentrun.__all__, f"{name} missing from __all__"

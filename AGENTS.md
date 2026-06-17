@@ -481,7 +481,19 @@ STS 临时凭证（ak/sk/security_token）会过期。部署在函数计算（FC
 1. **请求级 overlay**：`agentrun/server/sts_middleware.py` 解析 FC 头
    （默认 `x-fc-access-key-id` / `x-fc-access-key-secret` / `x-fc-security-token`，
    可经构造参数或 `AGENTRUN_STS_HEADER_*` 环境变量覆盖），写入
-   `agentrun/utils/credential_context.py` 的 `contextvars` overlay。
+   `agentrun/utils/credential_context.py` 的 `contextvars` overlay。中间件本身
+   只是 `use_sts_from_headers` 的薄封装（加 FC 门控），二者共用同一套解析逻辑。
+
+   **非 agentrun server 场景**（自有 FastAPI / Flask / Django、或非 HTTP 任务）：
+   中间件不会运行，需用户手动注入。SDK 顶层导出两个上下文管理器：
+   - `agentrun.use_sts_credentials(ak, sk, sts)` —— 显式传值；
+   - `agentrun.use_sts_from_headers(headers)` —— 从任意请求头映射解析（同 `x-fc-*`）。
+
+   ```python
+   from agentrun import use_sts_from_headers
+   with use_sts_from_headers(request.headers):
+       ...  # 块内所有 SDK 调用使用最新 STS，退出自动复位
+   ```
 
 2. **Config 懒解析**：`Config` 的三个凭证 getter 按
    **显式传入 > 请求级 overlay（仅当三者均未显式传入）> 环境变量** 解析。
