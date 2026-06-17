@@ -5,11 +5,19 @@
 （:mod:`agentrun.utils.credential_context`），使本次请求内所有 ``Config`` /
 client 的取证都拿到最新 STS；请求结束时复位。
 
-为何用中间件 / Why middleware:
-    在 ``call_next`` 之前 ``set`` 的 contextvar 会被拷贝进下游 endpoint 子任务，
-    并对 ``StreamingResponse`` 的 body 生成器、``run_in_threadpool`` 中的同步
-    处理器同样可见，因此能覆盖整条请求（含 SSE 流）。已在 Starlette 0.48 +
-    FastAPI 0.118 上实测验证。
+为何用纯 ASGI 中间件 / Why a plain ASGI middleware:
+    本中间件只做一件事——设置 / 复位一个 contextvar，故用**纯 ASGI** 实现
+    （``__call__`` 包裹 ``await self.app(scope, receive, send)``），而非
+    ``BaseHTTPMiddleware``。优点：overlay 与请求**同任务、同生命周期**——对
+    endpoint、``StreamingResponse`` 的 body、``run_in_threadpool`` 的同步处理器、
+    以及**响应后的 background task** 全程可见，并在 app 完全结束后于 ``finally``
+    复位；同时避免 ``BaseHTTPMiddleware`` 的额外 task/stream 包装及其在流式 /
+    断连 / 异常传播上的已知坑。
+
+注入时机与有效期 / Injection lifetime:
+    STS 在请求入口注入一份、整条请求固定不变（头只到达一次）。流式响应全程使用
+    这份入口 STS；仅当**单条请求持续时间超过 STS 有效期**时才会中途过期——属按
+    请求头注入模型的固有上限，正常请求 / 流远短于有效期，不受影响。
 
 头名可配置 / Configurable header names:
     构造参数 > 环境变量 > 默认值(``x-fc-*``)。头名大小写不敏感。
@@ -32,10 +40,8 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.types import ASGIApp
+from starlette.datastructures import Headers
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agentrun.utils.credential_context import use_sts_from_headers
 
@@ -52,8 +58,8 @@ def _detect_enabled() -> bool:
     return flag.strip().lower() in ("1", "true", "yes", "on")
 
 
-class StsRefreshMiddleware(BaseHTTPMiddleware):
-    """从请求头解析最新 STS 并注入请求级 overlay。"""
+class StsRefreshMiddleware:
+    """纯 ASGI 中间件：从请求头解析最新 STS 并注入请求级 overlay。"""
 
     def __init__(
         self,
@@ -64,7 +70,7 @@ class StsRefreshMiddleware(BaseHTTPMiddleware):
         access_key_secret_header: Optional[str] = None,
         security_token_header: Optional[str] = None,
     ) -> None:
-        super().__init__(app)
+        self.app = app
         # enabled=None 时按环境变量决定（默认启用，
         # AGENTRUN_STS_REFRESH_ENABLED 设为假值时关闭）。
         self._enabled = _detect_enabled() if enabled is None else enabled
@@ -73,16 +79,21 @@ class StsRefreshMiddleware(BaseHTTPMiddleware):
         self._sk_header = access_key_secret_header
         self._sts_header = security_token_header
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        if not self._enabled:
-            return await call_next(request)
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] != "http" or not self._enabled:
+            await self.app(scope, receive, send)
+            return
 
-        # 直接复用公开上下文管理器：解析请求头 -> 注入 overlay -> 退出复位。
+        # 复用公开上下文管理器：解析请求头 -> 注入 overlay -> app 整体跑完后复位。
         # 三元组不齐全时 use_sts_from_headers 不覆盖（透传），与手动注入完全一致。
+        # 纯 ASGI：overlay 在同一任务内对 endpoint / 流式 body / 同步处理器 /
+        # 响应后的 background task 全程可见，``with`` 在 app 结束后才退出复位。
         with use_sts_from_headers(
-            request.headers,
+            Headers(scope=scope),
             access_key_id_header=self._ak_header,
             access_key_secret_header=self._sk_header,
             security_token_header=self._sts_header,
         ):
-            return await call_next(request)
+            await self.app(scope, receive, send)

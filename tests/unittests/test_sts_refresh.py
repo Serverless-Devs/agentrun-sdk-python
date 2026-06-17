@@ -509,3 +509,35 @@ def test_public_exports_available():
     ):
         assert hasattr(agentrun, name), f"{name} not exported"
         assert name in agentrun.__all__, f"{name} missing from __all__"
+
+
+def test_middleware_background_task_sees_overlay():
+    """纯 ASGI：响应后的 background task 仍能读到请求级 overlay。
+
+    BaseHTTPMiddleware 下 background task 可能在 overlay 复位后才运行；纯 ASGI
+    中间件持有 overlay 直到 app（含 background）整体结束，故覆盖到位。
+    """
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+    from starlette.background import BackgroundTask
+
+    from agentrun.server.sts_middleware import StsRefreshMiddleware
+
+    captured: dict = {}
+
+    def _bg():
+        cfg = Config()
+        captured["ak"] = cfg.get_access_key_id()
+        captured["sts"] = cfg.get_security_token()
+
+    app = FastAPI()
+    app.add_middleware(StsRefreshMiddleware, enabled=True)
+
+    @app.get("/bg")
+    async def _ep():
+        return JSONResponse({"ok": True}, background=BackgroundTask(_bg))
+
+    client = TestClient(app)
+    client.get("/bg", headers=_HEADERS)
+    assert captured == {"ak": "H_AK", "sts": "H_STS"}, captured
