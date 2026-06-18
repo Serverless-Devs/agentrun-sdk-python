@@ -512,24 +512,25 @@ class ModelClient:
             ResourceNotExistError: 模型服务不存在
         """
 
+        # 优先查 ModelService，未命中再回退 ModelProxy，避免无谓的 404
         error: Optional[HTTPError] = None
-        if backend_type == BackendType.PROXY or backend_type is None:
+        if backend_type == BackendType.SERVICE or backend_type is None:
             try:
-                result = await self.__control_api.get_model_proxy_async(
-                    model_proxy_name=name, config=config
+                result = await self.__control_api.get_model_service_async(
+                    model_service_name=name, config=config
                 )
-                return ModelProxy.from_inner_object(result)
+                return ModelService.from_inner_object(result)
             except HTTPError as e:
                 error = e
 
-        if backend_type == BackendType.PROXY and error is not None:
+        if backend_type == BackendType.SERVICE and error is not None:
             raise error.to_resource_error("Model", name) from error
 
         try:
-            result = await self.__control_api.get_model_service_async(
-                model_service_name=name, config=config
+            result = await self.__control_api.get_model_proxy_async(
+                model_proxy_name=name, config=config
             )
-            return ModelService.from_inner_object(result)
+            return ModelProxy.from_inner_object(result)
         except HTTPError as e:
             raise e.to_resource_error("Model", name) from e
 
@@ -552,24 +553,25 @@ class ModelClient:
             ResourceNotExistError: 模型服务不存在
         """
 
+        # 优先查 ModelService，未命中再回退 ModelProxy，避免无谓的 404
         error: Optional[HTTPError] = None
-        if backend_type == BackendType.PROXY or backend_type is None:
+        if backend_type == BackendType.SERVICE or backend_type is None:
             try:
-                result = self.__control_api.get_model_proxy(
-                    model_proxy_name=name, config=config
+                result = self.__control_api.get_model_service(
+                    model_service_name=name, config=config
                 )
-                return ModelProxy.from_inner_object(result)
+                return ModelService.from_inner_object(result)
             except HTTPError as e:
                 error = e
 
-        if backend_type == BackendType.PROXY and error is not None:
+        if backend_type == BackendType.SERVICE and error is not None:
             raise error.to_resource_error("Model", name) from error
 
         try:
-            result = self.__control_api.get_model_service(
-                model_service_name=name, config=config
+            result = self.__control_api.get_model_proxy(
+                model_proxy_name=name, config=config
             )
-            return ModelService.from_inner_object(result)
+            return ModelProxy.from_inner_object(result)
         except HTTPError as e:
             raise e.to_resource_error("Model", name) from e
 

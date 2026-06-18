@@ -906,13 +906,14 @@ class TestModelClientGet:
         mock_control_api_class.return_value = mock_control_api
 
         mock_result = MagicMock()
-        mock_control_api.get_model_proxy.return_value = mock_result
+        mock_control_api.get_model_service.return_value = mock_result
 
         client = ModelClient()
         result = client.get("test")
 
-        # Should try proxy first
-        mock_control_api.get_model_proxy.assert_called_once()
+        # Should try service first (ModelService is the primary resource after migration)
+        mock_control_api.get_model_service.assert_called_once()
+        mock_control_api.get_model_proxy.assert_not_called()
 
     @patch.dict(
         os.environ,
@@ -923,27 +924,25 @@ class TestModelClientGet:
         },
     )
     @patch("agentrun.model.client.ModelControlAPI")
-    def test_get_auto_detect_falls_back_to_service(
-        self, mock_control_api_class
-    ):
-        """Test fallback to service when proxy not found"""
+    def test_get_auto_detect_falls_back_to_proxy(self, mock_control_api_class):
+        """Test fallback to proxy when service not found"""
         mock_control_api = MagicMock()
         mock_control_api_class.return_value = mock_control_api
 
-        # Proxy get fails
-        mock_control_api.get_model_proxy.side_effect = HTTPError(
+        # Service get fails
+        mock_control_api.get_model_service.side_effect = HTTPError(
             status_code=404, message="Not found"
         )
-        # Service get succeeds
+        # Proxy get succeeds
         mock_result = MagicMock()
-        mock_control_api.get_model_service.return_value = mock_result
+        mock_control_api.get_model_proxy.return_value = mock_result
 
         client = ModelClient()
         result = client.get("test")
 
-        mock_control_api.get_model_proxy.assert_called_once()
         mock_control_api.get_model_service.assert_called_once()
-        assert isinstance(result, ModelService)
+        mock_control_api.get_model_proxy.assert_called_once()
+        assert isinstance(result, ModelProxy)
 
     @patch.dict(
         os.environ,
@@ -1009,26 +1008,26 @@ class TestModelClientGet:
     @patch("agentrun.model.client.ModelControlAPI")
     @pytest.mark.asyncio
     async def test_get_async_auto_detect_fallback(self, mock_control_api_class):
-        """Test fallback to service when proxy not found in async get"""
+        """Test fallback to proxy when service not found in async get"""
         mock_control_api = MagicMock()
         mock_control_api_class.return_value = mock_control_api
 
-        # Proxy get fails
-        mock_control_api.get_model_proxy_async = AsyncMock(
+        # Service get fails
+        mock_control_api.get_model_service_async = AsyncMock(
             side_effect=HTTPError(status_code=404, message="Not found")
         )
-        # Service get succeeds
+        # Proxy get succeeds
         mock_result = MagicMock()
-        mock_control_api.get_model_service_async = AsyncMock(
+        mock_control_api.get_model_proxy_async = AsyncMock(
             return_value=mock_result
         )
 
         client = ModelClient()
         result = await client.get_async("test")
 
-        mock_control_api.get_model_proxy_async.assert_called_once()
         mock_control_api.get_model_service_async.assert_called_once()
-        assert isinstance(result, ModelService)
+        mock_control_api.get_model_proxy_async.assert_called_once()
+        assert isinstance(result, ModelProxy)
 
     @patch.dict(
         os.environ,
