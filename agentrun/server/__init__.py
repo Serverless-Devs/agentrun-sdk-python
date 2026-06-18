@@ -23,10 +23,10 @@ Example (使用事件):
 >>> from agentrun.server import AgentEvent, EventType
 >>>
 >>> async def invoke_agent(request: AgentRequest):
-...     # 发送自定义事件（如步骤开始）
+...     # 发送步骤开始事件
 ...     yield AgentEvent(
-...         event=EventType.CUSTOM,
-...         data={"name": "step_started", "value": {"step": "processing"}}
+...         event=EventType.STEP_STARTED,
+...         data={"stepName": "processing"}
 ...     )
 ...
 ...     # 流式输出内容
@@ -35,8 +35,8 @@ Example (使用事件):
 ...
 ...     # 发送步骤结束事件
 ...     yield AgentEvent(
-...         event=EventType.CUSTOM,
-...         data={"name": "step_finished", "value": {"step": "processing"}}
+...         event=EventType.STEP_FINISHED,
+...         data={"stepName": "processing"}
 ...     )
 
 Example (工具调用事件):

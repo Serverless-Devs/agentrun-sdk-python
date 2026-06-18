@@ -9,6 +9,7 @@ AG-UI 是一种开源、轻量级、基于事件的协议，用于标准化 AI A
 
 from dataclasses import dataclass, field
 import json
+import logging
 from typing import (
     Any,
     AsyncIterator,
@@ -19,6 +20,8 @@ from typing import (
     TYPE_CHECKING,
 )
 import uuid
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ag_ui.core import (
@@ -456,6 +459,8 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             RunErrorEvent,
             StateDeltaEvent,
             StateSnapshotEvent,
+            StepFinishedEvent,
+            StepStartedEvent,
             TextMessageContentEvent,
             ToolCallArgsEvent,
             ToolCallEndEvent,
@@ -764,6 +769,36 @@ class AGUIProtocolHandler(BaseProtocolHandler):
             else:
                 yield self._encoder.encode(
                     StateSnapshotEvent(snapshot=event.data)
+                )
+            return
+
+        # STEP_STARTED 事件
+        if event.event == EventType.STEP_STARTED:
+            step_name = event.data.get("stepName") or event.data.get("step_name")
+            if step_name:
+                yield self._encoder.encode(StepStartedEvent(step_name=step_name))
+            else:
+                logger.warning(
+                    "STEP_STARTED event missing 'stepName' field, falling back to CustomEvent. "
+                    "Provide data={'stepName': '...'} for standard AG-UI Step lifecycle events."
+                )
+                yield self._encoder.encode(
+                    AguiCustomEvent(name="step_started", value=event.data)
+                )
+            return
+
+        # STEP_FINISHED 事件
+        if event.event == EventType.STEP_FINISHED:
+            step_name = event.data.get("stepName") or event.data.get("step_name")
+            if step_name:
+                yield self._encoder.encode(StepFinishedEvent(step_name=step_name))
+            else:
+                logger.warning(
+                    "STEP_FINISHED event missing 'stepName' field, falling back to CustomEvent. "
+                    "Provide data={'stepName': '...'} for standard AG-UI Step lifecycle events."
+                )
+                yield self._encoder.encode(
+                    AguiCustomEvent(name="step_finished", value=event.data)
                 )
             return
 

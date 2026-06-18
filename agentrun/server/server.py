@@ -48,17 +48,17 @@ class AgentRunServer:
         >>> server.start(port=8000)
 
     Example (使用事件):
-        >>> from agentrun.server import AgentResult, EventType
+        >>> from agentrun.server import AgentEvent, EventType
         >>>
         >>> async def invoke_agent(request: AgentRequest):
-        ...     yield AgentResult(
+        ...     yield AgentEvent(
         ...         event=EventType.STEP_STARTED,
-        ...         data={"step_name": "thinking"}
+        ...         data={"stepName": "thinking"}
         ...     )
         ...     yield "I'm thinking..."
-        ...     yield AgentResult(
+        ...     yield AgentEvent(
         ...         event=EventType.STEP_FINISHED,
-        ...         data={"step_name": "thinking"}
+        ...         data={"stepName": "thinking"}
         ...     )
         >>>
         >>> server = AgentRunServer(invoke_agent=invoke_agent)

@@ -412,6 +412,10 @@ class OpenAIProtocolHandler(BaseProtocolHandler):
             if event.event == EventType.HITL:
                 continue
 
+            # STEP 事件：AG-UI 特有，OpenAI 协议不支持
+            if event.event in (EventType.STEP_STARTED, EventType.STEP_FINISHED):
+                continue
+
             # 其他事件忽略
             # (ERROR, STATE, CUSTOM 等不直接映射到 OpenAI 格式)
 

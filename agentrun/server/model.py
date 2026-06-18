@@ -139,6 +139,12 @@ class EventType(str, Enum):
     HITL = "HITL"  # Human-in-the-Loop，请求人类介入
 
     # =========================================================================
+    # 步骤生命周期事件
+    # =========================================================================
+    STEP_STARTED = "STEP_STARTED"  # 标记命名步骤开始（如 "reasoning", "final_answer"）
+    STEP_FINISHED = "STEP_FINISHED"  # 标记命名步骤结束
+
+    # =========================================================================
     # 扩展事件
     # =========================================================================
     CUSTOM = "CUSTOM"  # 自定义事件（协议层会正确处理）
@@ -262,10 +268,30 @@ class AgentEvent(BaseModel):
         ... )
         >>> # 用户响应将通过下一轮对话的 messages 中的 tool message 传回
 
+    Example (步骤生命周期事件):
+        >>> yield AgentEvent(
+        ...     event=EventType.STEP_STARTED,
+        ...     data={"stepName": "reasoning"}
+        ... )
+        >>> yield "thinking content..."
+        >>> yield AgentEvent(
+        ...     event=EventType.STEP_FINISHED,
+        ...     data={"stepName": "reasoning"}
+        ... )
+        >>> yield AgentEvent(
+        ...     event=EventType.STEP_STARTED,
+        ...     data={"stepName": "final_answer"}
+        ... )
+        >>> yield "final answer content..."
+        >>> yield AgentEvent(
+        ...     event=EventType.STEP_FINISHED,
+        ...     data={"stepName": "final_answer"}
+        ... )
+
     Example (自定义事件):
         >>> yield AgentEvent(
         ...     event=EventType.CUSTOM,
-        ...     data={"name": "step_started", "value": {"step": "thinking"}}
+        ...     data={"name": "custom_event", "value": {"key": "value"}}
         ... )
 
     Example (原始协议数据):
@@ -315,13 +341,13 @@ class AgentRequest(BaseModel):
     Example (使用事件):
         >>> async def invoke_agent(request: AgentRequest):
         ...     yield AgentEvent(
-        ...         event=EventType.CUSTOM,
-        ...         data={"name": "step_started", "value": {"step": "thinking"}}
+        ...         event=EventType.STEP_STARTED,
+        ...         data={"stepName": "thinking"}
         ...     )
         ...     yield "I'm thinking..."
         ...     yield AgentEvent(
-        ...         event=EventType.CUSTOM,
-        ...         data={"name": "step_finished", "value": {"step": "thinking"}}
+        ...         event=EventType.STEP_FINISHED,
+        ...         data={"stepName": "thinking"}
         ...     )
 
     Example (工具调用):
