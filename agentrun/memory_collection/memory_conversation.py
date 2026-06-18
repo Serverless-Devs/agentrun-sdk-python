@@ -189,19 +189,18 @@ class MemoryConversation:
         ots_config = await self._get_ots_config_from_memory_collection()
 
         # 创建 AsyncOTSClient
-        # 支持使用 STS 临时凭证访问 TableStore
-        client_kwargs = {
-            "end_point": ots_config["endpoint"],
-            "access_key_id": ots_config["access_key_id"],
-            "access_key_secret": ots_config["access_key_secret"],
-            "instance_name": ots_config["instance_name"],
-        }
+        # 通过 CredentialsProvider 注入凭证：长生命周期的 client（server 启动时
+        # 仅创建一次）也能在每次请求动态取到请求级 overlay 注入的最新 STS
+        # （再回退环境变量），无需重建连接。
+        from agentrun.conversation_service.utils import (
+            build_ots_credentials_provider,
+        )
 
-        # 如果提供了 security_token，则添加到参数中（支持 STS 临时凭证）
-        if ots_config.get("security_token"):
-            client_kwargs["sts_token"] = ots_config["security_token"]
-
-        self._ots_client = tablestore.AsyncOTSClient(**client_kwargs)
+        self._ots_client = tablestore.AsyncOTSClient(
+            end_point=ots_config["endpoint"],
+            instance_name=ots_config["instance_name"],
+            credentials_provider=build_ots_credentials_provider(self.config),
+        )
 
         # 配置会话表的二级索引元数据字段
         # agent_id 字段用于标识会话所属的 Agent
@@ -259,10 +258,10 @@ class MemoryConversation:
         Returns:
             Dict[str, Any]: OTS 配置字典，包含：
                 - endpoint: OTS endpoint
-                - access_key_id: 访问密钥 ID
-                - access_key_secret: 访问密钥 Secret
-                - security_token: STS 安全令牌（可选，用于临时凭证）
                 - instance_name: OTS 实例名称
+
+            凭证（ak/sk/sts）不在此返回：OTSClient 通过 CredentialsProvider
+            每次请求动态从 Config 取最新 STS，无需在此快照。
         """
         from agentrun.memory_collection import MemoryCollection
 
@@ -307,15 +306,10 @@ class MemoryConversation:
                 f" {original_endpoint} -> {endpoint}"
             )
 
-        # 构建 OTS 配置
+        # 构建 OTS 配置（仅连接信息；凭证由 CredentialsProvider 动态注入）
         ots_config = {
             "endpoint": endpoint,
             "instance_name": vs_config.instance_name or "",
-            "access_key_id": self.config.get_access_key_id(),
-            "access_key_secret": self.config.get_access_key_secret(),
-            "security_token": (
-                self.config.get_security_token()
-            ),  # 支持 STS 临时凭证
         }
 
         return ots_config

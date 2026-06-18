@@ -18,6 +18,7 @@ from .invoker import AgentInvoker
 from .model import ServerConfig
 from .openai_protocol import OpenAIProtocolHandler
 from .protocol import InvokeAgentHandler, ProtocolHandler
+from .sts_middleware import StsRefreshMiddleware
 
 
 class AgentRunServer:
@@ -122,6 +123,12 @@ class AgentRunServer:
                 - 会话历史将保存到指定的 MemoryCollection 中
         """
         self.app = FastAPI(title="AgentRun Server")
+
+        # 注入 STS 刷新中间件：从每次请求的 x-fc-* 头解析最新 STS 临时凭证，写入
+        # 请求级 overlay，使本次请求内所有 Config/client 静默使用最新凭证。
+        # 默认启用；未携带相关头时不产生任何副作用。如需关闭设环境变量
+        # AGENTRUN_STS_REFRESH_ENABLED=false。
+        self.app.add_middleware(StsRefreshMiddleware)
 
         # 如果启用了 memory，包装 invoke_agent
         if memory_collection_name:

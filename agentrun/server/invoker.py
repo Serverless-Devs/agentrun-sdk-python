@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import contextvars
 import inspect
 from typing import (
     Any,
@@ -201,7 +202,13 @@ class AgentInvoker:
         else:
             sync_handler = cast(SyncInvokeAgentHandler, self.invoke_agent)
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, sync_handler, request)
+            # 拷贝当前 contextvars（含请求级 STS overlay）进 executor 线程：
+            # loop.run_in_executor 默认不传播调用方 context，否则同步 handler
+            # 内的凭证 getter 读不到请求注入的最新 STS（会回退到陈旧 env）。
+            ctx = contextvars.copy_context()
+            result = await loop.run_in_executor(
+                None, lambda: ctx.run(sync_handler, request)
+            )
 
         return result
 
@@ -299,6 +306,9 @@ class AgentInvoker:
         else:
             loop = asyncio.get_running_loop()
             iterator = iter(content)
+            # 拷贝当前 contextvars（含请求级 STS overlay）进 executor 线程，
+            # 使同步生成器每次 next() 内的凭证 getter 都能取到最新 STS。
+            ctx = contextvars.copy_context()
 
             _STOP = object()
 
@@ -309,7 +319,9 @@ class AgentInvoker:
                     return _STOP
 
             while True:
-                chunk = await loop.run_in_executor(None, _safe_next)
+                chunk = await loop.run_in_executor(
+                    None, lambda: ctx.run(_safe_next)
+                )
                 if chunk is _STOP:
                     break
                 yield chunk

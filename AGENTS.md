@@ -471,3 +471,61 @@ A: 建议：
 3. 执行相关模块的 ut 测试，确保可以正确执行
 4. 进行修改内容的总结汇报
 5. 根据汇报内容进行检查，重新检查底层 SDK 和 AgentRun SDK 的定义
+
+## 凭证注入与 STS 静默刷新约定（强制）
+
+STS 临时凭证（ak/sk/security_token）会过期。部署在函数计算（FC）时，最新轮转
+后的 STS 通过**每次请求的 HTTP 头**下发，而非进程级环境变量。为让所有 client 在
+凭证过期后静默刷新，本仓库采用统一机制：
+
+1. **请求级 overlay**：`agentrun/server/sts_middleware.py` 解析 FC 头
+   （默认 `x-fc-access-key-id` / `x-fc-access-key-secret` / `x-fc-security-token`，
+   可经构造参数或 `AGENTRUN_STS_HEADER_*` 环境变量覆盖），写入
+   `agentrun/utils/credential_context.py` 的 `contextvars` overlay。中间件本身
+   只是 `use_sts_from_headers` 的薄封装（加 FC 门控），二者共用同一套解析逻辑。
+
+   **非 agentrun server 场景**（自有 FastAPI / Flask / Django、或非 HTTP 任务）：
+   中间件不会运行，需用户手动注入。SDK 顶层导出两个上下文管理器：
+   - `agentrun.use_sts_credentials(ak, sk, sts)` —— 显式传值；
+   - `agentrun.use_sts_from_headers(headers)` —— 从任意请求头映射解析（同 `x-fc-*`）。
+
+   ```python
+   from agentrun import use_sts_from_headers
+   with use_sts_from_headers(request.headers):
+       ...  # 块内所有 SDK 调用使用最新 STS，退出自动复位
+   ```
+
+2. **Config 懒解析**：`Config` 的三个凭证 getter 按
+   **显式传入 > 请求级 overlay（仅当三者均未显式传入）> 环境变量** 解析。
+   切勿在 `Config.__init__` 里把凭证快照成固定字符串。
+
+3. **client 一律用 credential provider，禁止传静态 ak/sk/sts**：
+
+   - **alibabacloud OpenAPI**（控制面 / Bailian / GPDB / Devs 等）：
+     构造 `open_api_util_models.Config` 时传
+     `credential=build_openapi_credential(cfg)`
+     （见 `agentrun/utils/credential_providers.py`），**不要**再传
+     `access_key_id` / `access_key_secret` / `security_token`。
+     注意 tea_openapi 的优先级是「静态 ak/sk 优先于 credential」，传了静态值
+     会让 provider 失效。
+
+   - **TableStore `OTSClient` / `AsyncOTSClient`**：
+     构造时传 `credentials_provider=build_ots_credentials_provider(cfg)`
+     （见 `agentrun/conversation_service/utils.py`），**不要**再传
+     `access_key_id` / `access_key_secret` / `sts_token`。
+
+   原因：直接传静态凭证会在 client 构造时把凭证冻结，长生命周期 client（如
+   server 启动时仅创建一次的 OTSClient）在 STS 过期后所有请求都会失败。
+   provider 会在**每次请求**被底层 SDK 调用，从而拿到最新 STS。
+
+4. **数据面手写签名**（`agentrun/utils/data_api.py` 的 RAM 签名）无需 provider：
+   它本就每次请求调用 `cfg.get_*()`，已随 Config 懒解析自动刷新。
+
+5. **自定义 httpx 签名器**（如 `_AgentrunRamAuth`，用于 MCP SSE / OpenAPI 工具）
+   必须**持有 `Config`**、在 `auth_flow` 内调用 `cfg.get_*()` 取证，
+   **不要**在 `__init__` 把 ak/sk/sts 快照成字段。否则长连接（SSE 一次建连、
+   多请求复用）会冻结建连时的 STS。
+
+新增任何与阿里云 / TableStore 交互的 client 时，必须遵循第 3 条；新增单测应覆盖
+「overlay 生效」与「显式凭证不被 overlay 覆盖」两种情况
+（参考 `tests/unittests/test_sts_refresh.py`）。

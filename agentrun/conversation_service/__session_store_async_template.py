@@ -880,7 +880,7 @@ class SessionStore:
                 "vector_store_config.instance_name 为空。"
             )
 
-        # 3. 获取凭证
+        # 3. 校验凭证存在（fail-fast；运行时由 CredentialsProvider 动态取证）
         effective_config = config if isinstance(config, Config) else Config()
         access_key_id = effective_config.get_access_key_id()
         access_key_secret = effective_config.get_access_key_secret()
@@ -891,17 +891,13 @@ class SessionStore:
                 "AGENTRUN_ACCESS_KEY_ID / AGENTRUN_ACCESS_KEY_SECRET。"
             )
 
-        security_token = effective_config.get_security_token()
-        sts_token = security_token if security_token else None
-
         # 4. 构建 OTSClient + AsyncOTSClient 和 OTSBackend
         # 使用 utils.build_ots_clients 避免 codegen 替换 AsyncOTSClient
+        # 传入 config：OTS 经 CredentialsProvider 每次请求动态取最新 STS。
         ots_client, async_ots_client = build_ots_clients(
             endpoint,
-            access_key_id,
-            access_key_secret,
             instance_name,
-            sts_token=sts_token,
+            config=effective_config,
         )
 
         backend = OTSBackend(
