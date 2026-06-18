@@ -6,10 +6,19 @@ This module configures the logging system for AgentRun SDK.
 
 import logging
 import os
+import time
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+UTC8_OFFSET_SECONDS = 8 * 60 * 60
+
+
+def _utc8_converter(timestamp: float) -> time.struct_time:
+    """Return a UTC+8 ``struct_time`` for logging.Formatter."""
+
+    return time.gmtime(timestamp + UTC8_OFFSET_SECONDS)
 
 
 class CustomFormatter(logging.Formatter):
@@ -48,11 +57,17 @@ class CustomFormatter(logging.Formatter):
                     f" {self.DIM}%(pathname)s:%(lineno)s{self.RESET}"
                     "\n%(message)s"
                 )
-            self._formatters[level] = logging.Formatter(fmt)
+            self._formatters[level] = self._create_formatter(fmt)
         self._default = logging.Formatter(
             "\n%(levelname)s [%(name)s] %(asctime)s"
             " %(pathname)s:%(lineno)s\n%(message)s"
         )
+        self._default.converter = _utc8_converter
+
+    def _create_formatter(self, fmt: str) -> logging.Formatter:
+        formatter = logging.Formatter(fmt)
+        formatter.converter = _utc8_converter
+        return formatter
 
     def format(self, record: logging.LogRecord) -> str:
         return self._formatters.get(record.levelname, self._default).format(
