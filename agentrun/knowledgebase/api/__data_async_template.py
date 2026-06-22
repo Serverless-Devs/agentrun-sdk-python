@@ -647,12 +647,15 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
         self.retrieve_settings = retrieve_settings
 
     def _build_agent_storage_client(
-        self, config: Optional[Config] = None
+        self,
+        config: Optional[Config] = None,
+        ots_endpoint: Optional[str] = None,
     ) -> AgentStorageClient:
         """构建 AgentStorageClient / Build AgentStorageClient
 
         Args:
             config: 配置 / Configuration
+            ots_endpoint: OTS 访问域名 / OTS endpoint
 
         Returns:
             AgentStorageClient: OTS 存储客户端
@@ -661,17 +664,23 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
             raise ValueError("provider_settings is required for OTS retrieval")
 
         cfg = Config.with_configs(self.config, config)
-        ots_endpoint = cfg.get_ots_endpoint(
-            self.provider_settings.ots_instance_name
-        )
+        ots_instance_name = self.provider_settings.ots_instance_name
+        if ots_endpoint is None:
+            ots_endpoint = cfg.get_ots_endpoint(ots_instance_name)
 
         return AgentStorageClient(
             access_key_id=cfg.get_access_key_id(),
             access_key_secret=cfg.get_access_key_secret(),
             sts_token=cfg.get_security_token(),
             ots_endpoint=ots_endpoint,
-            ots_instance_name=self.provider_settings.ots_instance_name,
+            ots_instance_name=ots_instance_name,
         )
+
+    def _build_frontend_ots_endpoint(
+        self, config: Optional[Config] = None
+    ) -> str:
+        cfg = Config.with_configs(self.config, config)
+        return f"http://ots-{cfg.get_region_id()}.aliyuncs.com"
 
     def _build_retrieval_configuration(
         self, filter: Optional[Dict[str, Any]] = None
@@ -838,7 +847,20 @@ class OTSDataAPI(KnowledgeBaseDataAPI):
                 request["retrievalConfiguration"] = retrieval_config
 
             logger.debug(f"OTS retrieve request: {request}")
-            response = client.retrieve(request)
+            try:
+                response = client.retrieve(request)
+            except Exception as instance_error:
+                frontend_endpoint = self._build_frontend_ots_endpoint(config)
+                logger.warning(
+                    "Failed to retrieve from OTS knowledge base "
+                    f"'{self.knowledge_base_name}' with instance endpoint, "
+                    f"fallback to frontend endpoint {frontend_endpoint}: "
+                    f"{instance_error}"
+                )
+                client = self._build_agent_storage_client(
+                    config, ots_endpoint=frontend_endpoint
+                )
+                response = client.retrieve(request)
             logger.debug(f"OTS retrieve response: {response}")
 
             return self._parse_retrieve_response(response, query)
