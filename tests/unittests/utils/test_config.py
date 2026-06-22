@@ -35,7 +35,7 @@ class TestConfig:
         assert config.get_bailian_endpoint() == "https://bailian.cn-beijing.aliyuncs.com"
         assert config.get_gpdb_endpoint() == "gpdb.aliyuncs.com"
         assert config.get_ots_endpoint("my-instance") == (
-            "http://ots-cn-hangzhou.aliyuncs.com"
+            "https://my-instance.cn-hangzhou.ots.aliyuncs.com"
         )
 
     def test_kb_endpoints_vpc_mode(self):
