@@ -343,7 +343,7 @@ class Config:
             return (
                 f"https://{instance_name}.{region_id}.vpc.tablestore.aliyuncs.com"
             )
-        return f"http://ots-{region_id}.aliyuncs.com"
+        return f"https://{instance_name}.{region_id}.ots.aliyuncs.com"
 
     def get_use_vpc_endpoint(self) -> bool:
         """知识库检索是否使用 VPC 内网 endpoint"""

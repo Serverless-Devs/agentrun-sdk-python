@@ -493,6 +493,104 @@ class TestOTSDataAPIRetrieve:
         assert result["query"] == "test query"
         assert result["knowledge_base_name"] == "test-kb"
 
+    @patch("agentrun.knowledgebase.api.data.AgentStorageClient")
+    def test_retrieve_falls_back_to_frontend_endpoint(
+        self, mock_client_class
+    ):
+        """测试实例域名检索失败后回退到大前端域名"""
+        mock_config = MagicMock(spec=Config)
+        mock_config.get_region_id.return_value = "cn-hangzhou"
+        mock_config.get_use_vpc_endpoint.return_value = False
+        mock_config.get_ots_endpoint.return_value = (
+            "https://test-instance.cn-hangzhou.ots.aliyuncs.com"
+        )
+        mock_config.get_access_key_id.return_value = "test-ak"
+        mock_config.get_access_key_secret.return_value = "test-sk"
+        mock_config.get_security_token.return_value = "test-sts"
+
+        instance_client = MagicMock()
+        instance_client.retrieve.side_effect = RuntimeError(
+            "instance endpoint unavailable"
+        )
+        fallback_client = MagicMock()
+        fallback_client.retrieve.return_value = {
+            "code": "SUCCESS",
+            "data": {
+                "retrievalResults": [
+                    {"content": "fallback result", "score": 0.8}
+                ]
+            },
+        }
+        mock_client_class.side_effect = [instance_client, fallback_client]
+
+        with patch.object(Config, "with_configs", return_value=mock_config):
+            api = OTSDataAPI(
+                "test-kb",
+                provider_settings=OTSProviderSettings(
+                    ots_instance_name="test-instance"
+                ),
+            )
+            result = api.retrieve("test query")
+
+        assert "error" not in result
+        assert result["data"][0]["content"] == "fallback result"
+        assert mock_client_class.call_args_list[0].kwargs["ots_endpoint"] == (
+            "https://test-instance.cn-hangzhou.ots.aliyuncs.com"
+        )
+        assert mock_client_class.call_args_list[1].kwargs["ots_endpoint"] == (
+            "http://ots-cn-hangzhou.aliyuncs.com"
+        )
+        instance_client.retrieve.assert_called_once()
+        fallback_client.retrieve.assert_called_once()
+
+    @patch("agentrun.knowledgebase.api.data.AgentStorageClient")
+    def test_retrieve_vpc_failure_does_not_fallback_to_public_endpoint(
+        self, mock_client_class
+    ):
+        """测试 VPC endpoint 失败时不回退到公网大前端域名"""
+        mock_config = MagicMock(spec=Config)
+        mock_config.get_region_id.return_value = "cn-hangzhou"
+        mock_config.get_use_vpc_endpoint.return_value = True
+        mock_config.get_ots_endpoint.return_value = (
+            "https://test-instance.cn-hangzhou.vpc.tablestore.aliyuncs.com"
+        )
+        mock_config.get_access_key_id.return_value = "test-ak"
+        mock_config.get_access_key_secret.return_value = "test-sk"
+        mock_config.get_security_token.return_value = "test-sts"
+
+        instance_client = MagicMock()
+        instance_client.retrieve.side_effect = RuntimeError(
+            "vpc endpoint unavailable"
+        )
+        fallback_client = MagicMock()
+        fallback_client.retrieve.return_value = {
+            "code": "SUCCESS",
+            "data": {
+                "retrievalResults": [
+                    {"content": "public fallback result", "score": 0.8}
+                ]
+            },
+        }
+        mock_client_class.side_effect = [instance_client, fallback_client]
+
+        with patch.object(Config, "with_configs", return_value=mock_config):
+            api = OTSDataAPI(
+                "test-kb",
+                provider_settings=OTSProviderSettings(
+                    ots_instance_name="test-instance"
+                ),
+            )
+            result = api.retrieve("test query")
+
+        assert result["error"] is True
+        assert "vpc endpoint unavailable" in result["data"]
+        assert mock_client_class.call_count == 1
+        assert mock_client_class.call_args.kwargs["ots_endpoint"] == (
+            "https://test-instance.cn-hangzhou.vpc.tablestore.aliyuncs.com"
+        )
+        instance_client.retrieve.assert_called_once()
+        fallback_client.retrieve.assert_not_called()
+
     @patch(
         "agentrun.knowledgebase.api.data.OTSDataAPI._build_agent_storage_client"
     )
@@ -511,6 +609,106 @@ class TestOTSDataAPIRetrieve:
         result = await api.retrieve_async("test query")
         assert result["error"] is True
         assert "Failed to retrieve" in result["data"]
+
+    @patch("agentrun.knowledgebase.api.data.AgentStorageClient")
+    @pytest.mark.asyncio
+    async def test_retrieve_async_falls_back_to_frontend_endpoint(
+        self, mock_client_class
+    ):
+        """测试异步实例域名检索失败后回退到大前端域名"""
+        mock_config = MagicMock(spec=Config)
+        mock_config.get_region_id.return_value = "cn-hangzhou"
+        mock_config.get_use_vpc_endpoint.return_value = False
+        mock_config.get_ots_endpoint.return_value = (
+            "https://test-instance.cn-hangzhou.ots.aliyuncs.com"
+        )
+        mock_config.get_access_key_id.return_value = "test-ak"
+        mock_config.get_access_key_secret.return_value = "test-sk"
+        mock_config.get_security_token.return_value = "test-sts"
+
+        instance_client = MagicMock()
+        instance_client.retrieve.side_effect = RuntimeError(
+            "instance endpoint unavailable"
+        )
+        fallback_client = MagicMock()
+        fallback_client.retrieve.return_value = {
+            "code": "SUCCESS",
+            "data": {
+                "retrievalResults": [
+                    {"content": "async fallback result", "score": 0.8}
+                ]
+            },
+        }
+        mock_client_class.side_effect = [instance_client, fallback_client]
+
+        with patch.object(Config, "with_configs", return_value=mock_config):
+            api = OTSDataAPI(
+                "test-kb",
+                provider_settings=OTSProviderSettings(
+                    ots_instance_name="test-instance"
+                ),
+            )
+            result = await api.retrieve_async("test query")
+
+        assert "error" not in result
+        assert result["data"][0]["content"] == "async fallback result"
+        assert mock_client_class.call_args_list[0].kwargs["ots_endpoint"] == (
+            "https://test-instance.cn-hangzhou.ots.aliyuncs.com"
+        )
+        assert mock_client_class.call_args_list[1].kwargs["ots_endpoint"] == (
+            "http://ots-cn-hangzhou.aliyuncs.com"
+        )
+        instance_client.retrieve.assert_called_once()
+        fallback_client.retrieve.assert_called_once()
+
+    @patch("agentrun.knowledgebase.api.data.AgentStorageClient")
+    @pytest.mark.asyncio
+    async def test_retrieve_async_vpc_failure_does_not_fallback_to_public_endpoint(
+        self, mock_client_class
+    ):
+        """测试异步 VPC endpoint 失败时不回退到公网大前端域名"""
+        mock_config = MagicMock(spec=Config)
+        mock_config.get_region_id.return_value = "cn-hangzhou"
+        mock_config.get_use_vpc_endpoint.return_value = True
+        mock_config.get_ots_endpoint.return_value = (
+            "https://test-instance.cn-hangzhou.vpc.tablestore.aliyuncs.com"
+        )
+        mock_config.get_access_key_id.return_value = "test-ak"
+        mock_config.get_access_key_secret.return_value = "test-sk"
+        mock_config.get_security_token.return_value = "test-sts"
+
+        instance_client = MagicMock()
+        instance_client.retrieve.side_effect = RuntimeError(
+            "vpc endpoint unavailable"
+        )
+        fallback_client = MagicMock()
+        fallback_client.retrieve.return_value = {
+            "code": "SUCCESS",
+            "data": {
+                "retrievalResults": [
+                    {"content": "async public fallback result", "score": 0.8}
+                ]
+            },
+        }
+        mock_client_class.side_effect = [instance_client, fallback_client]
+
+        with patch.object(Config, "with_configs", return_value=mock_config):
+            api = OTSDataAPI(
+                "test-kb",
+                provider_settings=OTSProviderSettings(
+                    ots_instance_name="test-instance"
+                ),
+            )
+            result = await api.retrieve_async("test query")
+
+        assert result["error"] is True
+        assert "vpc endpoint unavailable" in result["data"]
+        assert mock_client_class.call_count == 1
+        assert mock_client_class.call_args.kwargs["ots_endpoint"] == (
+            "https://test-instance.cn-hangzhou.vpc.tablestore.aliyuncs.com"
+        )
+        instance_client.retrieve.assert_called_once()
+        fallback_client.retrieve.assert_not_called()
 
     def test_retrieve_without_provider_settings(self):
         """测试无 provider_settings 时检索"""
@@ -598,7 +796,7 @@ class TestOTSDataAPIBuildClient:
         """测试构建客户端"""
         mock_config = MagicMock(spec=Config)
         mock_config.get_ots_endpoint.return_value = (
-            "http://ots-cn-hangzhou.aliyuncs.com"
+            "https://test-instance.cn-hangzhou.ots.aliyuncs.com"
         )
         mock_config.get_access_key_id.return_value = "test-ak"
         mock_config.get_access_key_secret.return_value = "test-sk"
@@ -617,7 +815,7 @@ class TestOTSDataAPIBuildClient:
             access_key_id="test-ak",
             access_key_secret="test-sk",
             sts_token="test-sts",
-            ots_endpoint="http://ots-cn-hangzhou.aliyuncs.com",
+            ots_endpoint="https://test-instance.cn-hangzhou.ots.aliyuncs.com",
             ots_instance_name="test-instance",
         )
 
