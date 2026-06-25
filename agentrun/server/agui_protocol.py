@@ -748,15 +748,11 @@ class AGUIProtocolHandler(BaseProtocolHandler):
                 message=event.data.get("message", ""),
                 code=event.data.get("code"),
             )
-            extra_fields = {}
-            for key in RUN_ERROR_EXTRA_FIELDS:
-                value = event.data.get(key)
-                if value is not None:
-                    extra_fields[key] = value
-                elif event.addition:
-                    value = event.addition.get(key)
-                    if value is not None:
-                        extra_fields[key] = value
+            extra_fields = {
+                key: event.data[key]
+                for key in RUN_ERROR_EXTRA_FIELDS
+                if key in event.data
+            }
             if extra_fields:
                 agui_event = agui_event.model_copy(update=extra_fields)
             yield self._encoder.encode(agui_event)

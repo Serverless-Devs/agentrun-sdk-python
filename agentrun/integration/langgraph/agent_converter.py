@@ -29,11 +29,11 @@
 import json
 from typing import Any, Dict, Iterator, List, Optional, Union
 
+from agentrun.server.model import AgentResult, EventType
 from agentrun.utils.error_utils import (
     build_error_event_data,
-    format_error_message,
+    is_rate_limited_error,
 )
-from agentrun.server.model import AgentResult, EventType
 from agentrun.utils.log import logger
 
 # 需要从工具输入中过滤掉的内部字段（LangGraph/MCP 注入的运行时对象）
@@ -945,14 +945,25 @@ class AgentRunConverter:
         # 7. LLM 错误
         elif event_type == "on_llm_error":
             error = data.get("error")
-            error_message = format_error_message(error)
+            error_message = ""
+            if error is not None:
+                if isinstance(error, Exception):
+                    error_message = f"{type(error).__name__}: {str(error)}"
+                elif isinstance(error, str):
+                    error_message = error
+                else:
+                    error_message = str(error)
 
             yield AgentResult(
                 event=EventType.ERROR,
                 data=build_error_event_data(
                     error,
                     fallback_code="LLM_ERROR",
-                    fallback_message=f"LLM error: {error_message}",
+                    fallback_message=(
+                        error_message
+                        if is_rate_limited_error(error)
+                        else f"LLM error: {error_message}"
+                    ),
                 ),
             )
 
@@ -960,7 +971,14 @@ class AgentRunConverter:
         elif event_type == "on_chain_error":
             error = data.get("error")
             chain_name = event_dict.get("name", "")
-            error_message = format_error_message(error)
+            error_message = ""
+            if error is not None:
+                if isinstance(error, Exception):
+                    error_message = f"{type(error).__name__}: {str(error)}"
+                elif isinstance(error, str):
+                    error_message = error
+                else:
+                    error_message = str(error)
 
             yield AgentResult(
                 event=EventType.ERROR,
@@ -978,7 +996,14 @@ class AgentRunConverter:
         elif event_type == "on_retriever_error":
             error = data.get("error")
             retriever_name = event_dict.get("name", "")
-            error_message = format_error_message(error)
+            error_message = ""
+            if error is not None:
+                if isinstance(error, Exception):
+                    error_message = f"{type(error).__name__}: {str(error)}"
+                elif isinstance(error, str):
+                    error_message = error
+                else:
+                    error_message = str(error)
 
             yield AgentResult(
                 event=EventType.ERROR,
