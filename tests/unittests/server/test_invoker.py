@@ -208,7 +208,7 @@ class TestInvokerStream:
         error_event = next(
             item for item in items if item.event == EventType.ERROR
         )
-        assert error_event.data["message"] == "模型当前请求过多，请稍后再试"
+        assert error_event.data["message"] == "model overloaded"
         assert error_event.data["code"] == "RATE_LIMITED"
         assert error_event.data["retryable"] is True
         assert error_event.data["retryAfterMs"] == 2000

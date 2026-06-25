@@ -4,7 +4,6 @@ import re
 from typing import Any, Dict, Optional
 
 RATE_LIMITED_CODE = "RATE_LIMITED"
-RATE_LIMITED_MESSAGE = "模型当前请求过多，请稍后再试"
 RATE_LIMITED_RETRY_AFTER_MS = 2000
 
 _RATE_LIMIT_CODES = {
@@ -52,7 +51,7 @@ def build_error_event_data(
         return {"message": fallback_message, "code": fallback_code}
 
     data: Dict[str, Any] = {
-        "message": RATE_LIMITED_MESSAGE,
+        "message": fallback_message,
         "code": RATE_LIMITED_CODE,
         "retryable": True,
         "retryAfterMs": RATE_LIMITED_RETRY_AFTER_MS,

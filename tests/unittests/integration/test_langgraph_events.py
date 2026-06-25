@@ -842,7 +842,7 @@ class TestErrorEvents:
 
         assert len(results) == 1
         assert results[0].event == EventType.ERROR
-        assert results[0].data["message"] == "模型当前请求过多，请稍后再试"
+        assert results[0].data["message"] == "LLM error: RuntimeError: API rate limit exceeded"
         assert results[0].data["code"] == "RATE_LIMITED"
         assert results[0].data["retryable"] is True
         assert results[0].data["retryAfterMs"] == 2000
