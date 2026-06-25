@@ -24,7 +24,10 @@ from typing import (
 )
 import uuid
 
-from agentrun.utils.error_utils import build_error_event_data
+from agentrun.utils.error_utils import (
+    build_error_event_data,
+    is_rate_limited_error,
+)
 from .model import AgentEvent, AgentRequest, EventType
 from .protocol import (
     AsyncInvokeAgentHandler,
@@ -118,10 +121,7 @@ class AgentInvoker:
                     if isinstance(item, str):
                         if not item:  # 跳过空字符串
                             continue
-                        yield AgentEvent(
-                            event=EventType.TEXT,
-                            data={"delta": item},
-                        )
+                        yield self._wrap_text(item)
 
                     elif isinstance(item, AgentEvent):
                         # 处理用户返回的事件
@@ -232,12 +232,7 @@ class AgentInvoker:
             return results
 
         if isinstance(result, str):
-            results.append(
-                AgentEvent(
-                    event=EventType.TEXT,
-                    data={"delta": result},
-                )
-            )
+            results.append(self._wrap_text(result))
 
         elif isinstance(result, AgentEvent):
             # 处理可能的 TOOL_CALL 展开
@@ -248,12 +243,7 @@ class AgentInvoker:
                 if isinstance(item, AgentEvent):
                     results.extend(self._process_user_event(item))
                 elif isinstance(item, str) and item:
-                    results.append(
-                        AgentEvent(
-                            event=EventType.TEXT,
-                            data={"delta": item},
-                        )
-                    )
+                    results.append(self._wrap_text(item))
                 else:
                     results.extend(self._wrap_model_chunk(item))
 
@@ -280,10 +270,7 @@ class AgentInvoker:
             if isinstance(item, str):
                 if not item:
                     continue
-                yield AgentEvent(
-                    event=EventType.TEXT,
-                    data={"delta": item},
-                )
+                yield self._wrap_text(item)
 
             elif isinstance(item, AgentEvent):
                 for processed_event in self._process_user_event(item):
@@ -351,14 +338,24 @@ class AgentInvoker:
 
         content = self._read_attr_or_key(item, "content")
         if isinstance(content, str) and content:
-            events.append(
-                AgentEvent(
-                    event=EventType.TEXT,
-                    data={"delta": content},
-                )
-            )
+            events.append(self._wrap_text(content))
 
         return events
+
+    def _wrap_text(self, text: str) -> AgentEvent:
+        if is_rate_limited_error(text):
+            return AgentEvent(
+                event=EventType.ERROR,
+                data=build_error_event_data(
+                    text,
+                    fallback_code=type(text).__name__,
+                    fallback_message=text,
+                ),
+            )
+        return AgentEvent(
+            event=EventType.TEXT,
+            data={"delta": text},
+        )
 
     def _read_attr_or_key(self, obj: Any, key: str) -> Any:
         if isinstance(obj, dict):
