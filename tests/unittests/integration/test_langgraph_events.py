@@ -890,6 +890,29 @@ class TestErrorEvents:
         assert "KeyError" in results[0].data["message"]
         assert results[0].data["code"] == "CHAIN_ERROR"
 
+    def test_on_chain_error_status_429_keeps_chain_error(self):
+        """测试 chain 429 不套用模型限流语义"""
+
+        class ChainStatusError(RuntimeError):
+            status_code = 429
+
+        event = {
+            "event": "on_chain_error",
+            "name": "agent_chain",
+            "run_id": "run_chain",
+            "data": {
+                "error": ChainStatusError("chain quota exceeded"),
+            },
+        }
+
+        results = list(AgentRunConverter().to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert results[0].data["code"] == "CHAIN_ERROR"
+        assert "retryable" not in results[0].data
+        assert "retryAfterMs" not in results[0].data
+
     def test_on_retriever_error(self):
         """测试 on_retriever_error 事件
 
@@ -912,6 +935,29 @@ class TestErrorEvents:
         assert "vector_store" in results[0].data["message"]
         assert "ConnectionError" in results[0].data["message"]
         assert results[0].data["code"] == "RETRIEVER_ERROR"
+
+    def test_on_retriever_error_status_429_keeps_retriever_error(self):
+        """测试 retriever 429 不套用模型限流语义"""
+
+        class RetrieverStatusError(RuntimeError):
+            status_code = 429
+
+        event = {
+            "event": "on_retriever_error",
+            "name": "vector_store",
+            "run_id": "run_retriever",
+            "data": {
+                "error": RetrieverStatusError("retriever quota exceeded"),
+            },
+        }
+
+        results = list(AgentRunConverter().to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert results[0].data["code"] == "RETRIEVER_ERROR"
+        assert "retryable" not in results[0].data
+        assert "retryAfterMs" not in results[0].data
 
     def test_tool_error_in_complete_flow(self):
         """测试完整流程中的工具错误

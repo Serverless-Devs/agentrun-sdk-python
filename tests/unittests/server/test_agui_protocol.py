@@ -128,7 +128,7 @@ class TestAGUIProtocolEndpoints:
         )
 
         assert response.status_code == 200
-        assert "event: RUN_ERROR" in response.text
+        assert "event: RUN_ERROR" not in response.text
         events = _agui_sse_events(response)
         run_error = next(
             event for event in events if event.get("type") == "RUN_ERROR"
@@ -156,7 +156,7 @@ class TestAGUIProtocolEndpoints:
         )
 
         assert response.status_code == 200
-        assert "event: RUN_ERROR" in response.text
+        assert "event: RUN_ERROR" not in response.text
         events = _agui_sse_events(response)
         types = [event.get("type") for event in events]
         run_error = next(

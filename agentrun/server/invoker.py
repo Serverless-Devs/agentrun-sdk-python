@@ -24,7 +24,7 @@ from typing import (
 )
 import uuid
 
-from .error_utils import build_error_event_data
+from agentrun.utils.error_utils import build_error_event_data
 from .model import AgentEvent, AgentRequest, EventType
 from .protocol import (
     AsyncInvokeAgentHandler,

@@ -1,4 +1,4 @@
-"""Error helpers for AgentRun server streams."""
+"""Error helpers for AgentRun event streams."""
 
 import re
 from typing import Any, Dict, Optional
@@ -25,9 +25,8 @@ _RATE_LIMIT_TEXT_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(r"\bresource[-_\s]*throttled\b", re.IGNORECASE),
-    re.compile(r"\bthrottling(?:exception| exception| error)\b", re.IGNORECASE),
     re.compile(
-        r"\b(?:http|status|status code|code)\s*[:=]?\s*429\b",
+        r"\b(?:throttling|throttlingexception|throttled)\b",
         re.IGNORECASE,
     ),
 ]

@@ -29,7 +29,7 @@
 import json
 from typing import Any, Dict, Iterator, List, Optional, Union
 
-from agentrun.server.error_utils import (
+from agentrun.utils.error_utils import (
     build_error_event_data,
     format_error_message,
 )
@@ -964,15 +964,14 @@ class AgentRunConverter:
 
             yield AgentResult(
                 event=EventType.ERROR,
-                data=build_error_event_data(
-                    error,
-                    fallback_code="CHAIN_ERROR",
-                    fallback_message=(
+                data={
+                    "message": (
                         f"Chain '{chain_name}' error: {error_message}"
                         if chain_name
                         else error_message
                     ),
-                ),
+                    "code": "CHAIN_ERROR",
+                },
             )
 
         # 9. Retriever 错误
@@ -983,15 +982,14 @@ class AgentRunConverter:
 
             yield AgentResult(
                 event=EventType.ERROR,
-                data=build_error_event_data(
-                    error,
-                    fallback_code="RETRIEVER_ERROR",
-                    fallback_message=(
+                data={
+                    "message": (
                         f"Retriever '{retriever_name}' error: {error_message}"
                         if retriever_name
                         else error_message
                     ),
-                ),
+                    "code": "RETRIEVER_ERROR",
+                },
             )
 
     # =========================================================================
