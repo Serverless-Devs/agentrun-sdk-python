@@ -131,9 +131,10 @@ def _get_value(obj: Any, name: str) -> Optional[Any]:
 
 
 def _get_header(headers: Any, name: str) -> Optional[Any]:
+    target = str(name).lower()
     if isinstance(headers, dict):
         for key, value in headers.items():
-            if str(key).lower() == name:
+            if str(key).lower() == target:
                 return value
         return None
     get = getattr(headers, "get", None)
