@@ -24,6 +24,7 @@ from typing import (
 )
 import uuid
 
+from .error_utils import build_error_event_data
 from .model import AgentEvent, AgentRequest, EventType
 from .protocol import (
     AsyncInvokeAgentHandler,
@@ -142,7 +143,11 @@ class AgentInvoker:
             logger.error(f"Agent 调用出错: {e}", exc_info=True)
             yield AgentEvent(
                 event=EventType.ERROR,
-                data={"message": str(e), "code": type(e).__name__},
+                data=build_error_event_data(
+                    e,
+                    fallback_code=type(e).__name__,
+                    fallback_message=str(e),
+                ),
             )
 
     def _process_user_event(

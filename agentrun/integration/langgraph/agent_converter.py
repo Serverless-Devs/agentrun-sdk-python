@@ -29,6 +29,10 @@
 import json
 from typing import Any, Dict, Iterator, List, Optional, Union
 
+from agentrun.server.error_utils import (
+    build_error_event_data,
+    format_error_message,
+)
 from agentrun.server.model import AgentResult, EventType
 from agentrun.utils.log import logger
 
@@ -941,71 +945,53 @@ class AgentRunConverter:
         # 7. LLM 错误
         elif event_type == "on_llm_error":
             error = data.get("error")
-            error_message = ""
-            if error is not None:
-                if isinstance(error, Exception):
-                    error_message = f"{type(error).__name__}: {str(error)}"
-                elif isinstance(error, str):
-                    error_message = error
-                else:
-                    error_message = str(error)
+            error_message = format_error_message(error)
 
             yield AgentResult(
                 event=EventType.ERROR,
-                data={
-                    "message": f"LLM error: {error_message}",
-                    "code": "LLM_ERROR",
-                },
+                data=build_error_event_data(
+                    error,
+                    fallback_code="LLM_ERROR",
+                    fallback_message=f"LLM error: {error_message}",
+                ),
             )
 
         # 8. Chain 错误
         elif event_type == "on_chain_error":
             error = data.get("error")
             chain_name = event_dict.get("name", "")
-            error_message = ""
-            if error is not None:
-                if isinstance(error, Exception):
-                    error_message = f"{type(error).__name__}: {str(error)}"
-                elif isinstance(error, str):
-                    error_message = error
-                else:
-                    error_message = str(error)
+            error_message = format_error_message(error)
 
             yield AgentResult(
                 event=EventType.ERROR,
-                data={
-                    "message": (
+                data=build_error_event_data(
+                    error,
+                    fallback_code="CHAIN_ERROR",
+                    fallback_message=(
                         f"Chain '{chain_name}' error: {error_message}"
                         if chain_name
                         else error_message
                     ),
-                    "code": "CHAIN_ERROR",
-                },
+                ),
             )
 
         # 9. Retriever 错误
         elif event_type == "on_retriever_error":
             error = data.get("error")
             retriever_name = event_dict.get("name", "")
-            error_message = ""
-            if error is not None:
-                if isinstance(error, Exception):
-                    error_message = f"{type(error).__name__}: {str(error)}"
-                elif isinstance(error, str):
-                    error_message = error
-                else:
-                    error_message = str(error)
+            error_message = format_error_message(error)
 
             yield AgentResult(
                 event=EventType.ERROR,
-                data={
-                    "message": (
+                data=build_error_event_data(
+                    error,
+                    fallback_code="RETRIEVER_ERROR",
+                    fallback_message=(
                         f"Retriever '{retriever_name}' error: {error_message}"
                         if retriever_name
                         else error_message
                     ),
-                    "code": "RETRIEVER_ERROR",
-                },
+                ),
             )
 
     # =========================================================================
