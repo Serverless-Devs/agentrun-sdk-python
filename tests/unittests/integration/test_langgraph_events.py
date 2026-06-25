@@ -816,7 +816,7 @@ class TestErrorEvents:
             "event": "on_llm_error",
             "run_id": "run_llm",
             "data": {
-                "error": RuntimeError("API rate limit exceeded"),
+                "error": RuntimeError("Model backend failed"),
             },
         }
 
@@ -827,6 +827,45 @@ class TestErrorEvents:
         assert "LLM error" in results[0].data["message"]
         assert "RuntimeError" in results[0].data["message"]
         assert results[0].data["code"] == "LLM_ERROR"
+
+    def test_on_llm_error_rate_limited(self):
+        """测试 on_llm_error 限流错误归一化"""
+        event = {
+            "event": "on_llm_error",
+            "run_id": "run_llm",
+            "data": {
+                "error": RuntimeError("API rate limit exceeded"),
+            },
+        }
+
+        results = list(AgentRunConverter().to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert results[0].data["message"] == "模型当前请求过多，请稍后再试"
+        assert results[0].data["code"] == "RATE_LIMITED"
+        assert results[0].data["retryable"] is True
+        assert results[0].data["retryAfterMs"] == 2000
+
+    def test_on_llm_error_rate_limit_text_false_positive(self):
+        """测试说明性 rate limit/429 文本不会误判"""
+        event = {
+            "event": "on_llm_error",
+            "run_id": "run_llm",
+            "data": {
+                "error": RuntimeError(
+                    "ticket 429 mentions rate limit dashboard, auth failed"
+                ),
+            },
+        }
+
+        results = list(AgentRunConverter().to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert results[0].data["code"] == "LLM_ERROR"
+        assert "retryable" not in results[0].data
+        assert "retryAfterMs" not in results[0].data
 
     def test_on_chain_error(self):
         """测试 on_chain_error 事件

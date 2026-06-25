@@ -102,6 +102,95 @@ class TestAGUIProtocolEndpoints:
         assert "RUN_ERROR" in types
 
     @pytest.mark.asyncio
+    async def test_error_event_addition_fields_preserved(self):
+        """测试 RUN_ERROR 编码保留扩展字段"""
+
+        def invoke_agent(request: AgentRequest):
+            yield AgentEvent(
+                event=EventType.ERROR,
+                data={
+                    "message": "模型当前请求过多，请稍后再试",
+                    "code": "RATE_LIMITED",
+                    "retryable": True,
+                    "type": "BROKEN",
+                },
+                addition={
+                    "retryAfterMs": 2000,
+                    "traceId": "trace-xyz",
+                    "type": "BROKEN",
+                },
+            )
+
+        client = self.get_client(invoke_agent)
+        response = client.post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "Hello"}]},
+        )
+
+        assert response.status_code == 200
+        assert "event: RUN_ERROR" in response.text
+        events = _agui_sse_events(response)
+        run_error = next(
+            event for event in events if event.get("type") == "RUN_ERROR"
+        )
+        assert run_error["type"] == "RUN_ERROR"
+        assert run_error["code"] == "RATE_LIMITED"
+        assert run_error["retryable"] is True
+        assert run_error["retryAfterMs"] == 2000
+        assert run_error["traceId"] == "trace-xyz"
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_error_stream_payload(self):
+        """测试 429 错误输出结构化 RUN_ERROR 且无 RUN_FINISHED"""
+
+        class RateLimitError(RuntimeError):
+            status_code = 429
+
+        def invoke_agent(request: AgentRequest):
+            raise RateLimitError("model overloaded")
+
+        client = self.get_client(invoke_agent)
+        response = client.post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "Hello"}]},
+        )
+
+        assert response.status_code == 200
+        assert "event: RUN_ERROR" in response.text
+        events = _agui_sse_events(response)
+        types = [event.get("type") for event in events]
+        run_error = next(
+            event for event in events if event.get("type") == "RUN_ERROR"
+        )
+        assert "RUN_FINISHED" not in types
+        assert run_error["message"] == "模型当前请求过多，请稍后再试"
+        assert run_error["code"] == "RATE_LIMITED"
+        assert run_error["retryable"] is True
+        assert run_error["retryAfterMs"] == 2000
+
+    @pytest.mark.asyncio
+    async def test_non_rate_limit_error_stream_payload(self):
+        """测试普通错误不会被误标为限流"""
+
+        def invoke_agent(request: AgentRequest):
+            raise RuntimeError("boom")
+
+        client = self.get_client(invoke_agent)
+        response = client.post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "Hello"}]},
+        )
+
+        assert response.status_code == 200
+        events = _agui_sse_events(response)
+        run_error = next(
+            event for event in events if event.get("type") == "RUN_ERROR"
+        )
+        assert run_error["code"] == "RuntimeError"
+        assert "retryable" not in run_error
+        assert "retryAfterMs" not in run_error
+
+    @pytest.mark.asyncio
     async def test_exception_in_parse_request(self):
         """测试 parse_request 中的异常处理（覆盖 155-156 行）
 

@@ -188,6 +188,142 @@ class TestInvokerStream:
         assert "Test error" in error_event.data["message"]
         assert error_event.data["code"] == "ValueError"
 
+    @pytest.mark.asyncio
+    async def test_invoke_stream_rate_limit_error(self, req):
+        """测试模型限流错误被归一化"""
+
+        class RateLimitError(RuntimeError):
+            status_code = 429
+            trace_id = "trace-123"
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            raise RateLimitError("model overloaded")
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        error_event = next(
+            item for item in items if item.event == EventType.ERROR
+        )
+        assert error_event.data["message"] == "模型当前请求过多，请稍后再试"
+        assert error_event.data["code"] == "RATE_LIMITED"
+        assert error_event.data["retryable"] is True
+        assert error_event.data["retryAfterMs"] == 2000
+        assert error_event.data["traceId"] == "trace-123"
+
+    @pytest.mark.asyncio
+    async def test_invoke_stream_response_rate_limit_error(self, req):
+        """测试 response.status_code=429 不被顶层非 429 状态掩盖"""
+
+        class RateLimitError(RuntimeError):
+            status_code = 0
+            code = "Other"
+            response = {"status_code": 429}
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            raise RateLimitError("model overloaded")
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        error_event = next(
+            item for item in items if item.event == EventType.ERROR
+        )
+        assert error_event.data["code"] == "RATE_LIMITED"
+        assert error_event.data["retryable"] is True
+
+    @pytest.mark.asyncio
+    async def test_invoke_stream_rate_limit_code_exception(self, req):
+        """测试带 Exception 后缀的限流错误码被识别"""
+
+        class RateLimitError(RuntimeError):
+            code = "TooManyRequestsException"
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            raise RateLimitError("model overloaded")
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        error_event = next(
+            item for item in items if item.event == EventType.ERROR
+        )
+        assert error_event.data["code"] == "RATE_LIMITED"
+        assert error_event.data["retryAfterMs"] == 2000
+
+    @pytest.mark.asyncio
+    async def test_invoke_stream_response_rate_limit_code(self, req):
+        """测试 response.code 不被顶层非限流 code 掩盖"""
+
+        class RateLimitError(RuntimeError):
+            code = "Other"
+            response = {"code": "TooManyRequests"}
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            raise RateLimitError("model overloaded")
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        error_event = next(
+            item for item in items if item.event == EventType.ERROR
+        )
+        assert error_event.data["code"] == "RATE_LIMITED"
+        assert error_event.data["retryAfterMs"] == 2000
+
+    @pytest.mark.asyncio
+    async def test_invoke_stream_rate_limit_snake_case_text(self, req):
+        """测试明确 snake_case 限流文本被识别"""
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            raise RuntimeError("rate_limit_exceeded: retry later")
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        error_event = next(
+            item for item in items if item.event == EventType.ERROR
+        )
+        assert error_event.data["code"] == "RATE_LIMITED"
+        assert error_event.data["retryAfterMs"] == 2000
+
+    @pytest.mark.asyncio
+    async def test_invoke_stream_rate_limit_text_false_positive(self, req):
+        """测试说明性 rate limit/429 文本不会被误判为限流"""
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            raise RuntimeError(
+                "ticket 429 mentions rate limit dashboard, auth failed"
+            )
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        error_event = next(
+            item for item in items if item.event == EventType.ERROR
+        )
+        assert error_event.data["code"] == "RuntimeError"
+        assert "retryable" not in error_event.data
+        assert "retryAfterMs" not in error_event.data
+
 
 class TestInvokerSync:
     """同步调用测试"""
