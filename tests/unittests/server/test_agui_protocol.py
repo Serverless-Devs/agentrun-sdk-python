@@ -163,7 +163,7 @@ class TestAGUIProtocolEndpoints:
             event for event in events if event.get("type") == "RUN_ERROR"
         )
         assert "RUN_FINISHED" not in types
-        assert run_error["message"] == "模型当前请求过多，请稍后再试"
+        assert run_error["message"] == "model overloaded"
         assert run_error["code"] == "RATE_LIMITED"
         assert run_error["retryable"] is True
         assert run_error["retryAfterMs"] == 2000
