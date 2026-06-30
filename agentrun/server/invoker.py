@@ -24,17 +24,15 @@ from typing import (
 )
 import uuid
 
-from agentrun.utils.error_utils import (
-    build_error_event_data,
-    is_rate_limited_error,
-)
+from agentrun.utils.error_utils import build_error_event_data, is_model_error
+from agentrun.utils.reasoning import get_reasoning_content
+
 from .model import AgentEvent, AgentRequest, EventType
 from .protocol import (
     AsyncInvokeAgentHandler,
     InvokeAgentHandler,
     SyncInvokeAgentHandler,
 )
-from agentrun.utils.reasoning import get_reasoning_content
 
 
 class AgentInvoker:
@@ -343,7 +341,7 @@ class AgentInvoker:
         return events
 
     def _wrap_text(self, text: str) -> AgentEvent:
-        if is_rate_limited_error(text):
+        if is_model_error(text):
             return AgentEvent(
                 event=EventType.ERROR,
                 data=build_error_event_data(

@@ -53,7 +53,14 @@ if TYPE_CHECKING:
 # ============================================================================
 
 DEFAULT_PREFIX = "/ag-ui/agent"
-RUN_ERROR_EXTRA_FIELDS = ("retryable", "retryAfterMs", "traceId")
+RUN_ERROR_EXTRA_FIELDS = (
+    "retryable",
+    "retryAfterMs",
+    "traceId",
+    "requestId",
+    "statusCode",
+    "providerCode",
+)
 
 
 @dataclass

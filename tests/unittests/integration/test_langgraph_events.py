@@ -11,10 +11,8 @@
 边界事件（如 TOOL_CALL_START/END）由协议层自动生成，转换器不再输出这些事件。
 """
 
-from typing import Dict, List, Union
+from typing import Dict
 from unittest.mock import MagicMock
-
-import pytest
 
 from agentrun.integration.langgraph import AgentRunConverter
 from agentrun.server.model import AgentEvent, EventType
@@ -555,7 +553,7 @@ class TestAgentRunConverterClass:
             },
         }
 
-        results1 = list(converter.convert(event1))
+        list(converter.convert(event1))
         assert converter._tool_call_id_map[0] == "call_stateful"
 
         # 第二个 chunk 使用映射
@@ -842,10 +840,40 @@ class TestErrorEvents:
 
         assert len(results) == 1
         assert results[0].event == EventType.ERROR
-        assert results[0].data["message"] == "RuntimeError: Error code: 429 - rate limit exceeded"
+        assert (
+            results[0].data["message"]
+            == "RuntimeError: Error code: 429 - rate limit exceeded"
+        )
         assert results[0].data["code"] == "RATE_LIMITED"
         assert results[0].data["retryable"] is True
         assert results[0].data["retryAfterMs"] == 2000
+
+    def test_on_llm_error_model_service_unavailable(self):
+        """测试 on_llm_error 模型服务不可用错误归一化"""
+
+        class ModelError(RuntimeError):
+            status_code = 503
+            code = "ModelServingError"
+            request_id = "req-503"
+
+        event = {
+            "event": "on_llm_error",
+            "run_id": "run_llm",
+            "data": {
+                "error": ModelError("model overloaded"),
+            },
+        }
+
+        results = list(AgentRunConverter().to_agui_events(event))
+
+        assert len(results) == 1
+        assert results[0].event == EventType.ERROR
+        assert results[0].data["message"] == "ModelError: model overloaded"
+        assert results[0].data["code"] == "MODEL_SERVICE_UNAVAILABLE"
+        assert results[0].data["retryable"] is True
+        assert results[0].data["statusCode"] == 503
+        assert results[0].data["providerCode"] == "ModelServingError"
+        assert results[0].data["requestId"] == "req-503"
 
     def test_on_chain_error(self):
         """测试 on_chain_error 事件
