@@ -53,6 +53,14 @@ if TYPE_CHECKING:
 # ============================================================================
 
 DEFAULT_PREFIX = "/ag-ui/agent"
+RUN_ERROR_EXTRA_FIELDS = (
+    "retryable",
+    "retryAfterMs",
+    "traceId",
+    "requestId",
+    "statusCode",
+    "providerCode",
+)
 
 
 @dataclass
@@ -743,12 +751,18 @@ class AGUIProtocolHandler(BaseProtocolHandler):
 
         # ERROR 事件
         if event.event == EventType.ERROR:
-            yield self._encoder.encode(
-                RunErrorEvent(
-                    message=event.data.get("message", ""),
-                    code=event.data.get("code"),
-                )
+            agui_event = RunErrorEvent(
+                message=event.data.get("message", ""),
+                code=event.data.get("code"),
             )
+            extra_fields = {
+                key: event.data[key]
+                for key in RUN_ERROR_EXTRA_FIELDS
+                if key in event.data
+            }
+            if extra_fields:
+                agui_event = agui_event.model_copy(update=extra_fields)
+            yield self._encoder.encode(agui_event)
             return
 
         # STATE 事件
