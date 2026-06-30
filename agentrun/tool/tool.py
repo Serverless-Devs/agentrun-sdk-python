@@ -170,7 +170,9 @@ class Tool(BaseModel):
         return await cli.get_async(name=name)
 
     @classmethod
-    def get_by_name(cls, name: str, config: Optional[Config] = None) -> "Tool":
+    def get_by_name(
+        cls, name: str, config: Optional[Config] = None
+    ) -> "Tool":
         """同步通过名称获取工具 / Get tool by name synchronously"""
         cli = cls.__get_client(config=config)
         return cli.get(name=name)
@@ -192,7 +194,9 @@ class Tool(BaseModel):
         if effective_name is None:
             raise ValueError("Tool name is required to get the Tool.")
 
-        result = self.get_by_name(name=effective_name, config=config)
+        result = self.get_by_name(
+            name=effective_name, config=config
+        )
         return self.update_self(result)
 
     def _get_functioncall_server_url(
@@ -440,7 +444,9 @@ class Tool(BaseModel):
 
         return []
 
-    def list_tools(self, config: Optional[Config] = None) -> List[ToolInfo]:
+    def list_tools(
+        self, config: Optional[Config] = None
+    ) -> List[ToolInfo]:
         """同步获取子工具列表 / Get sub-tool list synchronously
 
         对于 MCP 类型，通过 MCP 协议获取工具列表。
@@ -732,12 +738,20 @@ class Tool(BaseModel):
         return headers
 
     def _get_skill_download_url(
-        self, config: Optional[Config] = None
+        self,
+        qualifier: Optional[str] = None,
+        config: Optional[Config] = None,
     ) -> Optional[str]:
         """获取 Skill 工具的下载 URL / Get download URL for Skill tools
 
-        根据 data_endpoint 和 tool_name 构造下载地址。
-        Constructs download URL from data_endpoint and tool_name.
+        根据 data_endpoint 和 tool_name 构造下载地址。可选地指定版本 qualifier。
+        Constructs download URL from data_endpoint and tool_name, optionally with a version qualifier.
+
+        Args:
+            qualifier: 版本标识，如 "v1.0.0"、"default"、"LATEST"。为空时下载缺省版本 /
+                       Version qualifier (e.g. "v1.0.0", "default", "LATEST").
+                       When None, downloads the default version.
+            config: 配置对象 / Configuration object
 
         Returns:
             Optional[str]: 下载 URL / Download URL
@@ -749,20 +763,30 @@ class Tool(BaseModel):
             data_endpoint = cfg.get_data_endpoint()
         if not data_endpoint or not effective_name:
             return None
-        return f"{data_endpoint}/tools/{effective_name}/download"
+        url = f"{data_endpoint}/tools/{effective_name}/download"
+        if qualifier:
+            from urllib.parse import quote
+
+            url = f"{url}?qualifier={quote(qualifier, safe='')}"
+        return url
 
     async def download_skill_async(
         self,
         target_dir: str = ".skills",
+        qualifier: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> str:
         """异步下载 Skill 包并解压到本地目录 / Download skill package and extract to local directory asynchronously
 
         从数据链路下载 skill 的 zip 包，并解压到 {target_dir}/{tool_name}/ 目录下。
+        可选地通过 qualifier 指定版本（如 "v1.0.0"、"default"、"LATEST"）。
         Downloads skill zip package from data endpoint and extracts to {target_dir}/{tool_name}/ directory.
+        Optionally specify a version qualifier (e.g. "v1.0.0", "default", "LATEST").
 
         Args:
             target_dir: 目标根目录,默认为 ".skills" / Target root directory, defaults to ".skills"
+            qualifier: 版本标识，为空时下载缺省版本 /
+                       Version qualifier; when None, downloads the default version
             config: 配置对象,可选 / Configuration object, optional
 
         Returns:
@@ -779,7 +803,9 @@ class Tool(BaseModel):
                 f" got {self.tool_type}"
             )
 
-        download_url = self._get_skill_download_url(config)
+        download_url = self._get_skill_download_url(
+            qualifier=qualifier, config=config
+        )
         if not download_url:
             raise ValueError(
                 "Cannot construct download URL: data_endpoint or tool_name"
@@ -814,15 +840,20 @@ class Tool(BaseModel):
     def download_skill(
         self,
         target_dir: str = ".skills",
+        qualifier: Optional[str] = None,
         config: Optional[Config] = None,
     ) -> str:
         """同步下载 Skill 包并解压到本地目录 / Download skill package and extract to local directory synchronously
 
         从数据链路下载 skill 的 zip 包，并解压到 {target_dir}/{tool_name}/ 目录下。
+        可选地通过 qualifier 指定版本（如 "v1.0.0"、"default"、"LATEST"）。
         Downloads skill zip package from data endpoint and extracts to {target_dir}/{tool_name}/ directory.
+        Optionally specify a version qualifier (e.g. "v1.0.0", "default", "LATEST").
 
         Args:
             target_dir: 目标根目录,默认为 ".skills" / Target root directory, defaults to ".skills"
+            qualifier: 版本标识，为空时下载缺省版本 /
+                       Version qualifier; when None, downloads the default version
             config: 配置对象,可选 / Configuration object, optional
 
         Returns:
@@ -839,7 +870,9 @@ class Tool(BaseModel):
                 f" got {self.tool_type}"
             )
 
-        download_url = self._get_skill_download_url(config)
+        download_url = self._get_skill_download_url(
+            qualifier=qualifier, config=config
+        )
         if not download_url:
             raise ValueError(
                 "Cannot construct download URL: data_endpoint or tool_name"
@@ -854,7 +887,9 @@ class Tool(BaseModel):
         cfg = Config.with_configs(config)
         headers = self._get_auth_headers(download_url, cfg)
 
-        with httpx.Client(timeout=300, follow_redirects=True) as http_client:
+        with httpx.Client(
+            timeout=300, follow_redirects=True
+        ) as http_client:
             response = http_client.get(download_url, headers=headers)
             response.raise_for_status()
 

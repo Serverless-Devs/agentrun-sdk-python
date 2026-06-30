@@ -12,7 +12,16 @@ import json
 import os
 import re
 import subprocess
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Tuple,
+    Union,
+)
 
 from agentrun.integration.utils.tool import CommonToolSet, Tool, ToolParameter
 from agentrun.utils.log import logger
@@ -41,6 +50,38 @@ class SkillInfo:
     description: str = ""
     version: str = ""
     path: str = ""
+
+
+def _parse_skill_qualifier(raw: str) -> Tuple[str, Optional[str]]:
+    """解析 'skillName[@qualifier]' 语法 / Parse 'skillName[@qualifier]' syntax
+
+    工具名格式受后端正则 ^[_a-zA-Z][-_a-zA-Z0-9]*$ 约束，不允许包含 '@'，
+    因此用 '@' 作为分隔符不会有歧义。
+    Tool names are constrained by the backend regex ^[_a-zA-Z][-_a-zA-Z0-9]*$
+    and cannot contain '@', so using '@' as a separator is unambiguous.
+
+    Args:
+        raw: 原始字符串，如 "skillA"、"skillA@v1.0.0"、"skillA@default" /
+             Raw identifier, e.g. "skillA", "skillA@v1.0.0", "skillA@default"
+
+    Returns:
+        (name, qualifier) 元组。qualifier 为 None 表示不指定版本，
+        由后端按 default → latest 顺序解析。
+        Tuple of (name, qualifier). A None qualifier defers to the backend's
+        default → latest resolution order.
+
+    Raises:
+        ValueError: 当 name 部分为空时（如 "@v1.0.0"）/
+                    When the name part is empty (e.g. "@v1.0.0")
+    """
+    if "@" in raw:
+        name, qualifier = raw.rsplit("@", 1)
+        if not name:
+            raise ValueError(
+                f"Invalid skill identifier '{raw}': name part is empty"
+            )
+        return name, (qualifier or None)
+    return raw, None
 
 
 @dataclass
@@ -94,22 +135,62 @@ class SkillLoader:
     reading skill instruction content, and constructing the load_skills tool
     for Agent runtime invocation.
 
+    使用方式说明 / Usage Note:
+        推荐通过顶层 ``skill_tools()`` 函数使用本类，避免直接构造。
+        ``skill_tools()`` 会自动解析 "name@qualifier" 字符串语法并替你构造
+        合适的 ``remote_skills`` 元组列表。
+        Prefer the top-level ``skill_tools()`` helper over constructing this
+        class directly. It parses "name@qualifier" string syntax and builds
+        the ``remote_skills`` tuple list for you.
+
+    参数历史变更 / Parameter History:
+        ``remote_skills`` 在引入 Skill 版本管理时，由原参数
+        ``remote_skill_names: List[str]`` 替换为
+        ``List[Tuple[str, Optional[str]]]``。每个元组的第二项是版本
+        qualifier（如 "v1.0.0"、"default"、"LATEST"），``None`` 表示
+        不指定版本（由后端按 default → latest fallback 解析）。
+        参数名同步从 ``remote_skill_names`` 改为 ``remote_skills``，
+        以体现"每项含完整 skill 描述"而非"仅名称列表"的语义升级。
+        经全量代码扫描确认没有外部代码使用过 ``remote_skill_names``
+        参数（所有外部使用都是 ``SkillLoader(skills_dir=...).scan_skills()``
+        形式仅用于本地扫描），所以参数变更对实际使用零影响。
+
+        ``remote_skills`` was renamed from ``remote_skill_names: List[str]``
+        when Skill version management was introduced. The second item of
+        each tuple is a version qualifier (e.g. "v1.0.0", "default",
+        "LATEST"); ``None`` defers to the backend's default → latest
+        resolution. Code scans confirm no external caller used the legacy
+        ``remote_skill_names`` parameter (all external usage is of the
+        form ``SkillLoader(skills_dir=...).scan_skills()`` for local
+        scanning only), so this rename has zero practical impact.
+
     Args:
         skills_dir: 本地 skill 目录路径 / local skill directory path
-        remote_skill_names: 需要从远程下载的 skill 名称列表 / list of remote skill names to download
+        remote_skills: 需要从远程下载的 skill (name, qualifier) 列表。
+                       qualifier 为 None 时使用后端缺省版本 /
+                       List of remote skills as (name, qualifier) tuples;
+                       qualifier=None defers to the backend's default version
         config: 配置对象 / configuration object
+        command_approval: execute_command 执行前的确认回调 /
+                          Approval callback invoked before executing commands
+        command_timeout: execute_command 默认超时秒数 /
+                         Default execute_command timeout in seconds
     """
 
     def __init__(
         self,
         skills_dir: str = ".skills",
-        remote_skill_names: Optional[List[str]] = None,
+        remote_skills: Optional[List[Tuple[str, Optional[str]]]] = None,
         config: Optional["Config"] = None,
         command_approval: Optional[Callable[[str, str], bool]] = None,
         command_timeout: int = 300,
     ):
         self._skills_dir = skills_dir
-        self._remote_skill_names = remote_skill_names or []
+        # remote_skills: List[Tuple[name, qualifier]]; qualifier=None means
+        # "no version specified". 由 `skill_tools()` 顶层入口在解析
+        # "name@qualifier" 语法后构造好后传入，下游 `_ensure_skills_available`
+        # 直接元组解包消费。
+        self._remote_skills = remote_skills or []
         self._config = config
         self._skills_cache: Optional[List[SkillInfo]] = None
         self._command_approval = command_approval
@@ -118,33 +199,43 @@ class SkillLoader:
     def _ensure_skills_available(self) -> None:
         """确保远程 skill 已下载到本地 / Ensure remote skills are downloaded locally
 
-        对每个 remote_skill_name，检查本地是否已存在对应目录，
-        不存在则通过 ToolClient 下载。
+        对每个 (skill_name, qualifier)，检查本地目录是否已存在。
+        - 未指定 qualifier 且目录已存在 → 跳过下载
+        - 指定了 qualifier → 强制重新下载，避免使用本地旧版本
+        - 目录不存在 → 下载
 
-        For each remote_skill_name, check if the local directory exists,
-        download via ToolClient if not.
+        For each (skill_name, qualifier) pair, check whether the local directory
+        already exists.
+        - No qualifier and directory exists → skip download
+        - Qualifier specified → force re-download to avoid stale local version
+        - Directory missing → download
         """
-        if not self._remote_skill_names:
+        if not self._remote_skills:
             return
 
         from agentrun.tool.client import ToolClient
 
-        for skill_name in self._remote_skill_names:
+        for skill_name, qualifier in self._remote_skills:
             skill_path = os.path.join(self._skills_dir, skill_name)
-            if os.path.isdir(skill_path):
+            if qualifier is None and os.path.isdir(skill_path):
                 logger.debug(
                     f"Skill '{skill_name}' already exists at {skill_path}, "
                     "skipping download"
                 )
                 continue
+            label = (
+                f"{skill_name}@{qualifier}" if qualifier else skill_name
+            )
             logger.info(
-                f"Downloading remote skill '{skill_name}' to {self._skills_dir}"
+                f"Downloading remote skill '{label}' to {self._skills_dir}"
             )
             tool_resource = ToolClient().get(
                 name=skill_name, config=self._config
             )
             tool_resource.download_skill(
-                target_dir=self._skills_dir, config=self._config
+                target_dir=self._skills_dir,
+                qualifier=qualifier,
+                config=self._config,
             )
 
     def _parse_skill_metadata(self, skill_dir: str) -> SkillInfo:
@@ -730,6 +821,7 @@ def skill_tools(
     name: Optional[Union[str, List[str], "ToolResource"]] = None,
     *,
     skills_dir: str = ".skills",
+    qualifier: Optional[str] = None,
     config: Optional["Config"] = None,
     command_approval: Optional[Callable[[str, str], bool]] = None,
     command_timeout: int = 300,
@@ -737,23 +829,31 @@ def skill_tools(
     """将 Skill 封装为通用工具集 / Wrap Skills as CommonToolSet
 
     支持从工具名称、名称列表或 ToolResource 实例创建通用工具集。
+    字符串入参支持 "skillName[@qualifier]" 语法以指定版本。
     Supports creating CommonToolSet from tool name, name list, or ToolResource instance.
+    String inputs support "skillName[@qualifier]" syntax to specify a version.
 
     Args:
         name: 远程 skill 名称、名称列表或 ToolResource 实例（可选）/
               Remote skill name, name list, or ToolResource instance (optional).
+              字符串形式支持版本语法，如 "skillA@v1.0.0"、"skillA@default" /
+              String form supports version syntax, e.g. "skillA@v1.0.0", "skillA@default".
               如果提供，会先下载到 skills_dir 再加载 /
               If provided, downloads to skills_dir before loading.
               如果不提供，仅从 skills_dir 加载本地已有的 skill /
               If not provided, only loads local skills from skills_dir.
         skills_dir: 本地 skill 目录，默认 ".skills" / Local skill directory, default ".skills"
+        qualifier: 版本标识，仅在 name 为 ToolResource 实例时使用。
+                   字符串/列表形式请直接在 name 中用 "@" 语法指定 /
+                   Version qualifier; only applies when name is a ToolResource instance.
+                   For string/list inputs, use the "@" syntax inside name instead.
         config: 配置对象 / Configuration object
         command_approval: 命令执行前的确认回调函数（可选）/
                           Optional approval callback invoked before executing commands.
                           接收 (command, cwd) 参数，返回 True 允许执行，False 拒绝 /
                           Receives (command, cwd), returns True to allow, False to reject.
-        command_timeout: execute_command 的默认超时秒数，默认 30 /
-                         Default timeout in seconds for execute_command, default 30.
+        command_timeout: execute_command 的默认超时秒数，默认 300 /
+                         Default timeout in seconds for execute_command, default 300.
 
     Returns:
         CommonToolSet: 包含 load_skills、read_skill_file、execute_command 工具的通用工具集 /
@@ -766,22 +866,30 @@ def skill_tools(
         >>> # 下载远程 skill 后加载 / Download remote skill then load
         >>> ts = skill_tools("my-remote-skill")
         >>>
+        >>> # 指定版本下载 / Download a specific version
+        >>> ts = skill_tools("my-remote-skill@v1.0.0")
+        >>> ts = skill_tools("my-remote-skill@default")
+        >>>
+        >>> # 多 skill 混合版本 / Multiple skills with mixed versions
+        >>> ts = skill_tools(["skill-a@v1.0.0", "skill-b@latest", "skill-c"])
+        >>>
+        >>> # 通过 ToolResource 实例指定版本 / Specify version via ToolResource
+        >>> tool = ToolClient().get("my-skill")
+        >>> ts = skill_tools(tool, qualifier="v1.0.0")
+        >>>
         >>> # 带命令确认回调 / With command approval callback
         >>> ts = skill_tools(
         ...     skills_dir=".skills",
         ...     command_approval=lambda cmd, cwd: input(f"Execute '{cmd}'? [y/N]: ").lower() == "y",
         ... )
-        >>>
-        >>> # 自定义超时 / Custom timeout
-        >>> ts = skill_tools(skills_dir=".skills", command_timeout=120)
     """
-    remote_names: List[str] = []
+    remote_skills: List[Tuple[str, Optional[str]]] = []
 
     if name is not None:
         if isinstance(name, str):
-            remote_names = [name]
+            remote_skills = [_parse_skill_qualifier(name)]
         elif isinstance(name, list):
-            remote_names = name
+            remote_skills = [_parse_skill_qualifier(item) for item in name]
         else:
             # ToolResource instance — extract its name and download
             tool_resource_instance = name
@@ -790,14 +898,17 @@ def skill_tools(
             ) or getattr(tool_resource_instance, "tool_name", None)
             if resource_name:
                 skill_path = os.path.join(skills_dir, resource_name)
-                if not os.path.isdir(skill_path):
+                # 指定 qualifier 时强制重下；否则仅当本地缺失时下载
+                if qualifier is not None or not os.path.isdir(skill_path):
                     tool_resource_instance.download_skill(
-                        target_dir=skills_dir, config=config
+                        target_dir=skills_dir,
+                        qualifier=qualifier,
+                        config=config,
                     )
 
     loader = SkillLoader(
         skills_dir=skills_dir,
-        remote_skill_names=remote_names,
+        remote_skills=remote_skills,
         config=config,
         command_approval=command_approval,
         command_timeout=command_timeout,

@@ -484,6 +484,36 @@ class TestTool:
         url = tool._get_skill_download_url()
         assert url is None
 
+    def test_get_skill_download_url_with_qualifier(self):
+        """测试传入 qualifier 时 URL 包含 ?qualifier=xxx"""
+        tool = Tool(
+            tool_name="my-skill",
+            data_endpoint="https://example.com",
+        )
+        url = tool._get_skill_download_url(qualifier="v1.0.0")
+        assert url == "https://example.com/tools/my-skill/download?qualifier=v1.0.0"
+
+    def test_get_skill_download_url_qualifier_url_encoded(self):
+        """测试 qualifier 中的特殊字符被正确 URL 编码"""
+        tool = Tool(
+            tool_name="my-skill",
+            data_endpoint="https://example.com",
+        )
+        url = tool._get_skill_download_url(qualifier="latest@beta")
+        # '@' should be percent-encoded as %40
+        assert url == (
+            "https://example.com/tools/my-skill/download?qualifier=latest%40beta"
+        )
+
+    def test_get_skill_download_url_empty_qualifier_omitted(self):
+        """测试空字符串 qualifier 等同于不指定"""
+        tool = Tool(
+            tool_name="my-skill",
+            data_endpoint="https://example.com",
+        )
+        url = tool._get_skill_download_url(qualifier="")
+        assert url == "https://example.com/tools/my-skill/download"
+
     @patch("httpx.AsyncClient")
     @patch("agentrun.utils.config.Config")
     async def test_download_skill_async_success(
