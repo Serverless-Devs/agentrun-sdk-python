@@ -1731,10 +1731,32 @@ def _sanitize_python_identifier(name: str) -> str:
 def _json_schema_to_pydantic(
     name: str,
     schema: Optional[Dict[str, Any]],
+    root_schema: Optional[Dict[str, Any]] = None,
+    active_refs: Optional[Set[str]] = None,
+    ref_type_cache: Optional[Dict[Tuple[str, Tuple[str, ...]], type]] = None,
+    ref_dependency_cache: Optional[Dict[str, Set[str]]] = None,
 ) -> Optional[Type[BaseModel]]:
-    """将 JSON Schema 转换为 Pydantic 模型"""
+    """将 JSON Schema 转换为 Pydantic 模型
+
+    Args:
+        name: 模型名称
+        schema: 待转换的 JSON Schema 片段
+        root_schema: 顶层 schema, 用于解析深层 ``$ref`` 指向的 ``$defs``
+        active_refs: 当前递归栈中的 ``$ref``，用于防止自引用无限展开
+        ref_type_cache: 已构建的 ``$ref`` 类型缓存, 避免共享引用重复展开
+        ref_dependency_cache: ``$ref`` 可达引用缓存, 避免重复遍历共享 DAG
+    """
     if not schema or not isinstance(schema, dict):
         return None
+
+    if root_schema is None:
+        root_schema = schema
+    if active_refs is None:
+        active_refs = set()
+    if ref_type_cache is None:
+        ref_type_cache = {}
+    if ref_dependency_cache is None:
+        ref_dependency_cache = {}
 
     properties = schema.get("properties", {})
     if not properties:
@@ -1768,7 +1790,13 @@ def _json_schema_to_pydantic(
             needs_populate_by_name = True
 
         # 映射类型
-        field_type = _json_type_to_python(field_schema)
+        field_type = _json_type_to_python(
+            field_schema,
+            root_schema,
+            active_refs,
+            ref_type_cache,
+            ref_dependency_cache,
+        )
         description = field_schema.get("description", "")
         default = field_schema.get("default")
         aliases = field_schema.get("x-aliases")
@@ -1812,38 +1840,278 @@ def _json_schema_to_pydantic(
     )
 
 
-def _json_type_to_python(field_schema: Dict[str, Any]) -> type:
-    """映射 JSON Schema 类型到 Python 类型"""
-    schema_type = field_schema.get("type", "string")
+def _find_schema_ref(field_schema: Dict[str, Any]) -> Optional[str]:
+    """查找当前 schema 片段中用于防环的第一个 $ref"""
+    ref = field_schema.get("$ref")
+    if isinstance(ref, str):
+        return ref
 
-    # 处理嵌套对象和数组
-    if schema_type == "object":
-        # 如果有 properties,递归创建嵌套模型
-        properties = field_schema.get("properties")
-        if properties:
-            nested_model = _json_schema_to_pydantic(
-                "NestedObject", field_schema
-            )
-            return nested_model if nested_model else dict
-        return dict
+    for union_key in ("anyOf", "oneOf"):
+        options = field_schema.get(union_key)
+        if not isinstance(options, list):
+            continue
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+            if option.get("type") == "null":
+                continue
+            ref = _find_schema_ref(option)
+            return ref
 
-    if schema_type == "array":
-        items_schema = field_schema.get("items", {})
-        if isinstance(items_schema, dict):
-            item_type = _json_type_to_python(items_schema)
-            from typing import List as TypingList
+    options = field_schema.get("allOf")
+    if isinstance(options, list):
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+            ref = _find_schema_ref(option)
+            if ref:
+                return ref
 
-            return TypingList[item_type]  # type: ignore
-        return list
+    return None
 
-    # 基本类型映射
-    mapping = {
-        "string": str,
-        "integer": int,
-        "number": float,
-        "boolean": bool,
+
+def _cacheable_schema_ref(field_schema: Dict[str, Any]) -> Optional[str]:
+    """查找可安全复用类型缓存的单一 $ref"""
+    ref = field_schema.get("$ref")
+    if isinstance(ref, str):
+        return ref if set(field_schema) <= {"$ref"} else None
+
+    for union_key in ("anyOf", "oneOf"):
+        options = field_schema.get(union_key)
+        if not isinstance(options, list):
+            continue
+
+        refs: List[str] = []
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+            if option.get("type") == "null":
+                continue
+            option_ref = _cacheable_schema_ref(option)
+            if not option_ref:
+                return None
+            refs.append(option_ref)
+
+        if len(refs) == 1:
+            return refs[0]
+
+    return None
+
+
+def _collect_direct_refs(schema: Any) -> Set[str]:
+    """收集 schema 子树中直接写出的 $ref"""
+    refs: Set[str] = set()
+    if not isinstance(schema, dict):
+        return refs
+
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        refs.add(ref)
+
+    for key, value in schema.items():
+        if key == "$ref":
+            continue
+        if isinstance(value, dict):
+            refs.update(_collect_direct_refs(value))
+        elif isinstance(value, list):
+            for item in value:
+                refs.update(_collect_direct_refs(item))
+
+    return refs
+
+
+def _reachable_refs_for_ref(
+    ref: str,
+    root_schema: Dict[str, Any],
+    ref_dependency_cache: Optional[Dict[str, Set[str]]] = None,
+) -> Set[str]:
+    """收集某个 $ref 目标 schema 可达的引用集合"""
+    if ref_dependency_cache is None:
+        ref_dependency_cache = {}
+    if ref in ref_dependency_cache:
+        return set(ref_dependency_cache[ref])
+
+    visited: Set[str] = set()
+    direct_ref_map: Dict[str, Set[str]] = {}
+    stack = [ref]
+    while stack:
+        current_ref = stack.pop()
+        if current_ref in visited:
+            continue
+        visited.add(current_ref)
+
+        cached_refs = ref_dependency_cache.get(current_ref)
+        if cached_refs is not None:
+            continue
+
+        ref_schema = _resolve_ref_schema(current_ref, root_schema)
+        if not ref_schema:
+            continue
+
+        direct_refs = _collect_direct_refs(ref_schema)
+        direct_ref_map[current_ref] = direct_refs
+        for direct_ref in direct_refs:
+            if (
+                direct_ref not in visited
+                and direct_ref not in ref_dependency_cache
+            ):
+                stack.append(direct_ref)
+
+    closures = {
+        current_ref: set(direct_refs)
+        for current_ref, direct_refs in direct_ref_map.items()
     }
-    return mapping.get(schema_type, str)
+    changed = True
+    while changed:
+        changed = False
+        for current_ref, direct_refs in direct_ref_map.items():
+            expanded_refs = set(direct_refs)
+            for direct_ref in direct_refs:
+                if direct_ref in closures:
+                    expanded_refs.update(closures[direct_ref])
+                else:
+                    expanded_refs.update(
+                        ref_dependency_cache.get(direct_ref, set())
+                    )
+            if expanded_refs != closures[current_ref]:
+                closures[current_ref] = expanded_refs
+                changed = True
+
+    ref_dependency_cache.update(closures)
+    return set(ref_dependency_cache.get(ref, set()))
+
+
+def _schema_cache_key(
+    ref: Optional[str],
+    active_refs: Set[str],
+    root_schema: Optional[Dict[str, Any]],
+    ref_dependency_cache: Optional[Dict[str, Set[str]]],
+) -> Optional[Tuple[str, Tuple[str, ...]]]:
+    """根据 ref 和当前递归上下文生成类型缓存键"""
+    if not ref:
+        return None
+    relevant_refs = active_refs
+    if root_schema is not None:
+        reachable_refs = _reachable_refs_for_ref(
+            ref, root_schema, ref_dependency_cache
+        )
+        relevant_refs = active_refs.intersection(reachable_refs)
+    return ref, tuple(sorted(relevant_refs))
+
+
+def _json_type_to_python(
+    field_schema: Dict[str, Any],
+    root_schema: Optional[Dict[str, Any]] = None,
+    active_refs: Optional[Set[str]] = None,
+    ref_type_cache: Optional[Dict[Tuple[str, Tuple[str, ...]], type]] = None,
+    ref_dependency_cache: Optional[Dict[str, Set[str]]] = None,
+) -> type:
+    """映射 JSON Schema 类型到 Python 类型
+
+    Args:
+        field_schema: 字段 schema, 可能是裸类型或 anyOf/oneOf/$ref 包装
+        root_schema: 顶层 schema, 用于解析 ``$ref`` 指向的 ``$defs``
+        active_refs: 当前递归栈中的 ``$ref``，用于防止自引用无限展开
+        ref_type_cache: 已构建的 ``$ref`` 类型缓存, 避免共享引用重复展开
+        ref_dependency_cache: ``$ref`` 可达引用缓存, 避免重复遍历共享 DAG
+    """
+    if active_refs is None:
+        active_refs = set()
+    if ref_type_cache is None:
+        ref_type_cache = {}
+    if ref_dependency_cache is None:
+        ref_dependency_cache = {}
+
+    ref = _find_schema_ref(field_schema)
+    if ref and ref in active_refs:
+        return dict
+    cache_ref = _cacheable_schema_ref(field_schema)
+    cache_key = _schema_cache_key(
+        cache_ref, active_refs, root_schema, ref_dependency_cache
+    )
+    if cache_key and cache_key in ref_type_cache:
+        return ref_type_cache[cache_key]
+
+    if root_schema is not None and (
+        "anyOf" in field_schema
+        or "oneOf" in field_schema
+        or "allOf" in field_schema
+        or "$ref" in field_schema
+    ):
+        core_schema, _ = _extract_core_schema(field_schema, root_schema)
+        if core_schema:
+            field_schema = core_schema
+
+    if ref:
+        active_refs.add(ref)
+
+    try:
+        schema_type = field_schema.get("type")
+        if not schema_type:
+            if "properties" in field_schema:
+                schema_type = "object"
+            elif "items" in field_schema:
+                schema_type = "array"
+            else:
+                schema_type = "string"
+
+        # 处理嵌套对象和数组
+        if schema_type == "object":
+            # 如果有 properties,递归创建嵌套模型
+            properties = field_schema.get("properties")
+            if properties:
+                nested_model = _json_schema_to_pydantic(
+                    "NestedObject",
+                    field_schema,
+                    root_schema,
+                    active_refs,
+                    ref_type_cache,
+                    ref_dependency_cache,
+                )
+                python_type = nested_model if nested_model else dict
+                if cache_key:
+                    ref_type_cache[cache_key] = python_type
+                return python_type
+            python_type = dict
+            if cache_key:
+                ref_type_cache[cache_key] = python_type
+            return python_type
+
+        if schema_type == "array":
+            items_schema = field_schema.get("items", {})
+            if isinstance(items_schema, dict):
+                item_type = _json_type_to_python(
+                    items_schema,
+                    root_schema,
+                    active_refs,
+                    ref_type_cache,
+                    ref_dependency_cache,
+                )
+                from typing import List as TypingList
+
+                python_type = TypingList[item_type]  # type: ignore
+                if cache_key:
+                    ref_type_cache[cache_key] = python_type
+                return python_type
+            python_type = list
+            if cache_key:
+                ref_type_cache[cache_key] = python_type
+            return python_type
+
+        # 基本类型映射
+        mapping = {
+            "string": str,
+            "integer": int,
+            "number": float,
+            "boolean": bool,
+        }
+        python_type = mapping.get(schema_type, str)
+        if cache_key:
+            ref_type_cache[cache_key] = python_type
+        return python_type
+    finally:
+        if ref:
+            active_refs.discard(ref)
 
 
 def _build_args_model_from_parameters(

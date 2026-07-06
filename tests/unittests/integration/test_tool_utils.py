@@ -17,6 +17,7 @@ from agentrun.integration.utils.tool import (
     _load_json,
     _merge_schema_dicts,
     _normalize_tool_arguments,
+    _reachable_refs_for_ref,
     _sanitize_python_identifier,
     _to_dict,
     CommonToolSet,
@@ -836,6 +837,662 @@ class TestCreateFunctionWithSignatureAliasSanitization:
         merged_map = getattr(_Args, "__agentrun_argument_aliases__")
         assert merged_map.get("x_alias") == "query"
         assert merged_map.get("x-alias") == "query"
+
+
+class TestNestedObjectRoundTrip:
+    """覆盖嵌套 object 参数经二次转换后仍保持 object 类型"""
+
+    @staticmethod
+    def _unwrap_anyof(node: Dict[str, Any]) -> Dict[str, Any]:
+        """从 anyOf/oneOf 中挑出非 null 的核心 schema"""
+        for key in ("anyOf", "oneOf"):
+            options = node.get(key)
+            if isinstance(options, list):
+                for option in options:
+                    if isinstance(option, dict) and option.get("type") != "null":
+                        return option
+        return node
+
+    @staticmethod
+    def _resolve_local_ref(
+        schema: Dict[str, Any], node: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """解析当前 schema 内的 $defs 引用，便于断言实际结构"""
+        ref = node.get("$ref")
+        if not isinstance(ref, str) or not ref.startswith("#/$defs/"):
+            return node
+        ref_name = ref.rsplit("/", 1)[-1]
+        return schema.get("$defs", {}).get(ref_name, node)
+
+    def test_nested_optional_object_survives_second_conversion(self):
+        """嵌套可选 object 经 LangChain 二次转换后仍应是 object"""
+        toolset = MagicMock()
+
+        meta = {
+            "name": "create_order",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "attrs": {
+                        "type": "object",
+                        "description": "attributes",
+                        "properties": {
+                            "risk": {
+                                "type": "object",
+                                "description": "risk info",
+                                "properties": {
+                                    "level": {"type": "string"},
+                                },
+                            },
+                            "refund": {
+                                "type": "object",
+                                "description": "refund info",
+                                "properties": {
+                                    "amount": {"type": "number"},
+                                },
+                            },
+                        },
+                    },
+                },
+                "required": [],
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(toolset, meta, None)
+        assert tool_obj is not None
+
+        params = tool_obj.get_parameters_schema()
+
+        from langchain_core.utils.function_calling import (
+            convert_to_openai_tool,
+        )
+
+        from agentrun.integration.langchain.tool_adapter import (
+            LangChainToolAdapter,
+        )
+        from agentrun.integration.utils.canonical import CanonicalTool
+
+        canonical = CanonicalTool(
+            name=tool_obj.name,
+            description=tool_obj.description,
+            parameters=params,
+            func=tool_obj.func,
+        )
+        lc_tool = LangChainToolAdapter().from_canonical([canonical])[0]
+        openai_tool = convert_to_openai_tool(lc_tool)
+
+        props = openai_tool["function"]["parameters"]["properties"]
+        attrs = self._unwrap_anyof(props["attrs"])
+        assert attrs.get("type") == "object"
+        assert "properties" in attrs
+
+        risk = self._unwrap_anyof(attrs["properties"]["risk"])
+        refund = self._unwrap_anyof(attrs["properties"]["refund"])
+
+        assert risk.get("type") == "object", risk
+        assert "level" in risk.get("properties", {})
+        assert refund.get("type") == "object", refund
+        assert "amount" in refund.get("properties", {})
+
+    def test_anyof_ref_object_survives_second_conversion(self):
+        """anyOf/$ref 包装的嵌套 object 经二次转换后仍应是 object"""
+        from langchain_core.utils.function_calling import (
+            convert_to_openai_tool,
+        )
+
+        from agentrun.integration.langchain.tool_adapter import (
+            LangChainToolAdapter,
+        )
+        from agentrun.integration.utils.canonical import CanonicalTool
+
+        parameters = {
+            "type": "object",
+            "properties": {
+                "attrs": {
+                    "anyOf": [
+                        {"$ref": "#/$defs/Attrs"},
+                        {"type": "null"},
+                    ],
+                    "description": "attributes",
+                }
+            },
+            "$defs": {
+                "Attrs": {
+                    "type": "object",
+                    "properties": {
+                        "risk": {
+                            "anyOf": [
+                                {"$ref": "#/$defs/Risk"},
+                                {"type": "null"},
+                            ],
+                            "description": "risk info",
+                        }
+                    },
+                },
+                "Risk": {
+                    "type": "object",
+                    "properties": {
+                        "level": {"type": "string"},
+                    },
+                },
+            },
+        }
+
+        canonical = CanonicalTool(
+            name="create_order",
+            description="demo",
+            parameters=parameters,
+            func=lambda **kwargs: kwargs,
+        )
+        lc_tool = LangChainToolAdapter().from_canonical([canonical])[0]
+        openai_tool = convert_to_openai_tool(lc_tool)
+
+        attrs = self._unwrap_anyof(
+            openai_tool["function"]["parameters"]["properties"]["attrs"]
+        )
+        risk = self._unwrap_anyof(attrs["properties"]["risk"])
+
+        assert risk.get("type") == "object", risk
+        assert "level" in risk.get("properties", {})
+
+    def test_recursive_ref_does_not_crash(self):
+        """自引用 $ref 不应导致 Pydantic 模型构建无限递归"""
+        toolset = MagicMock()
+        meta = {
+            "name": "tree_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "root": {"$ref": "#/$defs/Node"},
+                },
+                "$defs": {
+                    "Node": {
+                        "type": "object",
+                        "properties": {
+                            "value": {"type": "string"},
+                            "child": {"$ref": "#/$defs/Node"},
+                        },
+                    }
+                },
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(toolset, meta, None)
+
+        assert tool_obj is not None
+        schema = tool_obj.args_schema.model_json_schema()
+        root = self._resolve_local_ref(
+            schema, self._unwrap_anyof(schema["properties"]["root"])
+        )
+        assert root.get("type") == "object"
+        assert "value" in root.get("properties", {})
+        child = self._unwrap_anyof(root["properties"]["child"])
+        assert child.get("type") == "object"
+
+    def test_mutual_recursive_refs_do_not_crash(self):
+        """互递归 $ref 不应导致 Pydantic 模型构建无限递归"""
+        toolset = MagicMock()
+        meta = {
+            "name": "mutual_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "root": {"$ref": "#/$defs/A"},
+                },
+                "$defs": {
+                    "A": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "b": {"$ref": "#/$defs/B"},
+                        },
+                    },
+                    "B": {
+                        "type": "object",
+                        "properties": {
+                            "code": {"type": "string"},
+                            "a": {"$ref": "#/$defs/A"},
+                        },
+                    },
+                },
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(toolset, meta, None)
+
+        assert tool_obj is not None
+        schema = tool_obj.args_schema.model_json_schema()
+        root = self._resolve_local_ref(
+            schema, self._unwrap_anyof(schema["properties"]["root"])
+        )
+        assert root.get("type") == "object"
+        nested_b = self._resolve_local_ref(
+            schema, self._unwrap_anyof(root["properties"]["b"])
+        )
+        assert nested_b.get("type") == "object"
+
+    def test_recursive_array_items_ref_does_not_crash(self):
+        """array items 自引用 $ref 不应导致无限递归"""
+        toolset = MagicMock()
+        meta = {
+            "name": "tree_list_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "root": {"$ref": "#/$defs/Node"},
+                },
+                "$defs": {
+                    "Node": {
+                        "type": "object",
+                        "properties": {
+                            "value": {"type": "string"},
+                            "children": {
+                                "type": "array",
+                                "items": {"$ref": "#/$defs/Node"},
+                            },
+                        },
+                    }
+                },
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(toolset, meta, None)
+
+        assert tool_obj is not None
+        schema = tool_obj.args_schema.model_json_schema()
+        root = self._resolve_local_ref(
+            schema, self._unwrap_anyof(schema["properties"]["root"])
+        )
+        children = self._unwrap_anyof(root["properties"]["children"])
+        assert children.get("type") == "array"
+        assert children["items"].get("type") == "object"
+
+    def test_allof_recursive_refs_do_not_crash(self):
+        """allOf 多 $ref 合并时递归引用不应导致无限递归"""
+        toolset = MagicMock()
+        meta = {
+            "name": "allof_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "root": {
+                        "allOf": [
+                            {"$ref": "#/$defs/A"},
+                            {"$ref": "#/$defs/B"},
+                        ]
+                    },
+                },
+                "$defs": {
+                    "A": {
+                        "type": "object",
+                        "properties": {
+                            "a_name": {"type": "string"},
+                            "b": {"$ref": "#/$defs/B"},
+                        },
+                    },
+                    "B": {
+                        "type": "object",
+                        "properties": {
+                            "b_name": {"type": "string"},
+                            "a": {"$ref": "#/$defs/A"},
+                        },
+                    },
+                },
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(toolset, meta, None)
+
+        assert tool_obj is not None
+        schema = tool_obj.args_schema.model_json_schema()
+        root = self._resolve_local_ref(
+            schema, self._unwrap_anyof(schema["properties"]["root"])
+        )
+        assert root.get("type") == "object"
+        assert "a_name" in root.get("properties", {})
+        assert "b_name" in root.get("properties", {})
+
+    def test_shared_refs_are_not_reexpanded_exponentially(self):
+        """非环共享 $ref 不应沿兄弟路径重复展开成指数级模型"""
+        depth = 6
+        defs = {}
+        for index in range(depth):
+            defs[f"N{index}"] = {
+                "type": "object",
+                "properties": {
+                    "left": {"$ref": f"#/$defs/N{index + 1}"},
+                    "right": {"$ref": f"#/$defs/N{index + 1}"},
+                },
+            }
+        defs[f"N{depth}"] = {
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+        }
+        meta = {
+            "name": "shared_ref_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {"root": {"$ref": "#/$defs/N0"}},
+                "$defs": defs,
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(MagicMock(), meta, None)
+
+        assert tool_obj is not None
+        schema = tool_obj.args_schema.model_json_schema()
+        assert len(schema.get("$defs", {})) <= depth + 1
+
+    def test_shared_refs_with_recursive_child_stay_linear(
+        self, monkeypatch
+    ):
+        """共享 DAG 即使包含递归子节点也不应指数级重复展开"""
+        import importlib
+
+        tool_mod = importlib.import_module("agentrun.integration.utils.tool")
+        depth = 8
+        defs = {
+            "Meta": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "next": {"$ref": "#/$defs/Meta"},
+                },
+            }
+        }
+        for index in range(depth):
+            defs[f"N{index}"] = {
+                "type": "object",
+                "properties": {
+                    "left": {"$ref": f"#/$defs/N{index + 1}"},
+                    "right": {"$ref": f"#/$defs/N{index + 1}"},
+                    "meta": {"$ref": "#/$defs/Meta"},
+                },
+            }
+        defs[f"N{depth}"] = {
+            "type": "object",
+            "properties": {
+                "value": {"type": "string"},
+                "meta": {"$ref": "#/$defs/Meta"},
+            },
+        }
+        meta = {
+            "name": "shared_recursive_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {"root": {"$ref": "#/$defs/N0"}},
+                "$defs": defs,
+            },
+        }
+        calls = {"count": 0}
+        original = tool_mod._json_type_to_python
+
+        def wrapped_json_type_to_python(*args, **kwargs):
+            calls["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            tool_mod, "_json_type_to_python", wrapped_json_type_to_python
+        )
+
+        tool_obj = _build_tool_from_meta(MagicMock(), meta, None)
+
+        assert tool_obj is not None
+        tool_obj.args_schema.model_json_schema()
+        assert calls["count"] <= depth * 8
+
+    def test_shared_refs_with_different_parent_paths_stay_linear(
+        self, monkeypatch
+    ):
+        """不同父路径收敛到同一 ref 时不应因无关 active_refs 失去缓存"""
+        import importlib
+
+        tool_mod = importlib.import_module("agentrun.integration.utils.tool")
+        depth = 8
+        defs = {}
+        for index in range(depth):
+            next_left = {"$ref": f"#/$defs/A{index + 1}"}
+            next_right = {"$ref": f"#/$defs/B{index + 1}"}
+            defs[f"A{index}"] = {
+                "type": "object",
+                "properties": {
+                    "left": next_left,
+                    "right": next_right,
+                },
+            }
+            defs[f"B{index}"] = {
+                "type": "object",
+                "properties": {
+                    "left": next_left,
+                    "right": next_right,
+                },
+            }
+        defs[f"A{depth}"] = {
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+        }
+        defs[f"B{depth}"] = {
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+        }
+        meta = {
+            "name": "lattice_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {"root": {"$ref": "#/$defs/A0"}},
+                "$defs": defs,
+            },
+        }
+        calls = {"count": 0}
+        original = tool_mod._json_type_to_python
+
+        def wrapped_json_type_to_python(*args, **kwargs):
+            calls["count"] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            tool_mod, "_json_type_to_python", wrapped_json_type_to_python
+        )
+
+        tool_obj = _build_tool_from_meta(MagicMock(), meta, None)
+
+        assert tool_obj is not None
+        tool_obj.args_schema.model_json_schema()
+        assert calls["count"] <= depth * 6
+
+    def test_ref_with_sibling_properties_does_not_poison_cache(self):
+        """带 sibling properties 的 $ref 不应污染同一 ref 的裸引用缓存"""
+        meta = {
+            "name": "context_ref_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "extended": {
+                        "$ref": "#/$defs/Base",
+                        "properties": {"extra": {"type": "string"}},
+                    },
+                    "plain": {"$ref": "#/$defs/Base"},
+                },
+                "$defs": {
+                    "Base": {
+                        "type": "object",
+                        "properties": {"base": {"type": "string"}},
+                    }
+                },
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(MagicMock(), meta, None)
+
+        assert tool_obj is not None
+        schema = tool_obj.args_schema.model_json_schema()
+        extended = self._resolve_local_ref(
+            schema, self._unwrap_anyof(schema["properties"]["extended"])
+        )
+        plain = self._resolve_local_ref(
+            schema, self._unwrap_anyof(schema["properties"]["plain"])
+        )
+        assert "extra" in extended.get("properties", {})
+        assert "extra" not in plain.get("properties", {})
+
+    def test_cycle_broken_ref_result_does_not_poison_cache(self):
+        """递归截断后的 ref 结果不应污染后续环外同 ref 引用"""
+        meta = {
+            "name": "mutual_order_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "root": {"$ref": "#/$defs/A"},
+                    "standalone_b": {"$ref": "#/$defs/B"},
+                },
+                "$defs": {
+                    "A": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "b": {"$ref": "#/$defs/B"},
+                        },
+                    },
+                    "B": {
+                        "type": "object",
+                        "properties": {
+                            "code": {"type": "string"},
+                            "a": {"$ref": "#/$defs/A"},
+                        },
+                    },
+                },
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(MagicMock(), meta, None)
+
+        assert tool_obj is not None
+        schema = tool_obj.args_schema.model_json_schema()
+        standalone_b = self._resolve_local_ref(
+            schema, self._unwrap_anyof(schema["properties"]["standalone_b"])
+        )
+        nested_a = self._resolve_local_ref(
+            schema, self._unwrap_anyof(standalone_b["properties"]["a"])
+        )
+        assert "name" in nested_a.get("properties", {})
+
+    def test_reachable_refs_for_cycle_are_complete(self):
+        """互递归 ref 的可达集合不应因计算顺序被低估"""
+        schema = {
+            "type": "object",
+            "$defs": {
+                "A": {
+                    "type": "object",
+                    "properties": {"b": {"$ref": "#/$defs/B"}},
+                },
+                "B": {
+                    "type": "object",
+                    "properties": {"c": {"$ref": "#/$defs/C"}},
+                },
+                "C": {
+                    "type": "object",
+                    "properties": {"a": {"$ref": "#/$defs/A"}},
+                },
+            },
+        }
+        expected_refs = {"#/$defs/A", "#/$defs/B", "#/$defs/C"}
+        ref_cache: Dict[str, set] = {}
+
+        assert (
+            _reachable_refs_for_ref("#/$defs/A", schema, ref_cache)
+            == expected_refs
+        )
+        assert (
+            _reachable_refs_for_ref("#/$defs/B", schema, ref_cache)
+            == expected_refs
+        )
+        assert (
+            _reachable_refs_for_ref("#/$defs/C", schema, ref_cache)
+            == expected_refs
+        )
+
+    def test_reachable_refs_cache_intermediate_chain_refs(self):
+        """可达集合缓存应覆盖中间 ref, 避免深链重复遍历"""
+        depth = 6
+        defs = {}
+        for index in range(depth):
+            defs[f"N{index}"] = {
+                "type": "object",
+                "properties": {
+                    "next": {"$ref": f"#/$defs/N{index + 1}"}
+                },
+            }
+        defs[f"N{depth}"] = {
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+        }
+        schema = {"type": "object", "$defs": defs}
+        ref_cache: Dict[str, set] = {}
+
+        reachable_refs = _reachable_refs_for_ref(
+            "#/$defs/N0", schema, ref_cache
+        )
+
+        assert reachable_refs == {
+            f"#/$defs/N{index}" for index in range(1, depth + 1)
+        }
+        assert set(ref_cache) == {
+            f"#/$defs/N{index}" for index in range(depth + 1)
+        }
+        assert ref_cache["#/$defs/N3"] == {
+            f"#/$defs/N{index}" for index in range(4, depth + 1)
+        }
+
+    def test_union_cycle_guard_follows_selected_branch(self):
+        """防环 ref 应与 anyOf 实际展开分支一致"""
+        meta = {
+            "name": "selected_union_tool",
+            "description": "demo",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "payload": {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "nested": {"$ref": "#/$defs/Nested"}
+                                },
+                            },
+                            {"$ref": "#/$defs/Nested"},
+                        ]
+                    }
+                },
+                "$defs": {
+                    "Nested": {
+                        "type": "object",
+                        "properties": {"value": {"type": "string"}},
+                    }
+                },
+            },
+        }
+
+        tool_obj = _build_tool_from_meta(MagicMock(), meta, None)
+
+        assert tool_obj is not None
+        schema = tool_obj.args_schema.model_json_schema()
+        payload = self._resolve_local_ref(
+            schema, self._unwrap_anyof(schema["properties"]["payload"])
+        )
+        nested = self._resolve_local_ref(
+            schema, self._unwrap_anyof(payload["properties"]["nested"])
+        )
+        assert "value" in nested.get("properties", {})
 
 
 class TestBuildToolFromMetaInvalidFieldNames:
