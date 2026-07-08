@@ -359,9 +359,12 @@ class CodeInterpreterDataAPI(SandboxDataAPI):
             "command": command,
             "cwd": cwd,
         }
-        if timeout is not None:
-            data["timeout"] = timeout
-        return await self.post_async("/processes/cmd", data=data)
+        timeout_config = (
+            Config(timeout=timeout) if timeout is not None else None
+        )
+        return await self.post_async(
+            "/processes/cmd", data=data, config=timeout_config
+        )
 
     def cmd(
         self,
@@ -373,9 +376,12 @@ class CodeInterpreterDataAPI(SandboxDataAPI):
             "command": command,
             "cwd": cwd,
         }
-        if timeout is not None:
-            data["timeout"] = timeout
-        return self.post("/processes/cmd", data=data)
+        timeout_config = (
+            Config(timeout=timeout) if timeout is not None else None
+        )
+        return self.post(
+            "/processes/cmd", data=data, config=timeout_config
+        )
 
     async def list_processes_async(self):
         return await self.get_async("/processes")

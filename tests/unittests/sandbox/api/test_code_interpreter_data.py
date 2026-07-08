@@ -6,6 +6,7 @@ import pytest
 
 from agentrun.sandbox.api.code_interpreter_data import CodeInterpreterDataAPI
 from agentrun.sandbox.model import CodeLanguage
+from agentrun.utils.config import Config
 
 
 @pytest.fixture
@@ -340,29 +341,37 @@ class TestProcesses:
 
     def test_cmd(self, api):
         api.cmd("ls", "/home")
-        api.post.assert_called_once_with(
-            "/processes/cmd",
-            data={"command": "ls", "cwd": "/home", "timeout": 30},
-        )
+        api.post.assert_called_once()
+        assert api.post.call_args[0] == ("/processes/cmd",)
+        call_kwargs = api.post.call_args[1]
+        assert call_kwargs["data"] == {"command": "ls", "cwd": "/home"}
+        assert isinstance(call_kwargs["config"], Config)
+        assert call_kwargs["config"].get_timeout() == 30
 
     def test_cmd_no_timeout(self, api):
         api.cmd("ls", "/home", timeout=None)
-        call_data = api.post.call_args[1]["data"]
+        call_kwargs = api.post.call_args[1]
+        call_data = call_kwargs["data"]
         assert "timeout" not in call_data
+        assert call_kwargs["config"] is None
 
     @pytest.mark.asyncio
     async def test_cmd_async(self, api):
         await api.cmd_async("ls", "/home")
-        api.post_async.assert_called_once_with(
-            "/processes/cmd",
-            data={"command": "ls", "cwd": "/home", "timeout": 30},
-        )
+        api.post_async.assert_called_once()
+        assert api.post_async.call_args[0] == ("/processes/cmd",)
+        call_kwargs = api.post_async.call_args[1]
+        assert call_kwargs["data"] == {"command": "ls", "cwd": "/home"}
+        assert isinstance(call_kwargs["config"], Config)
+        assert call_kwargs["config"].get_timeout() == 30
 
     @pytest.mark.asyncio
     async def test_cmd_async_no_timeout(self, api):
         await api.cmd_async("ls", "/home", timeout=None)
-        call_data = api.post_async.call_args[1]["data"]
+        call_kwargs = api.post_async.call_args[1]
+        call_data = call_kwargs["data"]
         assert "timeout" not in call_data
+        assert call_kwargs["config"] is None
 
     def test_list_processes(self, api):
         api.list_processes()
