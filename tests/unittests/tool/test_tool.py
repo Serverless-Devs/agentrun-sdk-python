@@ -21,7 +21,7 @@ from agentrun.tool.model import (
     ToolSchema,
     ToolType,
 )
-from agentrun.tool.tool import Tool
+from agentrun.tool.tool import _validate_skill_qualifier, Tool
 
 
 class TestTool:
@@ -483,6 +483,57 @@ class TestTool:
         tool = Tool(tool_name="my-skill")
         url = tool._get_skill_download_url()
         assert url is None
+
+    def test_get_skill_download_url_with_qualifier(self):
+        """测试传入 qualifier 时 URL 包含 ?qualifier=xxx"""
+        tool = Tool(
+            tool_name="my-skill",
+            data_endpoint="https://example.com",
+        )
+        url = tool._get_skill_download_url(qualifier="v1.0.0")
+        assert (
+            url
+            == "https://example.com/tools/my-skill/download?qualifier=v1.0.0"
+        )
+
+    def test_get_skill_download_url_latest_case_insensitive(self):
+        """测试 LATEST 大小写不敏感均可通过校验，且发送前归一为规范 "LATEST"
+
+        无论传入何种大小写，构造出的 URL 都用规范形式 "LATEST"，与本地版本
+        标记（skill_loader._canonical_qualifier）保持一致，避免向后端发送
+        未归一的 "latest"。/ Regardless of the input casing, the constructed
+        URL uses the canonical "LATEST" so it agrees with the local version
+        marker and never sends an un-normalized "latest" to the backend.
+        """
+        tool = Tool(
+            tool_name="my-skill",
+            data_endpoint="https://example.com",
+        )
+        for variant in ("LATEST", "latest", "LaTeSt"):
+            assert tool._get_skill_download_url(qualifier=variant) == (
+                "https://example.com/tools/my-skill/download?qualifier=LATEST"
+            )
+
+    def test_get_skill_download_url_invalid_qualifier_raises(self):
+        """测试非法 qualifier（含已废弃的 default）在构造 URL 时即抛错"""
+        tool = Tool(
+            tool_name="my-skill",
+            data_endpoint="https://example.com",
+        )
+        for bad in ("default", "latest@beta", "V1.0.0", "1.0.0", "v1.0"):
+            with pytest.raises(
+                ValueError, match="Invalid skill version qualifier"
+            ):
+                tool._get_skill_download_url(qualifier=bad)
+
+    def test_get_skill_download_url_empty_qualifier_omitted(self):
+        """测试空字符串 qualifier 等同于不指定"""
+        tool = Tool(
+            tool_name="my-skill",
+            data_endpoint="https://example.com",
+        )
+        url = tool._get_skill_download_url(qualifier="")
+        assert url == "https://example.com/tools/my-skill/download"
 
     @patch("httpx.AsyncClient")
     @patch("agentrun.utils.config.Config")
@@ -1880,3 +1931,42 @@ class TestToolClient:
         tools = tool.list_tools()
 
         assert tools == []
+
+
+class TestValidateSkillQualifier:
+    """测试 _validate_skill_qualifier 校验函数"""
+
+    def test_valid_qualifiers_pass(self):
+        for good in (
+            None,
+            "",
+            "LATEST",
+            "latest",
+            "LaTeSt",
+            "v0.0.0",
+            "v1.0.0",
+            "v12.34.56",
+        ):
+            _validate_skill_qualifier(good)  # should not raise
+
+    def test_invalid_qualifiers_raise(self):
+        for bad in (
+            "default",
+            "V1.0.0",
+            "1.0.0",
+            "v1.0",
+            "v1.0.0.0",
+            "v1.0.0-beta",
+            "latest@beta",
+            "vabc",
+            # 末尾换行：Python 的 $ 会误接受，用 \Z 与后端 Go 的 $(=\z) 对齐 /
+            # trailing newline: Python's $ would wrongly accept; \Z matches
+            # the backend's Go $ (= \z) which rejects it
+            "v1.0.0\n",
+            " v1.0.0",
+            "v1.0.0 ",
+        ):
+            with pytest.raises(
+                ValueError, match="Invalid skill version qualifier"
+            ):
+                _validate_skill_qualifier(bad)

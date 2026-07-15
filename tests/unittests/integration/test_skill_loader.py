@@ -18,7 +18,13 @@ import pytest
 
 import agentrun.integration.builtin.skill as _builtin_skill_mod
 from agentrun.integration.utils.skill_loader import (
+    _canonical_qualifier,
     _parse_frontmatter,
+    _SKILL_VERSION_MARKER,
+    _parse_skill_qualifier,
+    _read_version_marker,
+    _skill_needs_download,
+    _write_version_marker,
     skill_tools,
     SkillDetail,
     SkillInfo,
@@ -654,7 +660,7 @@ class TestEnsureSkillsAvailable:
     def test_no_remote_names_does_nothing(self, tmp_path: Any) -> None:
         skills_dir = str(tmp_path / "skills")
         os.makedirs(skills_dir)
-        loader = SkillLoader(skills_dir=skills_dir, remote_skill_names=[])
+        loader = SkillLoader(skills_dir=skills_dir, remote_skills=[])
         # Should not raise
         loader._ensure_skills_available()
 
@@ -664,7 +670,8 @@ class TestEnsureSkillsAvailable:
         _create_skill_dir(skills_dir, "already-here")
 
         loader = SkillLoader(
-            skills_dir=skills_dir, remote_skill_names=["already-here"]
+            skills_dir=skills_dir,
+            remote_skills=[("already-here", None)],
         )
         with patch("agentrun.tool.client.ToolClient") as mock_client:
             loader._ensure_skills_available()
@@ -679,7 +686,8 @@ class TestEnsureSkillsAvailable:
         mock_client_instance.get.return_value = mock_tool_resource
 
         loader = SkillLoader(
-            skills_dir=skills_dir, remote_skill_names=["new-skill"]
+            skills_dir=skills_dir,
+            remote_skills=[("new-skill", None)],
         )
         with patch(
             "agentrun.tool.client.ToolClient",
@@ -690,8 +698,424 @@ class TestEnsureSkillsAvailable:
                 name="new-skill", config=None
             )
             mock_tool_resource.download_skill.assert_called_once_with(
-                target_dir=skills_dir, config=None
+                target_dir=skills_dir, qualifier=None, config=None
             )
+
+
+# =============================================================================
+# 8b. Skill 版本管理测试
+# =============================================================================
+
+
+class TestParseSkillQualifier:
+    """测试 _parse_skill_qualifier 解析函数"""
+
+    def test_plain_name_no_qualifier(self) -> None:
+        assert _parse_skill_qualifier("skillA") == ("skillA", None)
+
+    def test_name_with_version(self) -> None:
+        assert _parse_skill_qualifier("skillA@v1.0.0") == (
+            "skillA",
+            "v1.0.0",
+        )
+
+    def test_name_with_latest(self) -> None:
+        assert _parse_skill_qualifier("skillA@LATEST") == (
+            "skillA",
+            "LATEST",
+        )
+
+    def test_name_with_lowercase_latest(self) -> None:
+        # LATEST 大小写不敏感 / LATEST is case-insensitive
+        assert _parse_skill_qualifier("skillA@latest") == (
+            "skillA",
+            "latest",
+        )
+
+    def test_empty_qualifier_falls_back_to_none(self) -> None:
+        # "skillA@" should be treated as no qualifier specified
+        assert _parse_skill_qualifier("skillA@") == ("skillA", None)
+
+    def test_empty_name_raises(self) -> None:
+        with pytest.raises(ValueError, match="name part is empty"):
+            _parse_skill_qualifier("@v1.0.0")
+
+    def test_default_alias_is_rejected(self) -> None:
+        # @default 已废弃，客户端应直接抛错而非发到后端 /
+        # @default is retired; the client rejects it instead of hitting backend
+        with pytest.raises(ValueError, match="Invalid skill version qualifier"):
+            _parse_skill_qualifier("skillA@default")
+
+    def test_malformed_version_is_rejected(self) -> None:
+        for bad in ("skillA@V1.0.0", "skillA@1.0.0", "skillA@v1.0"):
+            with pytest.raises(
+                ValueError, match="Invalid skill version qualifier"
+            ):
+                _parse_skill_qualifier(bad)
+
+
+class TestSkillLoaderQualifier:
+    """测试 SkillLoader 对 qualifier 的处理"""
+
+    def test_qualifier_forces_redownload(self, tmp_path: Any) -> None:
+        """指定 qualifier 时即使本地目录存在也应重新下载"""
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+        _create_skill_dir(skills_dir, "versioned-skill")
+
+        mock_tool_resource = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.return_value = mock_tool_resource
+
+        loader = SkillLoader(
+            skills_dir=skills_dir,
+            remote_skills=[("versioned-skill", "v1.0.0")],
+        )
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            loader._ensure_skills_available()
+            mock_tool_resource.download_skill.assert_called_once_with(
+                target_dir=skills_dir, qualifier="v1.0.0", config=None
+            )
+
+    def test_qualifier_passed_through_on_missing_skill(
+        self, tmp_path: Any
+    ) -> None:
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+
+        mock_tool_resource = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.return_value = mock_tool_resource
+
+        loader = SkillLoader(
+            skills_dir=skills_dir,
+            remote_skills=[("new-skill", "v2.0.0")],
+        )
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            loader._ensure_skills_available()
+            mock_tool_resource.download_skill.assert_called_once_with(
+                target_dir=skills_dir, qualifier="v2.0.0", config=None
+            )
+
+
+class TestSkillVersionMarker:
+    """测试版本标记辅助函数 / version marker helpers"""
+
+    def test_canonical_qualifier(self) -> None:
+        assert _canonical_qualifier(None) == "LATEST"
+        assert _canonical_qualifier("LATEST") == "LATEST"
+        assert _canonical_qualifier("latest") == "LATEST"
+        assert _canonical_qualifier("v1.0.0") == "v1.0.0"
+
+    def test_read_marker_missing_returns_none(self, tmp_path: Any) -> None:
+        skill_dir = _create_skill_dir(str(tmp_path), "s")
+        assert _read_version_marker(skill_dir) is None
+
+    def test_write_then_read_marker(self, tmp_path: Any) -> None:
+        skill_dir = _create_skill_dir(str(tmp_path), "s")
+        _write_version_marker(skill_dir, "v1.0.0")
+        assert _read_version_marker(skill_dir) == "v1.0.0"
+        # None 归一为 LATEST / None normalizes to LATEST
+        _write_version_marker(skill_dir, None)
+        assert _read_version_marker(skill_dir) == "LATEST"
+
+    def test_marker_hidden_from_scan(self, tmp_path: Any) -> None:
+        # 版本标记是点文件，不应出现在 skill 文件列表里 /
+        # the marker is a dotfile and must not appear in the skill file list
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+        skill_dir = _create_skill_dir(
+            skills_dir, "s", skill_md_content="---\nname: s\n---\nbody"
+        )
+        _write_version_marker(skill_dir, "v1.0.0")
+        detail = SkillLoader(skills_dir=skills_dir).load_skill("s")
+        assert detail is not None
+        assert _SKILL_VERSION_MARKER not in detail.files
+
+    def test_needs_download_matrix(self, tmp_path: Any) -> None:
+        missing = os.path.join(str(tmp_path), "absent")
+        assert _skill_needs_download(missing, "v1.0.0") is True
+
+        pinned = _create_skill_dir(str(tmp_path), "pinned")
+        _write_version_marker(pinned, "v1.0.0")
+        # 同版本命中 → 不下载 / same version → skip
+        assert _skill_needs_download(pinned, "v1.0.0") is False
+        # 定版切换 → 重下 / version switch → re-download
+        assert _skill_needs_download(pinned, "v2.0.0") is True
+        # 定版目录被当作 LATEST 请求 → 重下（修复串版本脏读）/
+        # pinned dir requested as LATEST → re-download (stale-read fix)
+        assert _skill_needs_download(pinned, None) is True
+
+        latest = _create_skill_dir(str(tmp_path), "latest")
+        _write_version_marker(latest, None)
+        assert _skill_needs_download(latest, None) is False
+        assert _skill_needs_download(latest, "latest") is False
+        assert _skill_needs_download(latest, "v1.0.0") is True
+
+
+class TestSkillLoaderVersionMarkerFlow:
+    """测试 _ensure_skills_available 基于版本标记的下载决策"""
+
+    def _mock_client(self) -> Any:
+        mock_tool_resource = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.return_value = mock_tool_resource
+        return mock_tool_resource, mock_client_instance
+
+    def test_same_version_marker_skips_download(
+        self, tmp_path: Any
+    ) -> None:
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+        skill_dir = _create_skill_dir(skills_dir, "s")
+        _write_version_marker(skill_dir, "v1.0.0")
+
+        mock_tool_resource, mock_client_instance = self._mock_client()
+        loader = SkillLoader(
+            skills_dir=skills_dir, remote_skills=[("s", "v1.0.0")]
+        )
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            loader._ensure_skills_available()
+            mock_tool_resource.download_skill.assert_not_called()
+
+    def test_pinned_dir_requested_as_latest_redownloads(
+        self, tmp_path: Any
+    ) -> None:
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+        skill_dir = _create_skill_dir(skills_dir, "s")
+        _write_version_marker(skill_dir, "v1.0.0")
+
+        mock_tool_resource, mock_client_instance = self._mock_client()
+        loader = SkillLoader(
+            skills_dir=skills_dir, remote_skills=[("s", None)]
+        )
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            loader._ensure_skills_available()
+            mock_tool_resource.download_skill.assert_called_once_with(
+                target_dir=skills_dir, qualifier=None, config=None
+            )
+
+    def test_marker_written_after_download(self, tmp_path: Any) -> None:
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+        # 下载目标目录预先存在，便于 mock 下载后写入标记 /
+        # pre-create the target dir so the marker can be written after mock download
+        _create_skill_dir(skills_dir, "s")
+
+        mock_tool_resource, mock_client_instance = self._mock_client()
+        loader = SkillLoader(
+            skills_dir=skills_dir, remote_skills=[("s", "v1.0.0")]
+        )
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            loader._ensure_skills_available()
+        assert _read_version_marker(os.path.join(skills_dir, "s")) == "v1.0.0"
+
+    def test_one_download_failure_does_not_abort_batch(
+        self, tmp_path: Any
+    ) -> None:
+        """单个 skill 下载失败被跳过，其余 skill 照常下载（不整批抛出）/
+        One skill's download failure is skipped; the rest still download."""
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+
+        good_resource = MagicMock()
+
+        def get_side_effect(name: str, config: Any = None) -> Any:
+            if name == "missing":
+                raise RuntimeError("Resource Tool(missing) does not exist.")
+            return good_resource
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.side_effect = get_side_effect
+
+        # missing 在中间：验证它失败后 loop 仍继续到 good-b /
+        # 'missing' sits in the middle: the loop must continue to 'good-b'
+        loader = SkillLoader(
+            skills_dir=skills_dir,
+            remote_skills=[
+                ("good-a", "v1.0.0"),
+                ("missing", "v1.0.0"),
+                ("good-b", None),
+            ],
+        )
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            # 不应抛出 / must not raise
+            loader._ensure_skills_available()
+
+        # good-a 与 good-b 都下载了；missing 被跳过 /
+        # both good skills downloaded; 'missing' skipped
+        downloaded_qualifiers = [
+            c.kwargs.get("qualifier")
+            for c in good_resource.download_skill.call_args_list
+        ]
+        assert downloaded_qualifiers == ["v1.0.0", None]
+
+
+class TestSkillToolsVersioning:
+    """测试 skill_tools 顶层函数对版本语法的处理"""
+
+    def test_string_with_qualifier(self, tmp_path: Any) -> None:
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+
+        mock_tool_resource = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.return_value = mock_tool_resource
+
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            toolset = skill_tools(
+                name="my-skill@v1.0.0", skills_dir=skills_dir
+            )
+            assert isinstance(toolset, CommonToolSet)
+            mock_client_instance.get.assert_called_once_with(
+                name="my-skill", config=None
+            )
+            mock_tool_resource.download_skill.assert_called_once_with(
+                target_dir=skills_dir, qualifier="v1.0.0", config=None
+            )
+
+    def test_list_with_mixed_qualifiers(self, tmp_path: Any) -> None:
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+
+        mock_tool_resource = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.return_value = mock_tool_resource
+
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            skill_tools(
+                name=["skill-a@v1.0.0", "skill-b@latest", "skill-c"],
+                skills_dir=skills_dir,
+            )
+            calls = mock_tool_resource.download_skill.call_args_list
+            assert len(calls) == 3
+            assert calls[0].kwargs["qualifier"] == "v1.0.0"
+            assert calls[1].kwargs["qualifier"] == "latest"
+            assert calls[2].kwargs["qualifier"] is None
+
+    def test_list_skips_invalid_qualifier_downloads_valid(
+        self, tmp_path: Any
+    ) -> None:
+        """列表里非法版本限定符被跳过，合法项照常下载（不整批抛出）/
+        Invalid qualifiers in the list are skipped; valid ones still download."""
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+
+        mock_tool_resource = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.return_value = mock_tool_resource
+
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            # skill-b@default (retired) 与 skill-d@v1.0 (非严格 SemVer) 应被跳过 /
+            # both retired 'default' and non-strict 'v1.0' are skipped
+            toolset = skill_tools(
+                name=[
+                    "skill-a@v1.0.0",
+                    "skill-b@default",
+                    "skill-c",
+                    "skill-d@v1.0",
+                ],
+                skills_dir=skills_dir,
+            )
+            assert isinstance(toolset, CommonToolSet)
+            # 只有 skill-a / skill-c 会真正下载 / only the two valid skills download
+            downloaded = [
+                c.kwargs.get("qualifier")
+                for c in mock_tool_resource.download_skill.call_args_list
+            ]
+            assert downloaded == ["v1.0.0", None]
+            got_names = [
+                c.kwargs.get("name")
+                for c in mock_client_instance.get.call_args_list
+            ]
+            assert got_names == ["skill-a", "skill-c"]
+
+    def test_all_invalid_qualifiers_load_nothing_no_raise(
+        self, tmp_path: Any
+    ) -> None:
+        """全部非法时不抛出，返回空工具集（server 仍可启动）/
+        All-invalid input does not raise; returns an empty toolset."""
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+
+        mock_tool_resource = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_client_instance.get.return_value = mock_tool_resource
+
+        with patch(
+            "agentrun.tool.client.ToolClient",
+            return_value=mock_client_instance,
+        ):
+            skill_tools(
+                name=["a@default", "b@v1.0"], skills_dir=skills_dir
+            )
+            mock_tool_resource.download_skill.assert_not_called()
+
+    def test_tool_resource_with_explicit_qualifier(
+        self, tmp_path: Any
+    ) -> None:
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+
+        mock_resource = MagicMock()
+        mock_resource.name = "resource-skill"
+
+        skill_tools(
+            name=mock_resource,
+            skills_dir=skills_dir,
+            qualifier="v1.0.0",
+        )
+        mock_resource.download_skill.assert_called_once_with(
+            target_dir=skills_dir, qualifier="v1.0.0", config=None
+        )
+
+    def test_tool_resource_qualifier_forces_redownload(
+        self, tmp_path: Any
+    ) -> None:
+        """ToolResource 入参且本地存在时，qualifier 非空也应触发重下"""
+        skills_dir = str(tmp_path / "skills")
+        os.makedirs(skills_dir)
+        _create_skill_dir(skills_dir, "existing-resource")
+
+        mock_resource = MagicMock()
+        mock_resource.name = "existing-resource"
+
+        skill_tools(
+            name=mock_resource,
+            skills_dir=skills_dir,
+            qualifier="v2.0.0",
+        )
+        mock_resource.download_skill.assert_called_once_with(
+            target_dir=skills_dir, qualifier="v2.0.0", config=None
+        )
 
 
 # =============================================================================
