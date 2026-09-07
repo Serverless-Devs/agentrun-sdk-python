@@ -513,18 +513,23 @@ class ModelClient:
         """
 
         # 优先查 ModelService，未命中再回退 ModelProxy，避免无谓的 404
-        error: Optional[HTTPError] = None
         if backend_type == BackendType.SERVICE or backend_type is None:
             try:
                 result = await self.__control_api.get_model_service_async(
                     model_service_name=name, config=config
                 )
-                return ModelService.from_inner_object(result)
-            except HTTPError as e:
-                error = e
-
-        if backend_type == BackendType.SERVICE and error is not None:
-            raise error.to_resource_error("Model", name) from error
+                model_service = ModelService.from_inner_object(result)
+                if (
+                    backend_type is None
+                    and model_service.provider_settings is None
+                ):
+                    raise ValueError(
+                        f"ModelService '{name}' returned no provider settings"
+                    )
+                return model_service
+            except Exception:
+                if backend_type == BackendType.SERVICE:
+                    raise
 
         try:
             result = await self.__control_api.get_model_proxy_async(
@@ -554,18 +559,23 @@ class ModelClient:
         """
 
         # 优先查 ModelService，未命中再回退 ModelProxy，避免无谓的 404
-        error: Optional[HTTPError] = None
         if backend_type == BackendType.SERVICE or backend_type is None:
             try:
                 result = self.__control_api.get_model_service(
                     model_service_name=name, config=config
                 )
-                return ModelService.from_inner_object(result)
-            except HTTPError as e:
-                error = e
-
-        if backend_type == BackendType.SERVICE and error is not None:
-            raise error.to_resource_error("Model", name) from error
+                model_service = ModelService.from_inner_object(result)
+                if (
+                    backend_type is None
+                    and model_service.provider_settings is None
+                ):
+                    raise ValueError(
+                        f"ModelService '{name}' returned no provider settings"
+                    )
+                return model_service
+            except Exception:
+                if backend_type == BackendType.SERVICE:
+                    raise
 
         try:
             result = self.__control_api.get_model_proxy(

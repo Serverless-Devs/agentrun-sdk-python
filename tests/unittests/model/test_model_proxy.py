@@ -515,6 +515,50 @@ class TestModelProxyModelInfo:
 
         assert result.model == "gpt-4"
 
+    @patch("agentrun.credential.Credential.get_by_name")
+    def test_model_info_with_bound_credential(self, mock_get_credential):
+        mock_get_credential.return_value = MagicMock(
+            credential_secret="resolved-secret",
+            credential_public_config={
+                "headerKey": "X-API-Key",
+                "prefix": "prefix-",
+            },
+        )
+        config = Config(
+            access_key_id="request-ak",
+            access_key_secret="request-sk",
+            security_token="request-sts",
+            headers={"X-Trace": "trace-1"},
+        )
+        proxy = ModelProxy(
+            model_proxy_name="test-proxy",
+            credential_name="test-credential",
+            endpoint="https://123.agentrun-data.cn-hangzhou.aliyuncs.com/models/test-proxy",
+            proxy_mode=ProxyMode.SINGLE,
+            proxy_config=ProxyConfig(
+                endpoints=[ProxyConfigEndpoint(model_names=["deepseek-v4-pro"])]
+            ),
+        )
+
+        info = proxy.model_info(config=config)
+
+        mock_get_credential.assert_called_once()
+        assert mock_get_credential.call_args.args == ("test-credential",)
+        credential_config = mock_get_credential.call_args.kwargs["config"]
+        assert credential_config.get_access_key_id() == "request-ak"
+        assert credential_config.get_access_key_secret() == "request-sk"
+        assert credential_config.get_security_token() == "request-sts"
+        assert info.api_key == "resolved-secret"
+        assert info.base_url == (
+            "https://123.agentrun-data.cn-hangzhou.aliyuncs.com/"
+            "models/test-proxy/v1"
+        )
+        assert info.model == "deepseek-v4-pro"
+        assert info.headers == {
+            "X-Trace": "trace-1",
+            "X-API-Key": "prefix-resolved-secret",
+        }
+
 
 class TestModelProxyCompletions:
     """Tests for ModelProxy.completions method"""
