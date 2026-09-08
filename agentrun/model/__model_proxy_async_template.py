@@ -214,6 +214,47 @@ class ModelProxy(
     def model_info(self, config: Optional[Config] = None) -> BaseInfo:
         cfg = Config.with_configs(self._config, config)
 
+        model_name = (
+            pydash.get(self, "proxy_config.endpoints[0].model_names[0]")
+            if self.proxy_mode == ProxyMode.SINGLE
+            else self.model_proxy_name
+        ) or ""
+
+        # A credential bound to a ModelProxy authenticates callers against the
+        # proxy's public data-plane endpoint. Resolve it with the same
+        # request-scoped Config (AK/SK/STS) used to fetch the proxy.
+        if self.credential_name:
+            from agentrun.credential import Credential
+
+            credential = Credential.get_by_name(
+                self.credential_name, config=cfg
+            )
+            api_key = credential.credential_secret or ""
+            if not api_key:
+                raise ValueError(
+                    f"Credential '{self.credential_name}' has no secret"
+                    " configured"
+                )
+            if not self.endpoint:
+                raise ValueError(
+                    f"ModelProxy '{self.model_proxy_name}' has no endpoint"
+                    " configured"
+                )
+
+            public_config = credential.credential_public_config or {}
+            header_key = public_config.get("headerKey") or "X-API-Key"
+            prefix = public_config.get("prefix") or ""
+            headers = cfg.get_headers().copy()
+            headers[str(header_key)] = f"{prefix}{api_key}"
+
+            return BaseInfo(
+                api_key=api_key,
+                base_url=f"{self.endpoint.rstrip('/')}/v1",
+                model=model_name,
+                headers=headers,
+                provider="openai",
+            )
+
         if self._data_client is None:
             self._data_client = ModelDataAPI(
                 self.model_proxy_name or "",
@@ -223,12 +264,7 @@ class ModelProxy(
 
         self._data_client.update_model_name(
             model_proxy_name=self.model_proxy_name,
-            model_name=(
-                pydash.get(self, "proxy_config.endpoints[0].model_names[0]")
-                if self.proxy_mode == ProxyMode.SINGLE
-                else self.model_proxy_name
-            )
-            or "",
+            model_name=model_name,
             credential_name=self.credential_name,
             config=cfg,
         )

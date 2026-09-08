@@ -883,6 +883,10 @@ class TestModelClientGet:
         mock_control_api_class.return_value = mock_control_api
 
         mock_result = MagicMock()
+        mock_result.to_map.return_value = {
+            "modelServiceName": "test",
+            "providerSettings": {"baseUrl": "https://example.com/v1"},
+        }
         mock_control_api.get_model_service.return_value = mock_result
 
         client = ModelClient()
@@ -906,6 +910,10 @@ class TestModelClientGet:
         mock_control_api_class.return_value = mock_control_api
 
         mock_result = MagicMock()
+        mock_result.to_map.return_value = {
+            "modelServiceName": "test",
+            "providerSettings": {"baseUrl": "https://example.com/v1"},
+        }
         mock_control_api.get_model_service.return_value = mock_result
 
         client = ModelClient()
@@ -939,6 +947,35 @@ class TestModelClientGet:
 
         client = ModelClient()
         result = client.get("test")
+
+        mock_control_api.get_model_service.assert_called_once()
+        mock_control_api.get_model_proxy.assert_called_once()
+        assert isinstance(result, ModelProxy)
+
+    @patch.dict(
+        os.environ,
+        {
+            "AGENTRUN_ACCESS_KEY_ID": "test-access-key",
+            "AGENTRUN_ACCESS_KEY_SECRET": "test-secret",
+            "AGENTRUN_ACCOUNT_ID": "test-account",
+        },
+    )
+    @patch("agentrun.model.client.ModelControlAPI")
+    def test_get_auto_detect_falls_back_when_service_is_incomplete(
+        self, mock_control_api_class
+    ):
+        """A service-shaped response without provider settings is not usable."""
+        mock_control_api = MagicMock()
+        mock_control_api_class.return_value = mock_control_api
+
+        service_result = MagicMock()
+        service_result.to_map.return_value = {"modelServiceName": "test"}
+        mock_control_api.get_model_service.return_value = service_result
+        proxy_result = MagicMock()
+        proxy_result.to_map.return_value = {"modelProxyName": "test"}
+        mock_control_api.get_model_proxy.return_value = proxy_result
+
+        result = ModelClient().get("test")
 
         mock_control_api.get_model_service.assert_called_once()
         mock_control_api.get_model_proxy.assert_called_once()
@@ -1024,6 +1061,40 @@ class TestModelClientGet:
 
         client = ModelClient()
         result = await client.get_async("test")
+
+        mock_control_api.get_model_service_async.assert_called_once()
+        mock_control_api.get_model_proxy_async.assert_called_once()
+        assert isinstance(result, ModelProxy)
+
+    @patch.dict(
+        os.environ,
+        {
+            "AGENTRUN_ACCESS_KEY_ID": "test-access-key",
+            "AGENTRUN_ACCESS_KEY_SECRET": "test-secret",
+            "AGENTRUN_ACCOUNT_ID": "test-account",
+        },
+    )
+    @patch("agentrun.model.client.ModelControlAPI")
+    @pytest.mark.asyncio
+    async def test_get_async_falls_back_when_service_is_incomplete(
+        self, mock_control_api_class
+    ):
+        """Async auto-detection also rejects an incomplete service response."""
+        mock_control_api = MagicMock()
+        mock_control_api_class.return_value = mock_control_api
+
+        service_result = MagicMock()
+        service_result.to_map.return_value = {"modelServiceName": "test"}
+        mock_control_api.get_model_service_async = AsyncMock(
+            return_value=service_result
+        )
+        proxy_result = MagicMock()
+        proxy_result.to_map.return_value = {"modelProxyName": "test"}
+        mock_control_api.get_model_proxy_async = AsyncMock(
+            return_value=proxy_result
+        )
+
+        result = await ModelClient().get_async("test")
 
         mock_control_api.get_model_service_async.assert_called_once()
         mock_control_api.get_model_proxy_async.assert_called_once()
