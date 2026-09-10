@@ -142,12 +142,15 @@ test-unit: ## 运行单元测试
 test-e2e: ## 运行端到端测试
 	@uv run pytest tests/e2e/
 
+.PHONY: quality-gate
+quality-gate: ## 运行 SDK 增量质量门禁
+	@uv run --python ${PYTHON_VERSION} --all-extras python scripts/check_test_evidence.py
+
 .PHONY: mypy-check
 mypy-check: ## 运行 mypy 类型检查
 	@uv run mypy --config-file mypy.ini .
 
 .PHONY: coverage
-coverage: ## 运行测试并显示覆盖率报告（全量代码 + 增量代码）
+coverage: quality-gate ## 运行测试并显示覆盖率报告（全量代码 + 增量代码）
 	@echo "📊 运行覆盖率测试..."
 	@uv run --python ${PYTHON_VERSION} --all-extras python scripts/check_coverage.py $(COVERAGE_ARGS)
-
