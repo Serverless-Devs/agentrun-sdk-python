@@ -188,6 +188,70 @@ class TestInvokerStream:
         assert "Test error" in error_event.data["message"]
         assert error_event.data["code"] == "ValueError"
 
+    @pytest.mark.asyncio
+    async def test_invoke_stream_text_rate_limit_error(self, req):
+        """测试字符串形式的模型限流错误被转成 ERROR"""
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            return "Error code: 429 - rate limit exceeded"
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        assert len(items) == 1
+        assert items[0].event == EventType.ERROR
+        assert (
+            items[0].data["message"] == "Error code: 429 - rate limit exceeded"
+        )
+        assert items[0].data["code"] == "RATE_LIMITED"
+        assert items[0].data["retryable"] is True
+        assert items[0].data["retryAfterMs"] == 2000
+        assert items[0].data["statusCode"] == 429
+
+    @pytest.mark.asyncio
+    async def test_invoke_stream_text_model_error(self, req):
+        """测试字符串形式的模型权限错误被转成 ERROR"""
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            return "Error code: 403 - AccessDenied: model is not authorized"
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        assert len(items) == 1
+        assert items[0].event == EventType.ERROR
+        assert items[0].data["message"] == (
+            "Error code: 403 - AccessDenied: model is not authorized"
+        )
+        assert items[0].data["code"] == "MODEL_ACCESS_DENIED"
+        assert items[0].data["statusCode"] == 403
+        assert items[0].data["providerCode"] == "AccessDenied"
+
+    @pytest.mark.asyncio
+    async def test_invoke_stream_status_code_text_stays_text(self, req):
+        """测试普通状态码说明文本不会被误转成 ERROR"""
+
+        async def invoke_agent(req: AgentRequest) -> str:
+            return "HTTP 500 - Internal Server Error means the service failed"
+
+        invoker = AgentInvoker(invoke_agent)
+
+        items: List[AgentEvent] = []
+        async for item in invoker.invoke_stream(req):
+            items.append(item)
+
+        assert len(items) == 1
+        assert items[0].event == EventType.TEXT
+        assert items[0].data["delta"] == (
+            "HTTP 500 - Internal Server Error means the service failed"
+        )
+
 
 class TestInvokerSync:
     """同步调用测试"""
