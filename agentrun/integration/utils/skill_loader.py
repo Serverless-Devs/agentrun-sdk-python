@@ -12,7 +12,16 @@ import json
 import os
 import re
 import subprocess
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Tuple,
+    Union,
+)
 
 from agentrun.integration.utils.tool import CommonToolSet, Tool, ToolParameter
 from agentrun.utils.log import logger
@@ -41,6 +50,164 @@ class SkillInfo:
     description: str = ""
     version: str = ""
     path: str = ""
+
+
+def _parse_skill_qualifier(raw: str) -> Tuple[str, Optional[str]]:
+    """解析 'skillName[@qualifier]' 语法 / Parse 'skillName[@qualifier]' syntax
+
+    工具名格式受后端正则 ^[_a-zA-Z][-_a-zA-Z0-9]*$ 约束，不允许包含 '@'，
+    因此用 '@' 作为分隔符不会有歧义。
+    Tool names are constrained by the backend regex ^[_a-zA-Z][-_a-zA-Z0-9]*$
+    and cannot contain '@', so using '@' as a separator is unambiguous.
+
+    解析出的 qualifier 会立即校验：必须为 ``LATEST``（大小写不敏感）或严格
+    SemVer ``vMAJOR.MINOR.PATCH``，否则抛 ``ValueError``。
+    The parsed qualifier is validated immediately: it must be ``LATEST``
+    (case-insensitive) or a strict SemVer ``vMAJOR.MINOR.PATCH``, otherwise a
+    ``ValueError`` is raised.
+
+    Args:
+        raw: 原始字符串，如 "skillA"、"skillA@v1.0.0"、"skillA@LATEST" /
+             Raw identifier, e.g. "skillA", "skillA@v1.0.0", "skillA@LATEST"
+
+    Returns:
+        (name, qualifier) 元组。qualifier 为 None 表示不指定版本，此时 SDK
+        不带 qualifier 参数请求，由后端返回 LATEST 代码。
+        Tuple of (name, qualifier). A None qualifier means the SDK sends no
+        qualifier parameter and the backend returns the LATEST code.
+
+    Raises:
+        ValueError: 当 name 部分为空（如 "@v1.0.0"），或 qualifier 非法时 /
+                    When the name part is empty (e.g. "@v1.0.0"), or the
+                    qualifier is invalid
+    """
+    from agentrun.tool.tool import _validate_skill_qualifier
+
+    if "@" in raw:
+        name, qualifier = raw.rsplit("@", 1)
+        if not name:
+            raise ValueError(
+                f"Invalid skill identifier '{raw}': name part is empty"
+            )
+        qualifier = qualifier or None
+        _validate_skill_qualifier(qualifier)
+        return name, qualifier
+    return raw, None
+
+
+def _parse_skill_identifiers(
+    raw_items: List[str],
+) -> List[Tuple[str, Optional[str]]]:
+    """批量解析 skill 标识，跳过并记录非法项 / Parse a batch of skill identifiers,
+    skipping (and logging) invalid ones.
+
+    对 ``name[@qualifier]`` 列表逐项调用 :func:`_parse_skill_qualifier`。**单个
+    非法版本限定符（如 ``skill@default`` / ``skill@v1.0``）或空名字（``@v1.0.0``）
+    不会中断整批**：非法项被跳过并打 ``warning``，合法项照常返回，从而继续下载。
+    这样一个配置手误不会连累列表里其它正确的 skill。
+
+    Runs :func:`_parse_skill_qualifier` over each ``name[@qualifier]`` entry. A
+    single invalid version qualifier (e.g. ``skill@default`` / ``skill@v1.0``) or
+    empty name (``@v1.0.0``) **does not abort the whole batch**: the offending
+    entry is skipped with a ``warning`` and the valid entries are still returned
+    (and subsequently downloaded). One config typo no longer takes down the rest.
+
+    Args:
+        raw_items: 原始标识列表 / list of raw identifiers
+
+    Returns:
+        合法项的 (name, qualifier) 列表 / (name, qualifier) tuples for valid entries
+    """
+    parsed: List[Tuple[str, Optional[str]]] = []
+    for item in raw_items:
+        try:
+            parsed.append(_parse_skill_qualifier(item))
+        except ValueError as error:
+            logger.warning(
+                f"Skipping skill '{item}': {error}"
+            )
+    return parsed
+
+
+# 记录某个 skill 本地目录当前是哪个版本下载来的，用于跨版本切换时判断是否需要
+# 重新下载。文件名以 '.' 开头，天然被 scan/文件列举逻辑（skip startswith('.')）
+# 忽略，不会暴露给 Agent。
+# Records which version populated a skill's local directory, so version switches
+# can decide whether to re-download. The dotfile name is naturally ignored by
+# the scan / file-listing logic (which skips names starting with '.').
+_SKILL_VERSION_MARKER = ".skill_version"
+
+
+def _canonical_qualifier(qualifier: Optional[str]) -> str:
+    """把 qualifier 归一为版本标记值 / Normalize a qualifier to a marker value.
+
+    None 和 "LATEST"（任意大小写）都表示可变的最新代码，统一归一为 "LATEST"；
+    定版则保持原样。假定 qualifier 已通过 ``_validate_skill_qualifier`` 校验。
+    None and "LATEST" (any case) both mean the mutable latest code and normalize
+    to "LATEST"; a pinned version is kept as-is. Assumes the qualifier has
+    already passed ``_validate_skill_qualifier``.
+    """
+    if not qualifier or qualifier.upper() == "LATEST":
+        return "LATEST"
+    return qualifier
+
+
+def _read_version_marker(skill_dir: str) -> Optional[str]:
+    """读取本地 skill 目录的版本标记 / Read a skill directory's version marker.
+
+    Returns:
+        标记内容；文件不存在或读取失败时返回 None /
+        Marker content; None if the file is missing or unreadable
+    """
+    marker_path = os.path.join(skill_dir, _SKILL_VERSION_MARKER)
+    try:
+        with open(marker_path, "r", encoding="utf-8") as file_handle:
+            return file_handle.read().strip() or None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _write_version_marker(skill_dir: str, qualifier: Optional[str]) -> None:
+    """写入本地 skill 目录的版本标记 / Write a skill directory's version marker.
+
+    必须在下载（会 rmtree 目录）之后调用，否则会被下载清空。
+    Must be called after download (which rmtree's the directory), otherwise it
+    would be wiped.
+    """
+    marker_path = os.path.join(skill_dir, _SKILL_VERSION_MARKER)
+    try:
+        with open(marker_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(_canonical_qualifier(qualifier))
+    except OSError as error:
+        logger.warning(
+            f"Failed to write skill version marker in {skill_dir}: {error}"
+        )
+
+
+def _skill_needs_download(skill_dir: str, qualifier: Optional[str]) -> bool:
+    """判断本地 skill 是否需要（重新）下载 / Decide whether to (re-)download.
+
+    - 目录不存在 → 需要下载
+    - 目录有版本标记：标记与请求的 canonical qualifier 不一致（定版切换、
+      定版目录被当作 LATEST 请求等）→ 重下；一致 → 跳过（定版不可变可安全
+      复用，LATEST 复用本地拷贝）
+    - 目录无版本标记（历史或手动放置的目录）→ 沿用旧行为：指定了 qualifier
+      则重下，未指定则复用本地，避免对这类目录产生意外的重复下载
+
+    - Directory missing → download
+    - Marked dir: marker mismatches the requested canonical qualifier (version
+      switch, a pinned dir requested as LATEST, etc.) → re-download; matches →
+      skip (pinned versions are immutable; LATEST reuses the local copy)
+    - Unmarked dir (legacy or manually placed) → keep the prior behavior:
+      re-download if a qualifier is given, otherwise reuse the local copy, so
+      such dirs are not re-downloaded unexpectedly
+    """
+    if not os.path.isdir(skill_dir):
+        return True
+    marker = _read_version_marker(skill_dir)
+    if marker is None:
+        return qualifier is not None
+    return marker != _canonical_qualifier(qualifier)
 
 
 @dataclass
@@ -94,22 +261,62 @@ class SkillLoader:
     reading skill instruction content, and constructing the load_skills tool
     for Agent runtime invocation.
 
+    使用方式说明 / Usage Note:
+        推荐通过顶层 ``skill_tools()`` 函数使用本类，避免直接构造。
+        ``skill_tools()`` 会自动解析 "name@qualifier" 字符串语法并替你构造
+        合适的 ``remote_skills`` 元组列表。
+        Prefer the top-level ``skill_tools()`` helper over constructing this
+        class directly. It parses "name@qualifier" string syntax and builds
+        the ``remote_skills`` tuple list for you.
+
+    参数历史变更 / Parameter History:
+        ``remote_skills`` 在引入 Skill 版本管理时，由原参数
+        ``remote_skill_names: List[str]`` 替换为
+        ``List[Tuple[str, Optional[str]]]``。每个元组的第二项是版本
+        qualifier（如 "v1.0.0" 或 "LATEST"），``None`` 表示不指定版本
+        （SDK 不带 qualifier 参数请求，后端返回 LATEST 代码）。
+        参数名同步从 ``remote_skill_names`` 改为 ``remote_skills``，
+        以体现"每项含完整 skill 描述"而非"仅名称列表"的语义升级。
+        经全量代码扫描确认没有外部代码使用过 ``remote_skill_names``
+        参数（所有外部使用都是 ``SkillLoader(skills_dir=...).scan_skills()``
+        形式仅用于本地扫描），所以参数变更对实际使用零影响。
+
+        ``remote_skills`` was renamed from ``remote_skill_names: List[str]``
+        when Skill version management was introduced. The second item of
+        each tuple is a version qualifier (e.g. "v1.0.0" or "LATEST");
+        ``None`` means the SDK sends no qualifier parameter and the backend
+        returns the LATEST code. Code scans confirm no external caller used the legacy
+        ``remote_skill_names`` parameter (all external usage is of the
+        form ``SkillLoader(skills_dir=...).scan_skills()`` for local
+        scanning only), so this rename has zero practical impact.
+
     Args:
         skills_dir: 本地 skill 目录路径 / local skill directory path
-        remote_skill_names: 需要从远程下载的 skill 名称列表 / list of remote skill names to download
+        remote_skills: 需要从远程下载的 skill (name, qualifier) 列表。
+                       qualifier 为 None 时后端返回 LATEST 代码 /
+                       List of remote skills as (name, qualifier) tuples;
+                       qualifier=None makes the backend return the LATEST code
         config: 配置对象 / configuration object
+        command_approval: execute_command 执行前的确认回调 /
+                          Approval callback invoked before executing commands
+        command_timeout: execute_command 默认超时秒数 /
+                         Default execute_command timeout in seconds
     """
 
     def __init__(
         self,
         skills_dir: str = ".skills",
-        remote_skill_names: Optional[List[str]] = None,
+        remote_skills: Optional[List[Tuple[str, Optional[str]]]] = None,
         config: Optional["Config"] = None,
         command_approval: Optional[Callable[[str, str], bool]] = None,
         command_timeout: int = 300,
     ):
         self._skills_dir = skills_dir
-        self._remote_skill_names = remote_skill_names or []
+        # remote_skills: List[Tuple[name, qualifier]]; qualifier=None means
+        # "no version specified". 由 `skill_tools()` 顶层入口在解析
+        # "name@qualifier" 语法后构造好后传入，下游 `_ensure_skills_available`
+        # 直接元组解包消费。
+        self._remote_skills = remote_skills or []
         self._config = config
         self._skills_cache: Optional[List[SkillInfo]] = None
         self._command_approval = command_approval
@@ -118,34 +325,69 @@ class SkillLoader:
     def _ensure_skills_available(self) -> None:
         """确保远程 skill 已下载到本地 / Ensure remote skills are downloaded locally
 
-        对每个 remote_skill_name，检查本地是否已存在对应目录，
-        不存在则通过 ToolClient 下载。
+        对每个 (skill_name, qualifier)，通过版本标记判断本地目录是否是所请求
+        的版本（见 :func:`_skill_needs_download`）：目录缺失、或有标记但版本
+        不一致（定版切换、定版目录被当作 LATEST 请求）则重下；版本一致则跳过。
+        下载完成后写入版本标记，供下次判断使用。
 
-        For each remote_skill_name, check if the local directory exists,
-        download via ToolClient if not.
+        **单个 skill 下载失败（不存在 / 网络 / 鉴权 / 解压等）不会中断整批**：
+        失败项记 ``warning`` 后跳过，其余 skill 照常下载。这样一个缺失的 skill
+        不会连累其它 skill，:func:`scan_skills` 随后只返回成功落盘的那些。与解析
+        阶段对非法版本限定符的逐项跳过（见 :func:`_parse_skill_identifiers`）一致，
+        使 skill_tools 的两类容错粒度统一为"逐项"。
+
+        For each (skill_name, qualifier), use the version marker to decide
+        whether the local directory already holds the requested version (see
+        :func:`_skill_needs_download`): re-download when the dir is missing or a
+        marked version mismatches (version switch, pinned dir requested as
+        LATEST); skip when the version matches. The version marker is written
+        after a successful download.
+
+        A single skill's download failure (missing / network / auth / unzip …)
+        **does not abort the whole batch**: the failing entry is logged as a
+        ``warning`` and skipped, while the rest still download. One missing skill
+        no longer takes down the others; :func:`scan_skills` then returns only
+        those that landed on disk. This mirrors the per-entry skip for invalid
+        qualifiers at parse time (see :func:`_parse_skill_identifiers`), so both
+        fault classes of skill_tools share the same per-entry granularity.
         """
-        if not self._remote_skill_names:
+        if not self._remote_skills:
             return
 
         from agentrun.tool.client import ToolClient
 
-        for skill_name in self._remote_skill_names:
+        for skill_name, qualifier in self._remote_skills:
             skill_path = os.path.join(self._skills_dir, skill_name)
-            if os.path.isdir(skill_path):
+            if not _skill_needs_download(skill_path, qualifier):
                 logger.debug(
-                    f"Skill '{skill_name}' already exists at {skill_path}, "
+                    f"Skill '{skill_name}' at {skill_path} is already at the "
+                    f"requested version ({_canonical_qualifier(qualifier)}), "
                     "skipping download"
                 )
                 continue
+            label = (
+                f"{skill_name}@{qualifier}" if qualifier else skill_name
+            )
             logger.info(
-                f"Downloading remote skill '{skill_name}' to {self._skills_dir}"
+                f"Downloading remote skill '{label}' to {self._skills_dir}"
             )
-            tool_resource = ToolClient().get(
-                name=skill_name, config=self._config
-            )
-            tool_resource.download_skill(
-                target_dir=self._skills_dir, config=self._config
-            )
+            try:
+                tool_resource = ToolClient().get(
+                    name=skill_name, config=self._config
+                )
+                tool_resource.download_skill(
+                    target_dir=self._skills_dir,
+                    qualifier=qualifier,
+                    config=self._config,
+                )
+                _write_version_marker(skill_path, qualifier)
+            except Exception as error:
+                # 逐项隔离：单个 skill 下载失败不影响其它 skill /
+                # per-skill isolation: one skill's failure won't affect others
+                logger.warning(
+                    f"Skipping remote skill '{label}': download failed: {error}"
+                )
+                continue
 
     def _parse_skill_metadata(self, skill_dir: str) -> SkillInfo:
         """解析 skill 元信息 / Parse skill metadata
@@ -730,6 +972,7 @@ def skill_tools(
     name: Optional[Union[str, List[str], "ToolResource"]] = None,
     *,
     skills_dir: str = ".skills",
+    qualifier: Optional[str] = None,
     config: Optional["Config"] = None,
     command_approval: Optional[Callable[[str, str], bool]] = None,
     command_timeout: int = 300,
@@ -737,23 +980,33 @@ def skill_tools(
     """将 Skill 封装为通用工具集 / Wrap Skills as CommonToolSet
 
     支持从工具名称、名称列表或 ToolResource 实例创建通用工具集。
+    字符串入参支持 "skillName[@qualifier]" 语法以指定版本。
     Supports creating CommonToolSet from tool name, name list, or ToolResource instance.
+    String inputs support "skillName[@qualifier]" syntax to specify a version.
 
     Args:
         name: 远程 skill 名称、名称列表或 ToolResource 实例（可选）/
               Remote skill name, name list, or ToolResource instance (optional).
+              字符串形式支持版本语法，如 "skillA@v1.0.0"、"skillA@LATEST" /
+              String form supports version syntax, e.g. "skillA@v1.0.0", "skillA@LATEST".
               如果提供，会先下载到 skills_dir 再加载 /
               If provided, downloads to skills_dir before loading.
               如果不提供，仅从 skills_dir 加载本地已有的 skill /
               If not provided, only loads local skills from skills_dir.
         skills_dir: 本地 skill 目录，默认 ".skills" / Local skill directory, default ".skills"
+        qualifier: 版本标识（"LATEST"（大小写不敏感）或 "vX.Y.Z"），仅在 name
+                   为 ToolResource 实例时使用。字符串/列表形式请直接在 name 中
+                   用 "@" 语法指定 /
+                   Version qualifier ("LATEST" (case-insensitive) or "vX.Y.Z");
+                   only applies when name is a ToolResource instance.
+                   For string/list inputs, use the "@" syntax inside name instead.
         config: 配置对象 / Configuration object
         command_approval: 命令执行前的确认回调函数（可选）/
                           Optional approval callback invoked before executing commands.
                           接收 (command, cwd) 参数，返回 True 允许执行，False 拒绝 /
                           Receives (command, cwd), returns True to allow, False to reject.
-        command_timeout: execute_command 的默认超时秒数，默认 30 /
-                         Default timeout in seconds for execute_command, default 30.
+        command_timeout: execute_command 的默认超时秒数，默认 300 /
+                         Default timeout in seconds for execute_command, default 300.
 
     Returns:
         CommonToolSet: 包含 load_skills、read_skill_file、execute_command 工具的通用工具集 /
@@ -766,38 +1019,57 @@ def skill_tools(
         >>> # 下载远程 skill 后加载 / Download remote skill then load
         >>> ts = skill_tools("my-remote-skill")
         >>>
+        >>> # 指定版本下载 / Download a specific version
+        >>> ts = skill_tools("my-remote-skill@v1.0.0")
+        >>> ts = skill_tools("my-remote-skill@LATEST")
+        >>>
+        >>> # 多 skill 混合版本 / Multiple skills with mixed versions
+        >>> ts = skill_tools(["skill-a@v1.0.0", "skill-b@latest", "skill-c"])
+        >>>
+        >>> # 通过 ToolResource 实例指定版本 / Specify version via ToolResource
+        >>> tool = ToolClient().get("my-skill")
+        >>> ts = skill_tools(tool, qualifier="v1.0.0")
+        >>>
         >>> # 带命令确认回调 / With command approval callback
         >>> ts = skill_tools(
         ...     skills_dir=".skills",
         ...     command_approval=lambda cmd, cwd: input(f"Execute '{cmd}'? [y/N]: ").lower() == "y",
         ... )
-        >>>
-        >>> # 自定义超时 / Custom timeout
-        >>> ts = skill_tools(skills_dir=".skills", command_timeout=120)
     """
-    remote_names: List[str] = []
+    remote_skills: List[Tuple[str, Optional[str]]] = []
 
     if name is not None:
         if isinstance(name, str):
-            remote_names = [name]
+            # 非法版本限定符 → 跳过并 warning（返回空 remote_skills），不抛出 /
+            # invalid qualifier → skipped with a warning (empty remote_skills)
+            remote_skills = _parse_skill_identifiers([name])
         elif isinstance(name, list):
-            remote_names = name
+            # 逐项容错：列表里非法项被跳过，合法项照常下载 /
+            # per-entry tolerant: invalid entries skipped, valid ones downloaded
+            remote_skills = _parse_skill_identifiers(name)
         else:
             # ToolResource instance — extract its name and download
+            from agentrun.tool.tool import _validate_skill_qualifier
+
+            _validate_skill_qualifier(qualifier)
             tool_resource_instance = name
             resource_name = getattr(
                 tool_resource_instance, "name", None
             ) or getattr(tool_resource_instance, "tool_name", None)
             if resource_name:
                 skill_path = os.path.join(skills_dir, resource_name)
-                if not os.path.isdir(skill_path):
+                # 本地版本与请求不一致（或缺失）才下载，一致则复用本地拷贝
+                if _skill_needs_download(skill_path, qualifier):
                     tool_resource_instance.download_skill(
-                        target_dir=skills_dir, config=config
+                        target_dir=skills_dir,
+                        qualifier=qualifier,
+                        config=config,
                     )
+                    _write_version_marker(skill_path, qualifier)
 
     loader = SkillLoader(
         skills_dir=skills_dir,
-        remote_skill_names=remote_names,
+        remote_skills=remote_skills,
         config=config,
         command_approval=command_approval,
         command_timeout=command_timeout,

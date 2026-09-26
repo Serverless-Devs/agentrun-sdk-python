@@ -7,6 +7,7 @@ Provides object-oriented wrapper and complete lifecycle management for tool reso
 import io
 import json
 import os
+import re
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -31,6 +32,54 @@ from .model import (
     ToolSchema,
     ToolType,
 )
+
+# Skill 版本 qualifier 合法格式：严格 SemVer，强制小写 v 前缀，每段最多 9 位。
+# 与后端数据面 DownloadCode 的 qualifier 校验规则保持一致
+# （见 funagent-core pkg/fc/version_alias.go 的 StrictVersionNameRegex）。
+# 注意：末尾用 \Z 而非后端的 $。Go 的 $（非 multiline）等价于 \z（文本绝对
+# 结尾），而 Python 的 $ 会额外匹配结尾换行符之前的位置，导致 "v1.0.0\n" 被
+# 误判为合法。用 \Z 才能与 Go 的 $ 行为完全一致。
+# Valid skill version qualifier: strict SemVer with a lowercase 'v' prefix,
+# each segment up to 9 digits. Kept in sync with the backend data-plane
+# DownloadCode rule. NOTE: the trailing anchor is \Z, not the backend's $:
+# Go's $ (non-multiline) equals \z (absolute end of text), whereas Python's $
+# also matches before a trailing newline, which would wrongly accept
+# "v1.0.0\n". \Z reproduces Go's $ behavior exactly.
+_SKILL_VERSION_QUALIFIER_RE = re.compile(
+    r"^v(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\Z"
+)
+
+
+def _validate_skill_qualifier(qualifier: Optional[str]) -> None:
+    """校验 skill 版本 qualifier 是否合法 / Validate a skill version qualifier.
+
+    空 / None 表示不指定版本（后端返回 LATEST），直接通过。非空时必须为
+    ``LATEST``（大小写不敏感）或严格 SemVer ``vMAJOR.MINOR.PATCH``。
+    在客户端提前 fail-fast，避免非法值（如已废弃的 ``default``）走到后端才
+    返回 400。
+
+    Empty / None means "no version specified" (the backend returns LATEST) and
+    passes through. A non-empty qualifier must be ``LATEST`` (case-insensitive)
+    or a strict SemVer ``vMAJOR.MINOR.PATCH``. Validating client-side fails fast
+    instead of letting invalid values (e.g. the retired ``default``) reach the
+    backend and return 400.
+
+    Args:
+        qualifier: 待校验的版本标识 / the version qualifier to validate
+
+    Raises:
+        ValueError: qualifier 非法时 / when the qualifier is invalid
+    """
+    if not qualifier:
+        return
+    if qualifier.upper() == "LATEST":
+        return
+    if _SKILL_VERSION_QUALIFIER_RE.match(qualifier):
+        return
+    raise ValueError(
+        f"Invalid skill version qualifier '{qualifier}': must be 'LATEST' "
+        "(case-insensitive) or match format vMAJOR.MINOR.PATCH (e.g. v1.0.0)"
+    )
 
 
 class Tool(BaseModel):
@@ -568,16 +617,30 @@ class Tool(BaseModel):
         return headers
 
     def _get_skill_download_url(
-        self, config: Optional[Config] = None
+        self,
+        qualifier: Optional[str] = None,
+        config: Optional[Config] = None,
     ) -> Optional[str]:
         """获取 Skill 工具的下载 URL / Get download URL for Skill tools
 
-        根据 data_endpoint 和 tool_name 构造下载地址。
-        Constructs download URL from data_endpoint and tool_name.
+        根据 data_endpoint 和 tool_name 构造下载地址。可选地指定版本 qualifier。
+        Constructs download URL from data_endpoint and tool_name, optionally with a version qualifier.
+
+        Args:
+            qualifier: 版本标识，如 "v1.0.0" 或 "LATEST"（大小写不敏感）。
+                       为空时后端返回 LATEST 代码 /
+                       Version qualifier (e.g. "v1.0.0" or "LATEST",
+                       case-insensitive). When empty, the backend returns
+                       the LATEST code.
+            config: 配置对象 / Configuration object
 
         Returns:
             Optional[str]: 下载 URL / Download URL
+
+        Raises:
+            ValueError: qualifier 非法时 / when the qualifier is invalid
         """
+        _validate_skill_qualifier(qualifier)
         effective_name = self.tool_name or self.name
         data_endpoint = self.data_endpoint
         if not data_endpoint:
@@ -585,21 +648,41 @@ class Tool(BaseModel):
             data_endpoint = cfg.get_data_endpoint()
         if not data_endpoint or not effective_name:
             return None
-        return f"{data_endpoint}/tools/{effective_name}/download"
+        url = f"{data_endpoint}/tools/{effective_name}/download"
+        if qualifier:
+            from urllib.parse import quote
+
+            # LATEST 大小写不敏感，发送前统一归一为规范形式 "LATEST"，使
+            # "发送给后端的值 / 本地版本标记 / 下载决策" 三者一致（本地标记侧
+            # 见 skill_loader._canonical_qualifier）。定版 qualifier 保持原样。
+            # LATEST is case-insensitive; normalize to the canonical "LATEST"
+            # before sending so the value sent to the backend, the local version
+            # marker, and the download decision all agree (the marker side lives
+            # in skill_loader._canonical_qualifier). Pinned versions are kept
+            # as-is.
+            if qualifier.upper() == "LATEST":
+                qualifier = "LATEST"
+            url = f"{url}?qualifier={quote(qualifier, safe='')}"
+        return url
 
     async def download_skill_async(
         self,
         target_dir: str = ".skills",
         config: Optional[Config] = None,
+        qualifier: Optional[str] = None,
     ) -> str:
         """异步下载 Skill 包并解压到本地目录 / Download skill package and extract to local directory asynchronously
 
         从数据链路下载 skill 的 zip 包，并解压到 {target_dir}/{tool_name}/ 目录下。
+        可选地通过 qualifier 指定版本（如 "v1.0.0" 或 "LATEST"，大小写不敏感）。
         Downloads skill zip package from data endpoint and extracts to {target_dir}/{tool_name}/ directory.
+        Optionally specify a version qualifier (e.g. "v1.0.0" or "LATEST", case-insensitive).
 
         Args:
             target_dir: 目标根目录,默认为 ".skills" / Target root directory, defaults to ".skills"
             config: 配置对象,可选 / Configuration object, optional
+            qualifier: 版本标识，为空时后端返回 LATEST 代码 /
+                       Version qualifier; when None, the backend returns the LATEST code
 
         Returns:
             str: 解压后的 skill 目录路径 / Extracted skill directory path
@@ -615,7 +698,9 @@ class Tool(BaseModel):
                 f" got {self.tool_type}"
             )
 
-        download_url = self._get_skill_download_url(config)
+        download_url = self._get_skill_download_url(
+            qualifier=qualifier, config=config
+        )
         if not download_url:
             raise ValueError(
                 "Cannot construct download URL: data_endpoint or tool_name"
