@@ -53,6 +53,7 @@ class Tool(BaseModel):
         code_configuration: 代码包配置 / Code configuration
         container_configuration: 容器配置 / Container configuration
         created_time: 创建时间 / Creation time
+        credential_name: 绑定的凭证名称 / Bound credential name
         data_endpoint: 数据链路端点 / Data endpoint
         description: 描述 / Description
         environment_variables: 环境变量 / Environment variables
@@ -83,6 +84,9 @@ class Tool(BaseModel):
 
     created_time: Optional[str] = None
     """创建时间 / Creation time"""
+
+    credential_name: Optional[str] = None
+    """绑定的凭证名称 / Bound credential name"""
 
     data_endpoint: Optional[str] = None
     """数据链路端点 / Data endpoint"""
@@ -566,9 +570,33 @@ class Tool(BaseModel):
             is_openapi_import = self.create_method == "OPENAPI_IMPORT"
 
             cfg = Config.with_configs(config)
+            headers = cfg.get_headers()
+            if is_openapi_import and self.credential_name:
+                from agentrun.credential import Credential
+
+                credential = await Credential.get_by_name_async(
+                    self.credential_name, config=cfg
+                )
+                if credential.credential_auth_type != "api_key":
+                    raise ValueError(
+                        "OPENAPI_IMPORT supports api_key credentials only"
+                    )
+                secret = credential.credential_secret
+                if not secret:
+                    raise ValueError(
+                        f"Credential '{self.credential_name}' has no secret"
+                        " configured"
+                    )
+                public_config = credential.credential_public_config or {}
+                header_key = public_config.get("headerKey") or "X-API-Key"
+                prefix = public_config.get("prefix") or ""
+                headers = ToolOpenAPIClient._merge_headers(
+                    headers or {}, {str(header_key): f"{prefix}{secret}"}
+                )
+
             openapi_client = ToolOpenAPIClient(
                 protocol_spec=self.protocol_spec,
-                headers=cfg.get_headers(),
+                headers=headers,
                 fallback_server_url=self._get_functioncall_server_url(config),
                 config=cfg,
                 use_ram_auth=not is_openapi_import,
@@ -641,9 +669,33 @@ class Tool(BaseModel):
             is_openapi_import = self.create_method == "OPENAPI_IMPORT"
 
             cfg = Config.with_configs(config)
+            headers = cfg.get_headers()
+            if is_openapi_import and self.credential_name:
+                from agentrun.credential import Credential
+
+                credential = Credential.get_by_name(
+                    self.credential_name, config=cfg
+                )
+                if credential.credential_auth_type != "api_key":
+                    raise ValueError(
+                        "OPENAPI_IMPORT supports api_key credentials only"
+                    )
+                secret = credential.credential_secret
+                if not secret:
+                    raise ValueError(
+                        f"Credential '{self.credential_name}' has no secret"
+                        " configured"
+                    )
+                public_config = credential.credential_public_config or {}
+                header_key = public_config.get("headerKey") or "X-API-Key"
+                prefix = public_config.get("prefix") or ""
+                headers = ToolOpenAPIClient._merge_headers(
+                    headers or {}, {str(header_key): f"{prefix}{secret}"}
+                )
+
             openapi_client = ToolOpenAPIClient(
                 protocol_spec=self.protocol_spec,
-                headers=cfg.get_headers(),
+                headers=headers,
                 fallback_server_url=self._get_functioncall_server_url(config),
                 config=cfg,
                 use_ram_auth=not is_openapi_import,
