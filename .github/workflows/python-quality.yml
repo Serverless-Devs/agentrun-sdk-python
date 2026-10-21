@@ -1,0 +1,40 @@
+name: Python Quality
+
+on:
+  pull_request:
+    paths:
+      - 'Makefile'
+      - 'agentrun/**'
+      - 'tests/**'
+      - 'scripts/check_test_evidence.py'
+      - '.github/workflows/python-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install dependencies
+        run: uv sync --python 3.10 --dev --all-extras
+
+      - name: Run SDK test evidence gate
+        run: uv run python scripts/check_test_evidence.py --base-ref "origin/${{ github.base_ref || 'main' }}"
+
+      - name: Run quality gate tests
+        run: uv run pytest tests/unittests/test_quality_gate.py
