@@ -30,6 +30,7 @@ import json
 from typing import Any, Dict, Iterator, List, Optional, Union
 
 from agentrun.server.model import AgentResult, EventType
+from agentrun.utils.error_utils import build_error_event_data, is_model_error
 from agentrun.utils.log import logger
 
 # 需要从工具输入中过滤掉的内部字段（LangGraph/MCP 注入的运行时对象）
@@ -952,10 +953,15 @@ class AgentRunConverter:
 
             yield AgentResult(
                 event=EventType.ERROR,
-                data={
-                    "message": f"LLM error: {error_message}",
-                    "code": "LLM_ERROR",
-                },
+                data=build_error_event_data(
+                    error,
+                    fallback_code="LLM_ERROR",
+                    fallback_message=(
+                        error_message
+                        if is_model_error(error)
+                        else f"LLM error: {error_message}"
+                    ),
+                ),
             )
 
         # 8. Chain 错误

@@ -102,6 +102,59 @@ class TestAGUIProtocolEndpoints:
         assert "RUN_ERROR" in types
 
     @pytest.mark.asyncio
+    async def test_text_rate_limit_error_stream_payload(self):
+        """测试文本形式的 429 错误输出 RUN_ERROR 且无 RUN_FINISHED"""
+
+        def invoke_agent(request: AgentRequest):
+            return "Error code: 429 - rate limit exceeded"
+
+        client = self.get_client(invoke_agent)
+        response = client.post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "Hello"}]},
+        )
+
+        assert response.status_code == 200
+        events = _agui_sse_events(response)
+        types = [event.get("type") for event in events]
+        run_error = next(
+            event for event in events if event.get("type") == "RUN_ERROR"
+        )
+        assert "RUN_FINISHED" not in types
+        assert run_error["message"] == "Error code: 429 - rate limit exceeded"
+        assert run_error["code"] == "RATE_LIMITED"
+        assert run_error["retryable"] is True
+        assert run_error["retryAfterMs"] == 2000
+        assert run_error["statusCode"] == 429
+
+    @pytest.mark.asyncio
+    async def test_text_model_error_stream_payload(self):
+        """测试模型侧错误文本输出 RUN_ERROR 且透出分类字段"""
+
+        def invoke_agent(request: AgentRequest):
+            return "Error code: 400 - data_inspection_failed: unsafe content"
+
+        client = self.get_client(invoke_agent)
+        response = client.post(
+            "/ag-ui/agent",
+            json={"messages": [{"role": "user", "content": "Hello"}]},
+        )
+
+        assert response.status_code == 200
+        events = _agui_sse_events(response)
+        types = [event.get("type") for event in events]
+        run_error = next(
+            event for event in events if event.get("type") == "RUN_ERROR"
+        )
+        assert "RUN_FINISHED" not in types
+        assert run_error["message"] == (
+            "Error code: 400 - data_inspection_failed: unsafe content"
+        )
+        assert run_error["code"] == "MODEL_DATA_INSPECTION_FAILED"
+        assert run_error["statusCode"] == 400
+        assert run_error["providerCode"] == "DataInspectionFailed"
+
+    @pytest.mark.asyncio
     async def test_exception_in_parse_request(self):
         """测试 parse_request 中的异常处理（覆盖 155-156 行）
 
